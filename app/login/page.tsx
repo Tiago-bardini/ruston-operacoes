@@ -14,10 +14,17 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    const fn =
+       e.preventDefault();
+       setError(null);
+
+       // Restrição: só emails @v4company.com podem criar conta
+       if (mode === "signup" && !email.toLowerCase().trim().endsWith("@v4company.com")) {
+         setError("Cadastro liberado apenas para emails @v4company.com.");
+         return;
+       }
+
+       setLoading(true);
+       const fn =
       mode === "signin"
         ? supabase.auth.signInWithPassword({ email, password })
         : supabase.auth.signUp({ email, password });
