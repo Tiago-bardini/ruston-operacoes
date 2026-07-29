@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { ClienteView, Pessoa, Squad, EtapaCliente, TierCliente } from "@/lib/types";
+import type { ClienteView, Pessoa, Squad, EtapaCliente, TierCliente, FcaView } from "@/lib/types";
 import {
   ETAPA_LABEL, ETAPA_COLOR, TIER_LABEL, formatBRL, formatDate,
   statusVencimento, diasParaVencimento, STATUS_VENCIMENTO_COLOR,
@@ -37,6 +37,7 @@ export default function ClientesPage() {
   const [clientes, setClientes] = useState<ClienteView[]>([]);
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);
+  const [fcasRecentes, setFcasRecentes] = useState<Record<string, FcaView>>({});
   const [view, setView] = useState<View>("kanban_etapa");
   const [form, setForm] = useState(emptyForm);
   const [formOpen, setFormOpen] = useState(false);
@@ -47,14 +48,22 @@ export default function ClientesPage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: cs }, { data: ps }, { data: sq }] = await Promise.all([
+    const [{ data: cs }, { data: ps }, { data: sq }, { data: fs }] = await Promise.all([
       supabase.from("ruston_clientes_view").select("*").eq("ativo", true).order("nome"),
       supabase.from("ruston_pessoas").select("*").eq("ativo", true).order("nome"),
       supabase.from("ruston_squads").select("*").eq("ativo", true).order("nome"),
+      // Puxa FCA mais recente por cliente (view retorna todos, filtramos em memória)
+      supabase.from("ruston_fca_view").select("*").order("ano", { ascending: false }).order("mes", { ascending: false }),
     ]);
     setClientes((cs as ClienteView[]) ?? []);
     setPessoas((ps as Pessoa[]) ?? []);
     setSquads((sq as Squad[]) ?? []);
+    // Reduz para o FCA mais recente por cliente_id
+    const mapaFca: Record<string, FcaView> = {};
+    ((fs as FcaView[]) ?? []).forEach((f) => {
+      if (!mapaFca[f.cliente_id]) mapaFca[f.cliente_id] = f;
+    });
+    setFcasRecentes(mapaFca);
     setLoading(false);
   }
 
@@ -127,6 +136,8 @@ export default function ClientesPage() {
   }
 
   const cargoDisponivel = (cargo: string) => pessoas.filter((p) => p.cargo === cargo);
+  // Dropdown de Coordenador aceita tanto Coordenadores quanto Gerentes
+  // (o Gerente da unidade também atua como coordenador de alguns clientes)
   const coordenadoresOuGerentes = pessoas.filter(
     (p) => p.cargo === "coordenador" || p.cargo === "gerente"
   );
@@ -146,6 +157,12 @@ export default function ClientesPage() {
   }, [clientes, search, filterSquad]);
 
   const totalMRR = filtered.reduce((s, c) => s + (Number(c.mrr) || 0), 0);
+
+  // Contratos com vencimento próximo (30 e 60 dias) — pra alerta no topo
+  // Clientes com FCA vermelho (usa FCA mais recente)
+  const clientesVermelhos = useMemo(() => {
+    return filtered.filter((c) => fcasRecentes[c.id]?.bandeira === "vermelho");
+  }, [filtered, fcasRecentes]);
 
   const vencendo = useMemo(() => {
     const criticos: ClienteView[] = [];
@@ -187,6 +204,24 @@ export default function ClientesPage() {
         </div>
       </div>
 
+      {/* Alerta de contratos vencendo */}
+      {clientesVermelhos.length > 0 && (
+        <div className="mb-4 card border border-red-500/40 bg-red-500/5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-red-300">FCA Vermelho — Atenção crítica</p>
+              <p className="mt-1 text-lg font-bold text-red-300">
+                {clientesVermelhos.length} cliente{clientesVermelhos.length > 1 ? "s" : ""} com FCA abaixo de 6
+              </p>
+              <p className="mt-1 text-[10px] text-brand-muted">
+                {clientesVermelhos.map((c) => c.nome).join(" · ")}
+              </p>
+            </div>
+            <a href="/fca" className="btn text-xs">Ver FCA</a>
+          </div>
+        </div>
+      )}
+
       {(vencendo.vencidos.length + vencendo.criticos.length + vencendo.atencao.length) > 0 && (
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
           {vencendo.vencidos.length > 0 && (
@@ -219,6 +254,7 @@ export default function ClientesPage() {
         </div>
       )}
 
+      {/* Toggle de views */}
       <div className="mb-6 inline-flex rounded-lg border border-white/10 bg-brand-panel/50 p-1">
         {[
           { v: "kanban_etapa", label: "Kanban por Etapa" },
@@ -238,6 +274,7 @@ export default function ClientesPage() {
         ))}
       </div>
 
+      {/* Formulário */}
       {formOpen && (
         <form onSubmit={save} className="card mb-6">
           <p className="mb-4 text-sm font-semibold">
@@ -500,6 +537,7 @@ function KanbanGP({
   onEdit: (c: ClienteView) => void;
   onRemove: (id: string) => void;
 }) {
+  // Agrupa por account_id (GP)
   const gps = pessoas.filter((p) => p.cargo === "gestor_projetos");
   const semGP = clientes.filter((c) => !c.account_id);
   return (
@@ -552,6 +590,7 @@ function KanbanSquad({
   onEdit: (c: ClienteView) => void;
   onRemove: (id: string) => void;
 }) {
+  // Data-driven: cada squad da tabela vira uma coluna automaticamente
   const semSquad = clientes.filter((c) => !c.squad_id);
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
