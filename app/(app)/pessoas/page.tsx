@@ -2,12 +2,20 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Pessoa, Squad, Cargo } from "@/lib/types";
-import { CARGO_LABEL } from "@/lib/types";
+import type { Pessoa, Squad, Cargo, NivelSenioridade, VersaoV } from "@/lib/types";
+import { CARGO_LABEL, NIVEL_LABEL, V_LABEL } from "@/lib/types";
 
 const CARGOS: Cargo[] = [
   "coordenador", "gestor_projetos", "gestor_trafego", "designer",
   "social_media", "copy", "gerente", "coo", "tech", "outro",
+];
+
+const NIVEIS: NivelSenioridade[] = ["junior", "pleno", "senior", "especialista"];
+const VS: VersaoV[] = ["v1", "v2", "v3", "v4"];
+
+// cargos que costumam ter escadinha de senioridade/V
+const CARGOS_COM_SENIORIDADE: Cargo[] = [
+  "designer", "gestor_projetos", "gestor_trafego", "social_media", "copy",
 ];
 
 const emptyForm = {
@@ -15,6 +23,8 @@ const emptyForm = {
   email: "",
   cargo: "gestor_projetos" as Cargo,
   squad_id: "",
+  nivel_senioridade: "" as NivelSenioridade | "",
+  nivel_v: "" as VersaoV | "",
   observacoes: "",
 };
 
@@ -49,6 +59,8 @@ export default function PessoasPage() {
       email: form.email || null,
       cargo: form.cargo,
       squad_id: form.squad_id || null,
+      nivel_senioridade: form.nivel_senioridade || null,
+      nivel_v: form.nivel_v || null,
       observacoes: form.observacoes || null,
     };
     if (editingId) {
@@ -68,6 +80,8 @@ export default function PessoasPage() {
       email: p.email ?? "",
       cargo: p.cargo,
       squad_id: p.squad_id ?? "",
+      nivel_senioridade: p.nivel_senioridade ?? "",
+      nivel_v: p.nivel_v ?? "",
       observacoes: p.observacoes ?? "",
     });
     setEditingId(p.id);
@@ -93,6 +107,8 @@ export default function PessoasPage() {
     if (filterSquad && p.squad_id !== filterSquad) return false;
     return true;
   });
+
+  const mostrarSenioridade = CARGOS_COM_SENIORIDADE.includes(form.cargo);
 
   return (
     <div>
@@ -148,7 +164,27 @@ export default function PessoasPage() {
                 {squads.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
               </select>
             </div>
-            <div className="lg:col-span-2">
+            {mostrarSenioridade && (
+              <>
+                <div>
+                  <label className="label">Nível de senioridade</label>
+                  <select className="input" value={form.nivel_senioridade}
+                    onChange={(e) => setForm({ ...form, nivel_senioridade: e.target.value as NivelSenioridade | "" })}>
+                    <option value="">—</option>
+                    {NIVEIS.map((n) => <option key={n} value={n}>{NIVEL_LABEL[n]}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Nível V</label>
+                  <select className="input" value={form.nivel_v}
+                    onChange={(e) => setForm({ ...form, nivel_v: e.target.value as VersaoV | "" })}>
+                    <option value="">—</option>
+                    {VS.map((v) => <option key={v} value={v}>{V_LABEL[v]}</option>)}
+                  </select>
+                </div>
+              </>
+            )}
+            <div className="lg:col-span-3">
               <label className="label">Observações</label>
               <input className="input" value={form.observacoes}
                 onChange={(e) => setForm({ ...form, observacoes: e.target.value })} />
@@ -168,6 +204,7 @@ export default function PessoasPage() {
             <tr className="border-b border-white/5 text-left text-xs uppercase tracking-wide text-brand-muted">
               <th className="px-4 py-3">Nome</th>
               <th className="px-4 py-3">Cargo</th>
+              <th className="px-4 py-3">Nível</th>
               <th className="px-4 py-3">Squad</th>
               <th className="px-4 py-3">E-mail</th>
               <th className="px-4 py-3">Status</th>
@@ -176,15 +213,20 @@ export default function PessoasPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-brand-muted">Carregando...</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-brand-muted">Carregando...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-brand-muted">
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-brand-muted">
                 {pessoas.length === 0 ? "Nenhuma pessoa cadastrada. Clica em '+ Nova pessoa' pra começar." : "Nenhuma pessoa com esses filtros."}
               </td></tr>
             ) : filtered.map((p) => (
               <tr key={p.id} className={`border-b border-white/5 last:border-0 ${!p.ativo ? "opacity-40" : ""}`}>
                 <td className="px-4 py-3 font-medium">{p.nome}</td>
                 <td className="px-4 py-3 text-brand-muted">{CARGO_LABEL[p.cargo]}</td>
+                <td className="px-4 py-3 text-brand-muted">
+                  {p.nivel_senioridade
+                    ? `${NIVEL_LABEL[p.nivel_senioridade]}${p.nivel_v ? " " + V_LABEL[p.nivel_v] : ""}`
+                    : "—"}
+                </td>
                 <td className="px-4 py-3 text-brand-muted">{squadNome(p.squad_id)}</td>
                 <td className="px-4 py-3 text-brand-muted">{p.email ?? "—"}</td>
                 <td className="px-4 py-3">
