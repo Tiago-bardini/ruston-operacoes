@@ -1,3 +1,10 @@
+// ============================================================
+// ARQUIVO 1 de 3
+// DESTINO NO GITHUB: lib/types.ts
+// ============================================================
+// Substitua todo o conteúdo do arquivo lib/types.ts por este.
+// ============================================================
+
 export type Cargo =
   | "coordenador"
   | "gestor_projetos"
@@ -94,6 +101,8 @@ export interface Cliente {
   data_ultima_alteracao_fee: string | null;
   data_churn: string | null;
   contrato_url: string | null;
+  prazo_contrato_meses: number | null;
+  data_vencimento_contrato: string | null;
   churn_realizado: boolean;
   coordenador_id: string | null;
   account_id: string | null;
@@ -125,3 +134,42 @@ export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR");
 }
+
+/** Status de vencimento do contrato — usado pra colorir badges e alertas */
+export type StatusVencimento = "vencido" | "critico" | "atencao" | "ok" | "sem_data";
+
+export function statusVencimento(dataVencimento: string | null | undefined): StatusVencimento {
+  if (!dataVencimento) return "sem_data";
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const venc = new Date(dataVencimento + "T00:00:00");
+  const diasRestantes = Math.floor((venc.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
+  if (diasRestantes < 0) return "vencido";
+  if (diasRestantes <= 30) return "critico";
+  if (diasRestantes <= 60) return "atencao";
+  return "ok";
+}
+
+export function diasParaVencimento(dataVencimento: string | null | undefined): number | null {
+  if (!dataVencimento) return null;
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const venc = new Date(dataVencimento + "T00:00:00");
+  return Math.floor((venc.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+export const STATUS_VENCIMENTO_LABEL: Record<StatusVencimento, string> = {
+  vencido: "Vencido",
+  critico: "Crítico (≤30 dias)",
+  atencao: "Atenção (≤60 dias)",
+  ok: "OK",
+  sem_data: "Sem data",
+};
+
+export const STATUS_VENCIMENTO_COLOR: Record<StatusVencimento, string> = {
+  vencido:  "bg-red-500/20 text-red-300 border-red-500/40",
+  critico:  "bg-orange-500/20 text-orange-300 border-orange-500/40",
+  atencao:  "bg-amber-500/20 text-amber-300 border-amber-500/40",
+  ok:       "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+  sem_data: "bg-white/5 text-brand-muted border-white/10",
+};
