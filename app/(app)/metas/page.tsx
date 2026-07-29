@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { MetaEmpresa, MetaSquad, Squad, UnidadeMeta, NivelSenioridade, VersaoV } from "@/lib/types";
-import { MESES_LABEL, UNIDADE_LABEL, NIVEL_LABEL, V_LABEL } from "@/lib/types";
+import type { MetaEmpresa, MetaSquad, Squad, UnidadeMeta, NivelSenioridade, VersaoV, Pessoa } from "@/lib/types";
+import { MESES_LABEL, UNIDADE_LABEL, NIVEL_LABEL, V_LABEL, CARGO_LABEL } from "@/lib/types";
 
-type Tab = "empresa" | "squads" | "okrs";
+type Tab = "empresa" | "squads" | "okrs" | "investidores" | "comparativo";
 
 const ANO_ATUAL = new Date().getFullYear();
 const MES_ATUAL = new Date().getMonth() + 1;
@@ -65,9 +65,11 @@ export default function MetasPage() {
 
       <div className="mb-6 inline-flex rounded-lg border border-white/10 bg-brand-panel/50 p-1">
         {[
-          { v: "empresa", label: "Empresa" },
-          { v: "squads",  label: "Squads" },
-          { v: "okrs",    label: "OKRs (Régua)" },
+          { v: "empresa",      label: "Empresa" },
+          { v: "squads",       label: "Squads" },
+          { v: "okrs",         label: "OKRs (Régua)" },
+          { v: "investidores", label: "Investidores" },
+          { v: "comparativo",  label: "Comparativo" },
         ].map((it) => (
           <button
             key={it.v}
@@ -81,9 +83,20 @@ export default function MetasPage() {
         ))}
       </div>
 
-      {tab === "empresa" && <TabEmpresa />}
-      {tab === "squads"  && <TabSquads />}
-      {tab === "okrs"    && <TabOKRs />}
+      {tab === "empresa"      && <TabEmpresa />}
+      {tab === "squads"       && <TabSquads />}
+      {tab === "okrs"         && <TabOKRs />}
+      {tab === "investidores" && <TabInvestidores />}
+      {tab === "comparativo"  && <TabPlaceholder titulo="Comparativo" texto="Em construção — Etapa 5 da Sprint de Metas (dash BRAVA vs OLIMPO)." />}
+    </div>
+  );
+}
+
+function TabPlaceholder({ titulo, texto }: { titulo: string; texto: string }) {
+  return (
+    <div className="card text-center py-16">
+      <p className="mb-2 text-lg font-semibold">{titulo}</p>
+      <p className="text-sm text-brand-muted">{texto}</p>
     </div>
   );
 }
@@ -755,6 +768,264 @@ function InputMeta({
       />
       <span className="text-[10px] text-brand-muted w-8">{UNIDADE_LABEL[unidade]}</span>
       {salvando && <span className="text-[10px] text-brand-muted">...</span>}
+    </div>
+  );
+}
+
+/* ============================== TAB INVESTIDORES ============================== */
+
+interface RealizadoInvestidor {
+  id: string;
+  pessoa_id: string;
+  metrica_id: string;
+  ano: number;
+  mes: number;
+  valor_realizado: number | null;
+  observacoes: string | null;
+}
+
+function TabInvestidores() {
+  const supabase = createClient();
+  const [pessoas, setPessoas] = useState<Pessoa[]>([]);
+  const [pessoaId, setPessoaId] = useState<string>("");
+  const [ano, setAno] = useState(ANO_ATUAL);
+  const [mes, setMes] = useState(MES_ATUAL);
+  const [metricas, setMetricas] = useState<OkrMetrica[]>([]);
+  const [metasRegua, setMetasRegua] = useState<OkrMeta[]>([]);
+  const [realizados, setRealizados] = useState<RealizadoInvestidor[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+
+  // Só lista pessoas com cargo + nível + V preenchidos (senão não tem régua pra puxar)
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("ruston_pessoas")
+        .select("*")
+        .eq("ativo", true)
+        .not("nivel_senioridade", "is", null)
+        .not("nivel_v", "is", null)
+        .order("nome");
+      const lista = (data as Pessoa[]) ?? [];
+      setPessoas(lista);
+      if (lista.length > 0 && !pessoaId) setPessoaId(lista[0].id);
+    })();
+  // eslint-disable-next-line
+  }, []);
+
+  const pessoa = pessoas.find((p) => p.id === pessoaId);
+
+  async function load() {
+    if (!pessoa || !pessoa.nivel_senioridade || !pessoa.nivel_v) {
+      setMetricas([]); setMetasRegua([]); setRealizados([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    // 1) Métricas do cargo da pessoa
+    const { data: mets } = await supabase
+      .from("ruston_okr_metricas")
+      .select("*")
+      .eq("cargo", pessoa.cargo).eq("ativo", true)
+      .order("ordem");
+    const metricasList = (mets as OkrMetrica[]) ?? [];
+    setMetricas(metricasList);
+    // 2) Metas da régua (nível+V) do mês/ano
+    const { data: mrs } = await supabase
+      .from("ruston_okr_metas")
+      .select("*")
+      .eq("nivel", pessoa.nivel_senioridade)
+      .eq("versao_v", pessoa.nivel_v)
+      .eq("ano", ano).eq("mes", mes)
+      .in("metrica_id", metricasList.map((m) => m.id));
+    setMetasRegua((mrs as OkrMeta[]) ?? []);
+    // 3) Realizado do investidor
+    const { data: rls } = await supabase
+      .from("ruston_okr_realizado_investidor")
+      .select("*")
+      .eq("pessoa_id", pessoaId)
+      .eq("ano", ano).eq("mes", mes)
+      .in("metrica_id", metricasList.map((m) => m.id));
+    setRealizados((rls as RealizadoInvestidor[]) ?? []);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [pessoaId, ano, mes]);
+
+  function getMetaRegua(metricaId: string): number | null {
+    return metasRegua.find((m) => m.metrica_id === metricaId)?.valor_meta ?? null;
+  }
+
+  function getRealizado(metricaId: string): RealizadoInvestidor | null {
+    return realizados.find((r) => r.metrica_id === metricaId) ?? null;
+  }
+
+  async function upsertRealizado(metricaId: string, valor: number | null) {
+    setSaving(metricaId);
+    const existente = getRealizado(metricaId);
+    if (existente) {
+      await supabase.from("ruston_okr_realizado_investidor")
+        .update({ valor_realizado: valor })
+        .eq("id", existente.id);
+    } else {
+      await supabase.from("ruston_okr_realizado_investidor").insert({
+        pessoa_id: pessoaId, metrica_id: metricaId, ano, mes, valor_realizado: valor,
+      });
+    }
+    setSaving(null);
+    load();
+  }
+
+  async function upsertObservacao(metricaId: string, obs: string) {
+    const existente = getRealizado(metricaId);
+    if (obs === (existente?.observacoes ?? "")) return;
+    setSaving(metricaId);
+    if (existente) {
+      await supabase.from("ruston_okr_realizado_investidor")
+        .update({ observacoes: obs || null })
+        .eq("id", existente.id);
+    } else {
+      await supabase.from("ruston_okr_realizado_investidor").insert({
+        pessoa_id: pessoaId, metrica_id: metricaId, ano, mes, observacoes: obs || null,
+      });
+    }
+    setSaving(null);
+    load();
+  }
+
+  // Stats
+  const totalCampos = metricas.length;
+  const preenchidos = metricas.filter((m) => getRealizado(m.id)?.valor_realizado != null).length;
+  const batidos = metricas.filter((m) => {
+    const meta = getMetaRegua(m.id);
+    const real = getRealizado(m.id)?.valor_realizado;
+    if (meta == null || real == null) return false;
+    if (m.nome.toLowerCase().includes("churn") || m.nome.toLowerCase().includes("refação")) {
+      return real <= meta;
+    }
+    return real >= meta;
+  }).length;
+
+  return (
+    <div>
+      {/* Header — dropdown de pessoa + seletores */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs uppercase tracking-wide text-brand-muted">Investidor</span>
+          <select className="input max-w-[280px]" value={pessoaId} onChange={(e) => setPessoaId(e.target.value)}>
+            {pessoas.length === 0 && <option>Nenhum investidor com nível preenchido</option>}
+            {pessoas.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome} — {CARGO_LABEL[p.cargo]} {p.nivel_senioridade ? NIVEL_LABEL[p.nivel_senioridade] : ""} {p.nivel_v ? V_LABEL[p.nivel_v] : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <select className="input max-w-[140px]" value={mes} onChange={(e) => setMes(Number(e.target.value))}>
+            {MESES_LABEL.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+          </select>
+          <select className="input max-w-[100px]" value={ano} onChange={(e) => setAno(Number(e.target.value))}>
+            {ANOS.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Info do investidor + stats */}
+      {pessoa && (
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-white/5 bg-brand-panel/40 p-4">
+          <div>
+            <p className="text-sm font-semibold">{pessoa.nome}</p>
+            <p className="text-xs text-brand-muted">
+              {CARGO_LABEL[pessoa.cargo]} · Nível {pessoa.nivel_senioridade ? NIVEL_LABEL[pessoa.nivel_senioridade] : "—"} {pessoa.nivel_v ? V_LABEL[pessoa.nivel_v] : ""}
+            </p>
+          </div>
+          <div className="flex items-center gap-4 text-xs">
+            <span className="text-brand-muted"><strong className="text-white">{preenchidos}</strong>/{totalCampos} preenchidas</span>
+            <span className="text-emerald-300">{batidos} batidas</span>
+          </div>
+        </div>
+      )}
+
+      {/* Tabela */}
+      <div className="card overflow-x-auto p-0">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-white/5 text-left text-xs uppercase tracking-wide text-brand-muted">
+              <th className="px-4 py-3">Métrica</th>
+              <th className="px-4 py-3 w-40">Meta (régua)</th>
+              <th className="px-4 py-3 w-48">Realizado</th>
+              <th className="px-4 py-3 w-28">Status</th>
+              <th className="px-4 py-3">Observações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-brand-muted">Carregando...</td></tr>
+            )}
+            {!loading && !pessoa && (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-brand-muted">
+                Nenhum investidor com cargo + nível + V preenchidos. Cadastre a senioridade em /pessoas primeiro.
+              </td></tr>
+            )}
+            {!loading && pessoa && metricas.length === 0 && (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-brand-muted">
+                Nenhuma métrica cadastrada para o cargo {CARGO_LABEL[pessoa.cargo]}. Cadastre em OKRs (Régua) primeiro.
+              </td></tr>
+            )}
+            {!loading && pessoa && metricas.map((m) => {
+              const meta = getMetaRegua(m.id);
+              const real = getRealizado(m.id);
+              const valorReal = real?.valor_realizado ?? null;
+              const menorMelhor = m.nome.toLowerCase().includes("churn") || m.nome.toLowerCase().includes("refação");
+              const bateu = meta != null && valorReal != null && (menorMelhor ? valorReal <= meta : valorReal >= meta);
+              const naoBateu = meta != null && valorReal != null && !bateu;
+              return (
+                <tr key={m.id} className="border-b border-white/5 last:border-0">
+                  <td className="px-4 py-3 font-medium">{m.nome}</td>
+                  <td className="px-4 py-3">
+                    {meta != null ? (
+                      <span className="text-sm">
+                        {meta}
+                        <span className="ml-1 text-[10px] text-brand-muted">
+                          {m.unidade === "percentual" && "%"}
+                          {m.unidade === "reais" && "R$"}
+                          {m.unidade === "reais_milhares" && "R$ K"}
+                          {m.unidade === "nota" && "nota"}
+                          {m.unidade === "quantidade" && "qtde"}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-xs text-brand-muted">Sem régua</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <InputOkr
+                      valor={valorReal}
+                      unidade={m.unidade}
+                      onSalvar={(v) => upsertRealizado(m.id, v)}
+                      salvando={saving === m.id}
+                    />
+                  </td>
+                  <td className="px-4 py-3">
+                    {valorReal == null && <span className="text-xs text-brand-muted">Sem dado</span>}
+                    {bateu && <span className="badge bg-emerald-500/15 text-emerald-300 border-emerald-500/30">✓ Bateu</span>}
+                    {naoBateu && <span className="badge bg-red-500/15 text-red-300 border-red-500/30">Abaixo</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    <input
+                      className="input py-1 text-xs"
+                      defaultValue={real?.observacoes ?? ""}
+                      onBlur={(e) => upsertObservacao(m.id, e.target.value)}
+                      placeholder="—"
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
