@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Squad } from "@/lib/types";
 
-const emptyForm = { nome: "", label: "", cor: "" };
+const emptyForm = { nome: "", label: "", cor: "", incluir_em_comparativo: true };
 
 export default function SquadsPage() {
   const supabase = createClient();
@@ -29,6 +29,7 @@ export default function SquadsPage() {
       nome: form.nome.toUpperCase(),
       label: form.label || null,
       cor: form.cor || null,
+      incluir_em_comparativo: form.incluir_em_comparativo,
     };
     if (editingId) {
       await supabase.from("ruston_squads").update(payload).eq("id", editingId);
@@ -42,7 +43,12 @@ export default function SquadsPage() {
   }
 
   function edit(s: Squad) {
-    setForm({ nome: s.nome, label: s.label ?? "", cor: s.cor ?? "" });
+    setForm({
+      nome: s.nome,
+      label: s.label ?? "",
+      cor: s.cor ?? "",
+      incluir_em_comparativo: s.incluir_em_comparativo ?? true,
+    });
     setEditingId(s.id);
     setOpen(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -50,6 +56,11 @@ export default function SquadsPage() {
 
   async function toggleAtivo(id: string, ativo: boolean) {
     await supabase.from("ruston_squads").update({ ativo: !ativo }).eq("id", id);
+    load();
+  }
+
+  async function toggleComparativo(id: string, atual: boolean) {
+    await supabase.from("ruston_squads").update({ incluir_em_comparativo: !atual }).eq("id", id);
     load();
   }
 
@@ -93,6 +104,20 @@ export default function SquadsPage() {
                 onChange={(e) => setForm({ ...form, cor: e.target.value })}
                 placeholder="#e11d2a" />
             </div>
+            <div className="sm:col-span-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.incluir_em_comparativo}
+                  onChange={(e) => setForm({ ...form, incluir_em_comparativo: e.target.checked })}
+                  className="h-4 w-4"
+                />
+                <span className="text-sm">Incluir no dash Comparativo de Metas</span>
+                <span className="text-xs text-brand-muted">
+                  (desmarque pra squads administrativos ou coordenações especiais)
+                </span>
+              </label>
+            </div>
             <div className="sm:col-span-3 flex gap-2">
               <button type="submit" className="btn">{editingId ? "Atualizar" : "Salvar"}</button>
               <button type="button" className="btn-ghost"
@@ -121,7 +146,19 @@ export default function SquadsPage() {
                 </div>
               </div>
             </div>
-            <div className="mt-4 flex gap-2">
+
+            {/* Toggle Comparativo */}
+            <div className="mt-3 flex items-center justify-between rounded-lg bg-white/5 px-3 py-2">
+              <span className="text-[10px] uppercase tracking-wide text-brand-muted">Comparativo</span>
+              <button
+                onClick={() => toggleComparativo(s.id, s.incluir_em_comparativo ?? true)}
+                className={`text-xs font-semibold ${(s.incluir_em_comparativo ?? true) ? "text-emerald-300" : "text-brand-muted"}`}
+              >
+                {(s.incluir_em_comparativo ?? true) ? "✓ Incluso" : "✗ Excluído"}
+              </button>
+            </div>
+
+            <div className="mt-3 flex gap-2">
               <button onClick={() => edit(s)} className="btn-ghost flex-1 text-xs">Editar</button>
               <button onClick={() => toggleAtivo(s.id, s.ativo)} className="btn-ghost text-xs">
                 {s.ativo ? "Desativar" : "Ativar"}
