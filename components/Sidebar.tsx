@@ -8,6 +8,7 @@ const NAV_ACTIVE = [
   { href: "/clientes", label: "Clientes", icon: "◎" },
   { href: "/pessoas", label: "Pessoas", icon: "◆" },
   { href: "/squads", label: "Squads", icon: "◇" },
+  { href: "/metas", label: "Metas", icon: "◈" },
 ];
 
 type NavSoonItem = { label: string; icon: string; subitems?: string[] };
@@ -18,7 +19,6 @@ const NAV_SOON: NavSoonItem[] = [
   { label: "Cockpit", icon: "★" },
   { label: "Headcount", icon: "☰" },
   { label: "Forecast", icon: "↗" },
-  { label: "Metas", icon: "◈", subitems: ["OKRs"] },
   { label: "Radar de Clientes", icon: "◉" },
 ];
 
