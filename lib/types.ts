@@ -66,6 +66,7 @@ export interface Squad {
   logo_url: string | null;
   coordenador_id: string | null;
   ativo: boolean;
+  incluir_em_comparativo: boolean;
   created_at: string;
 }
 
