@@ -144,6 +144,107 @@ export const MESES_LABEL = [
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ];
 
+/* ================= FCA (Fato-Causa-Ação) ================= */
+
+export type StatusFca = "rascunho" | "aguardando_validacao" | "validado";
+
+export const STATUS_FCA_LABEL: Record<StatusFca, string> = {
+  rascunho: "Rascunho",
+  aguardando_validacao: "Aguardando validação",
+  validado: "Validado",
+};
+
+export const STATUS_FCA_COLOR: Record<StatusFca, string> = {
+  rascunho: "bg-white/5 text-brand-muted border-white/10",
+  aguardando_validacao: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+  validado: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+};
+
+export type BandeiraFca = "verde" | "amarelo" | "vermelho" | "sem_dado";
+
+export const BANDEIRA_FCA_LABEL: Record<BandeiraFca, string> = {
+  verde: "Verde",
+  amarelo: "Amarelo",
+  vermelho: "Vermelho",
+  sem_dado: "Sem dado",
+};
+
+export const BANDEIRA_FCA_COLOR: Record<BandeiraFca, string> = {
+  verde: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
+  amarelo: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+  vermelho: "bg-red-500/20 text-red-300 border-red-500/40",
+  sem_dado: "bg-white/5 text-brand-muted border-white/10",
+};
+
+export interface FcaAvaliacao {
+  id: string;
+  cliente_id: string;
+  ano: number;
+  mes: number;
+  nota_resultado: number | null;
+  nota_operacao_trafego: number | null;
+  nota_prazo: number | null;
+  nota_qualidade: number | null;
+  nota_relacionamento: number | null;
+  nota_roi: number | null;
+  fato: string | null;
+  causa: string | null;
+  acao: string | null;
+  status: StatusFca;
+  preenchido_por_id: string | null;
+  validado_por_id: string | null;
+  validado_at: string | null;
+  observacoes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FcaView extends FcaAvaliacao {
+  nota_final: number | null;
+  bandeira: BandeiraFca;
+  cliente_nome: string;
+  cliente_squad_id: string | null;
+  cliente_account_id: string | null;
+  preenchido_por_nome: string | null;
+  validado_por_nome: string | null;
+}
+
+export const CRITERIOS_FCA = [
+  { chave: "nota_resultado",        label: "Resultado",           peso: 7 },
+  { chave: "nota_operacao_trafego", label: "Operação de Tráfego", peso: 5 },
+  { chave: "nota_prazo",            label: "Prazo",               peso: 5 },
+  { chave: "nota_qualidade",        label: "Qualidade",           peso: 4 },
+  { chave: "nota_relacionamento",   label: "Relacionamento",      peso: 4 },
+  { chave: "nota_roi",              label: "ROI",                 peso: 8 },
+] as const;
+
+export function calcularNotaFinalFca(f: Partial<FcaAvaliacao>): number | null {
+  const notas = [
+    f.nota_resultado,
+    f.nota_operacao_trafego,
+    f.nota_prazo,
+    f.nota_qualidade,
+    f.nota_relacionamento,
+    f.nota_roi,
+  ];
+  if (notas.some((n) => n == null)) return null;
+  const soma =
+    (f.nota_resultado ?? 0) * 7 +
+    (f.nota_operacao_trafego ?? 0) * 5 +
+    (f.nota_prazo ?? 0) * 5 +
+    (f.nota_qualidade ?? 0) * 4 +
+    (f.nota_relacionamento ?? 0) * 4 +
+    (f.nota_roi ?? 0) * 8;
+  return Math.round((soma / 33) * 100) / 100;
+}
+
+export function bandeiraDaNota(nota: number | null): BandeiraFca {
+  if (nota == null) return "sem_dado";
+  if (nota >= 8) return "verde";
+  if (nota >= 6) return "amarelo";
+  return "vermelho";
+}
+
 export interface Cliente {
   id: string;
   codigo_interno: string | null;
