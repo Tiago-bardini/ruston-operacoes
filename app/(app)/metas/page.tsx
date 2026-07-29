@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { MetaEmpresa, MetaSquad, Squad, UnidadeMeta, NivelSenioridade, VersaoV, Pessoa } from "@/lib/types";
 import { MESES_LABEL, UNIDADE_LABEL, NIVEL_LABEL, V_LABEL, CARGO_LABEL } from "@/lib/types";
@@ -87,7 +87,7 @@ export default function MetasPage() {
       {tab === "squads"       && <TabSquads />}
       {tab === "okrs"         && <TabOKRs />}
       {tab === "investidores" && <TabInvestidores />}
-      {tab === "comparativo"  && <TabPlaceholder titulo="Comparativo" texto="Em construção — Etapa 5 da Sprint de Metas (dash BRAVA vs OLIMPO)." />}
+      {tab === "comparativo"  && <TabComparativo />}
     </div>
   );
 }
@@ -770,6 +770,277 @@ function InputMeta({
       {salvando && <span className="text-[10px] text-brand-muted">...</span>}
     </div>
   );
+}
+
+/* ============================== TAB COMPARATIVO ============================== */
+
+function TabComparativo() {
+  const supabase = createClient();
+  const [squads, setSquads] = useState<Squad[]>([]);
+  const [ano, setAno] = useState(ANO_ATUAL);
+  const [mes, setMes] = useState(MES_ATUAL);
+  const [metasPorSquad, setMetasPorSquad] = useState<Record<string, MetaSquad[]>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      // Só squads que devem entrar no comparativo
+      const { data } = await supabase.from("ruston_squads")
+        .select("*")
+        .eq("ativo", true)
+        .eq("incluir_em_comparativo", true)
+        .order("nome");
+      setSquads((data as Squad[]) ?? []);
+    })();
+  // eslint-disable-next-line
+  }, []);
+
+  async function load() {
+    if (squads.length === 0) return;
+    setLoading(true);
+    const { data } = await supabase
+      .from("ruston_metas_squad")
+      .select("*")
+      .eq("ano", ano).eq("mes", mes)
+      .order("ordem");
+    const lista = (data as MetaSquad[]) ?? [];
+    const agrupado: Record<string, MetaSquad[]> = {};
+    squads.forEach((s) => { agrupado[s.id] = lista.filter((m) => m.squad_id === s.id); });
+    setMetasPorSquad(agrupado);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [squads, ano, mes]);
+
+  // Estatísticas por squad
+  const statsPorSquad = squads.map((s) => {
+    const metas = metasPorSquad[s.id] ?? [];
+    const total = metas.length;
+    const preenchidas = metas.filter((m) => m.valor_realizado != null).length;
+    const batidas = metas.filter((m) => {
+      if (m.valor_realizado == null) return false;
+      if (METRICAS_MENOR_MELHOR.has(m.metrica)) return m.valor_realizado <= m.valor_meta;
+      return m.valor_realizado >= m.valor_meta;
+    }).length;
+    const pctBatidas = total > 0 ? Math.round((batidas / total) * 100) : 0;
+    return { squad: s, total, preenchidas, batidas, pctBatidas };
+  });
+
+  // Todas as métricas únicas (união de todos squads)
+  const metricasUnicas = Array.from(new Map(
+    Object.values(metasPorSquad).flat().map((m) => [m.metrica, m])
+  ).values()).sort((a, b) => a.ordem - b.ordem);
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <select className="input max-w-[160px]" value={mes} onChange={(e) => setMes(Number(e.target.value))}>
+          {MESES_LABEL.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+        </select>
+        <select className="input max-w-[100px]" value={ano} onChange={(e) => setAno(Number(e.target.value))}>
+          {ANOS.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+      </div>
+
+      {loading && <p className="text-brand-muted">Carregando comparativo...</p>}
+      {!loading && squads.length === 0 && (
+        <div className="card text-center py-16">
+          <p className="text-brand-muted">Nenhum squad cadastrado ainda.</p>
+        </div>
+      )}
+
+      {!loading && squads.length > 0 && (
+        <>
+          {/* Cards resumo */}
+          <div className={`mb-6 grid gap-4 grid-cols-1 ${squads.length === 2 ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
+            {statsPorSquad.map(({ squad, total, preenchidas, batidas, pctBatidas }) => (
+              <div key={squad.id} className="card">
+                <div className="mb-3 flex items-center gap-2">
+                  <div
+                    className="flex h-10 w-10 items-center justify-center rounded-lg font-bold text-white"
+                    style={{ backgroundColor: squad.cor || "#1a1a1a" }}
+                  >
+                    {squad.nome.charAt(0)}
+                  </div>
+                  <div>
+                    <p className="font-bold">{squad.nome}</p>
+                    <p className="text-[10px] text-brand-muted">{squad.label ?? "Squad"}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-lg bg-white/5 p-2">
+                    <p className="text-lg font-bold text-white">{total}</p>
+                    <p className="text-[9px] uppercase tracking-wide text-brand-muted">metas</p>
+                  </div>
+                  <div className="rounded-lg bg-emerald-500/10 p-2">
+                    <p className="text-lg font-bold text-emerald-300">{batidas}</p>
+                    <p className="text-[9px] uppercase tracking-wide text-brand-muted">batidas</p>
+                  </div>
+                  <div className="rounded-lg bg-white/5 p-2">
+                    <p className="text-lg font-bold text-white">{preenchidas}</p>
+                    <p className="text-[9px] uppercase tracking-wide text-brand-muted">preenchidas</p>
+                  </div>
+                </div>
+
+                {/* Barra de progresso */}
+                <div className="mt-3">
+                  <div className="mb-1 flex items-center justify-between text-[10px]">
+                    <span className="text-brand-muted">% de metas batidas</span>
+                    <span className="font-semibold text-emerald-300">{pctBatidas}%</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-white/5">
+                    <div
+                      className="h-full bg-emerald-500 transition-all"
+                      style={{ width: `${pctBatidas}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Tabela comparativa */}
+          <div className="card overflow-x-auto p-0">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/5 text-left text-xs uppercase tracking-wide text-brand-muted">
+                  <th className="px-4 py-3">Métrica</th>
+                  {squads.map((s) => (
+                    <th key={s.id} colSpan={3} className="px-4 py-3 text-center border-l border-white/5" style={{ color: s.cor ?? undefined }}>
+                      {s.nome}
+                    </th>
+                  ))}
+                </tr>
+                <tr className="border-b border-white/5 text-left text-[10px] uppercase tracking-wide text-brand-muted/70">
+                  <th className="px-4 py-2"></th>
+                  {squads.map((s) => (
+                    <React.Fragment key={s.id}>
+                      <th className="px-2 py-2 text-center border-l border-white/5">Meta</th>
+                      <th className="px-2 py-2 text-center">Real.</th>
+                      <th className="px-2 py-2 text-center">%</th>
+                    </React.Fragment>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {metricasUnicas.length === 0 && (
+                  <tr><td colSpan={1 + squads.length * 3} className="px-4 py-8 text-center text-brand-muted">
+                    Nenhuma meta cadastrada nesse mês ainda.
+                  </td></tr>
+                )}
+                {metricasUnicas.map((mUnica) => (
+                  <tr key={mUnica.metrica} className="border-b border-white/5 last:border-0">
+                    <td className="px-4 py-3 font-medium">{mUnica.metrica_label}</td>
+                    {squads.map((s) => {
+                      const m = (metasPorSquad[s.id] ?? []).find((x) => x.metrica === mUnica.metrica);
+                      if (!m) {
+                        return (
+                          <React.Fragment key={s.id}>
+                            <td className="px-2 py-3 text-center text-brand-muted border-l border-white/5">—</td>
+                            <td className="px-2 py-3 text-center text-brand-muted">—</td>
+                            <td className="px-2 py-3 text-center text-brand-muted">—</td>
+                          </React.Fragment>
+                        );
+                      }
+                      const menorMelhor = METRICAS_MENOR_MELHOR.has(m.metrica);
+                      const bateu = m.valor_realizado != null && (menorMelhor
+                        ? m.valor_realizado <= m.valor_meta
+                        : m.valor_realizado >= m.valor_meta);
+                      // % de progresso (com clamp em 0-150)
+                      let pct: number | null = null;
+                      if (m.valor_realizado != null && m.valor_meta > 0) {
+                        if (menorMelhor) {
+                          // Ex: churn — 100% quando realizado = meta, mais quando abaixo
+                          pct = Math.min(150, Math.round(((m.valor_meta / m.valor_realizado) * 100) || 0));
+                        } else {
+                          pct = Math.min(150, Math.round((m.valor_realizado / m.valor_meta) * 100));
+                        }
+                      }
+                      return (
+                        <React.Fragment key={s.id}>
+                          <td className="px-2 py-3 text-center text-brand-muted border-l border-white/5">
+                            {formatValor(m.valor_meta, m.unidade)}
+                          </td>
+                          <td className={`px-2 py-3 text-center font-medium ${bateu ? "text-emerald-300" : m.valor_realizado != null ? "text-red-300" : "text-brand-muted"}`}>
+                            {m.valor_realizado != null ? formatValor(m.valor_realizado, m.unidade) : "—"}
+                          </td>
+                          <td className="px-2 py-3 text-center">
+                            {pct != null ? (
+                              <span className={`text-xs font-semibold ${bateu ? "text-emerald-300" : "text-red-300"}`}>
+                                {pct}%
+                              </span>
+                            ) : (
+                              <span className="text-xs text-brand-muted">—</span>
+                            )}
+                          </td>
+                        </React.Fragment>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Gráfico de barras comparativas */}
+          {metricasUnicas.length > 0 && (
+            <div className="mt-6">
+              <h3 className="mb-3 text-sm font-semibold">Progresso por métrica</h3>
+              <div className="card space-y-3">
+                {metricasUnicas.map((mUnica) => (
+                  <div key={mUnica.metrica}>
+                    <p className="mb-1 text-xs text-brand-muted">{mUnica.metrica_label}</p>
+                    <div className="space-y-1">
+                      {squads.map((s) => {
+                        const m = (metasPorSquad[s.id] ?? []).find((x) => x.metrica === mUnica.metrica);
+                        if (!m) return null;
+                        const menorMelhor = METRICAS_MENOR_MELHOR.has(m.metrica);
+                        let pct = 0;
+                        if (m.valor_realizado != null && m.valor_meta > 0) {
+                          if (menorMelhor) {
+                            pct = Math.min(150, Math.round((m.valor_meta / m.valor_realizado) * 100) || 0);
+                          } else {
+                            pct = Math.min(150, Math.round((m.valor_realizado / m.valor_meta) * 100));
+                          }
+                        }
+                        const bateu = pct >= 100;
+                        return (
+                          <div key={s.id} className="flex items-center gap-2">
+                            <span className="w-16 text-[10px] font-semibold" style={{ color: s.cor ?? undefined }}>{s.nome}</span>
+                            <div className="flex-1 h-2 overflow-hidden rounded-full bg-white/5">
+                              <div
+                                className={`h-full transition-all ${bateu ? "bg-emerald-500" : "bg-orange-500"}`}
+                                style={{ width: `${Math.min(100, pct)}%` }}
+                              />
+                            </div>
+                            <span className={`w-14 text-right text-[10px] font-semibold ${bateu ? "text-emerald-300" : "text-brand-muted"}`}>
+                              {m.valor_realizado != null ? `${pct}%` : "—"}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function formatValor(valor: number | null, unidade: UnidadeMeta): string {
+  if (valor == null) return "—";
+  if (unidade === "percentual") return `${valor}%`;
+  if (unidade === "reais") {
+    if (valor >= 1000) return `R$ ${(valor / 1000).toFixed(0)}k`;
+    return `R$ ${valor}`;
+  }
+  if (unidade === "nota") return String(valor);
+  return String(valor);
 }
 
 /* ============================== TAB INVESTIDORES ============================== */
