@@ -1,10 +1,3 @@
-// ============================================================
-// ARQUIVO 1 de 3
-// DESTINO NO GITHUB: lib/types.ts
-// ============================================================
-// Substitua todo o conteúdo do arquivo lib/types.ts por este.
-// ============================================================
-
 export type Cargo =
   | "coordenador"
   | "gestor_projetos"
@@ -76,6 +69,23 @@ export interface Squad {
   created_at: string;
 }
 
+export type NivelSenioridade = "junior" | "pleno" | "senior" | "especialista";
+export type VersaoV = "v1" | "v2" | "v3" | "v4";
+
+export const NIVEL_LABEL: Record<NivelSenioridade, string> = {
+  junior: "Junior",
+  pleno: "Pleno",
+  senior: "Sênior",
+  especialista: "Especialista",
+};
+
+export const V_LABEL: Record<VersaoV, string> = {
+  v1: "V1",
+  v2: "V2",
+  v3: "V3",
+  v4: "V4",
+};
+
 export interface Pessoa {
   id: string;
   nome: string;
@@ -85,9 +95,53 @@ export interface Pessoa {
   foto_url: string | null;
   ativo: boolean;
   observacoes: string | null;
+  nivel_senioridade: NivelSenioridade | null;
+  nivel_v: VersaoV | null;
   created_at: string;
   updated_at: string;
 }
+
+export type UnidadeMeta = "percentual" | "nota" | "reais" | "quantidade";
+
+export const UNIDADE_LABEL: Record<UnidadeMeta, string> = {
+  percentual: "%",
+  nota: "nota",
+  reais: "R$",
+  quantidade: "qtde",
+};
+
+export interface MetaEmpresa {
+  id: string;
+  ano: number;
+  mes: number;
+  metrica: string;
+  metrica_label: string;
+  unidade: UnidadeMeta;
+  valor_meta: number;
+  valor_realizado: number | null;
+  observacoes: string | null;
+  responsavel_id: string | null;
+  ordem: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MetaSquad extends MetaEmpresa {
+  squad_id: string;
+}
+
+export function formatMeta(valor: number | null | undefined, unidade: UnidadeMeta): string {
+  if (valor == null) return "—";
+  if (unidade === "percentual") return `${valor}%`;
+  if (unidade === "reais") return formatBRL(valor);
+  if (unidade === "nota") return String(valor);
+  return String(valor);
+}
+
+export const MESES_LABEL = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+];
 
 export interface Cliente {
   id: string;
