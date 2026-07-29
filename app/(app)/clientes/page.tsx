@@ -3,7 +3,10 @@
 import { useEffect, useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { ClienteView, Pessoa, Squad, EtapaCliente, TierCliente } from "@/lib/types";
-import { ETAPA_LABEL, ETAPA_COLOR, TIER_LABEL, formatBRL, formatDate } from "@/lib/types";
+import {
+  ETAPA_LABEL, ETAPA_COLOR, TIER_LABEL, formatBRL, formatDate,
+  statusVencimento, diasParaVencimento, STATUS_VENCIMENTO_COLOR,
+} from "@/lib/types";
 
 const ETAPAS: EtapaCliente[] = ["onboarding", "estruturacao_estrategica", "byline", "em_recuperacao", "suspenso"];
 const TIERS: TierCliente[] = ["tiny", "small", "medium", "large"];
@@ -18,6 +21,8 @@ const emptyForm = {
   fee: "",
   tier: "" as TierCliente | "",
   data_assinatura: "",
+  prazo_contrato_meses: "",
+  data_vencimento_contrato: "",
   contrato_url: "",
   coordenador_id: "",
   account_id: "",
@@ -65,6 +70,8 @@ export default function ClientesPage() {
       fee: form.fee ? Number(form.fee) : null,
       tier: form.tier || null,
       data_assinatura: form.data_assinatura || null,
+      prazo_contrato_meses: form.prazo_contrato_meses ? Number(form.prazo_contrato_meses) : null,
+      data_vencimento_contrato: form.data_vencimento_contrato || null,
       contrato_url: form.contrato_url || null,
       coordenador_id: form.coordenador_id || null,
       account_id: form.account_id || null,
@@ -93,6 +100,8 @@ export default function ClientesPage() {
       fee: c.fee != null ? String(c.fee) : "",
       tier: c.tier ?? "",
       data_assinatura: c.data_assinatura ?? "",
+      prazo_contrato_meses: c.prazo_contrato_meses != null ? String(c.prazo_contrato_meses) : "",
+      data_vencimento_contrato: c.data_vencimento_contrato ?? "",
       contrato_url: c.contrato_url ?? "",
       coordenador_id: c.coordenador_id ?? "",
       account_id: c.account_id ?? "",
@@ -118,6 +127,9 @@ export default function ClientesPage() {
   }
 
   const cargoDisponivel = (cargo: string) => pessoas.filter((p) => p.cargo === cargo);
+  const coordenadoresOuGerentes = pessoas.filter(
+    (p) => p.cargo === "coordenador" || p.cargo === "gerente"
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -134,6 +146,19 @@ export default function ClientesPage() {
   }, [clientes, search, filterSquad]);
 
   const totalMRR = filtered.reduce((s, c) => s + (Number(c.mrr) || 0), 0);
+
+  const vencendo = useMemo(() => {
+    const criticos: ClienteView[] = [];
+    const atencao: ClienteView[] = [];
+    const vencidos: ClienteView[] = [];
+    filtered.forEach((c) => {
+      const s = statusVencimento(c.data_vencimento_contrato);
+      if (s === "vencido") vencidos.push(c);
+      else if (s === "critico") criticos.push(c);
+      else if (s === "atencao") atencao.push(c);
+    });
+    return { vencidos, criticos, atencao };
+  }, [filtered]);
 
   return (
     <div>
@@ -162,7 +187,38 @@ export default function ClientesPage() {
         </div>
       </div>
 
-      {/* Toggle de views */}
+      {(vencendo.vencidos.length + vencendo.criticos.length + vencendo.atencao.length) > 0 && (
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {vencendo.vencidos.length > 0 && (
+            <div className="card border border-red-500/40 bg-red-500/5">
+              <p className="text-[10px] uppercase tracking-wide text-red-300">Vencidos</p>
+              <p className="mt-1 text-2xl font-bold text-red-300">{vencendo.vencidos.length}</p>
+              <p className="mt-1 text-[10px] text-brand-muted line-clamp-2">
+                {vencendo.vencidos.map((c) => c.nome).join(" · ")}
+              </p>
+            </div>
+          )}
+          {vencendo.criticos.length > 0 && (
+            <div className="card border border-orange-500/40 bg-orange-500/5">
+              <p className="text-[10px] uppercase tracking-wide text-orange-300">Vencem em ≤ 30 dias</p>
+              <p className="mt-1 text-2xl font-bold text-orange-300">{vencendo.criticos.length}</p>
+              <p className="mt-1 text-[10px] text-brand-muted line-clamp-2">
+                {vencendo.criticos.map((c) => c.nome).join(" · ")}
+              </p>
+            </div>
+          )}
+          {vencendo.atencao.length > 0 && (
+            <div className="card border border-amber-500/40 bg-amber-500/5">
+              <p className="text-[10px] uppercase tracking-wide text-amber-300">Vencem em ≤ 60 dias</p>
+              <p className="mt-1 text-2xl font-bold text-amber-300">{vencendo.atencao.length}</p>
+              <p className="mt-1 text-[10px] text-brand-muted line-clamp-2">
+                {vencendo.atencao.map((c) => c.nome).join(" · ")}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="mb-6 inline-flex rounded-lg border border-white/10 bg-brand-panel/50 p-1">
         {[
           { v: "kanban_etapa", label: "Kanban por Etapa" },
@@ -182,7 +238,6 @@ export default function ClientesPage() {
         ))}
       </div>
 
-      {/* Formulário */}
       {formOpen && (
         <form onSubmit={save} className="card mb-6">
           <p className="mb-4 text-sm font-semibold">
@@ -213,7 +268,7 @@ export default function ClientesPage() {
                 onChange={(e) => setForm({ ...form, mrr: e.target.value })} />
             </div>
             <div>
-              <label className="label">Fee (R$)</label>
+              <label className="label">Pontual (R$)</label>
               <input type="number" step="0.01" className="input" value={form.fee}
                 onChange={(e) => setForm({ ...form, fee: e.target.value })} />
             </div>
@@ -230,7 +285,18 @@ export default function ClientesPage() {
               <input type="date" className="input" value={form.data_assinatura}
                 onChange={(e) => setForm({ ...form, data_assinatura: e.target.value })} />
             </div>
-            <div className="lg:col-span-2">
+            <div>
+              <label className="label">Prazo contrato (meses)</label>
+              <input type="number" min="1" className="input" placeholder="ex: 12"
+                value={form.prazo_contrato_meses}
+                onChange={(e) => setForm({ ...form, prazo_contrato_meses: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">Vencimento contrato</label>
+              <input type="date" className="input" value={form.data_vencimento_contrato}
+                onChange={(e) => setForm({ ...form, data_vencimento_contrato: e.target.value })} />
+            </div>
+            <div className="lg:col-span-3">
               <label className="label">URL do contrato</label>
               <input className="input" value={form.contrato_url}
                 onChange={(e) => setForm({ ...form, contrato_url: e.target.value })} />
@@ -248,7 +314,11 @@ export default function ClientesPage() {
               <select className="input" value={form.coordenador_id}
                 onChange={(e) => setForm({ ...form, coordenador_id: e.target.value })}>
                 <option value="">—</option>
-                {cargoDisponivel("coordenador").map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                {coordenadoresOuGerentes.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nome}{p.cargo === "gerente" ? " (Gerente)" : ""}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
@@ -376,6 +446,7 @@ function Lista({
             <th className="px-4 py-3">GP</th>
             <th className="px-4 py-3">Squad</th>
             <th className="px-4 py-3">LT</th>
+            <th className="px-4 py-3">Vencimento</th>
             <th className="px-4 py-3"></th>
           </tr>
         </thead>
@@ -394,6 +465,21 @@ function Lista({
               <td className="px-4 py-3 text-brand-muted">{c.account_nome ?? "—"}</td>
               <td className="px-4 py-3 text-brand-muted">{c.squad_nome ?? "—"}</td>
               <td className="px-4 py-3 text-brand-muted">{c.lt_meses != null ? `${c.lt_meses} m` : "—"}</td>
+              <td className="px-4 py-3">
+                {c.data_vencimento_contrato ? (
+                  <span className={`badge ${STATUS_VENCIMENTO_COLOR[statusVencimento(c.data_vencimento_contrato)]}`}>
+                    {formatDate(c.data_vencimento_contrato)}
+                    {(() => {
+                      const d = diasParaVencimento(c.data_vencimento_contrato);
+                      if (d == null) return null;
+                      if (d < 0) return ` · ${-d}d atrás`;
+                      return ` · ${d}d`;
+                    })()}
+                  </span>
+                ) : (
+                  <span className="text-xs text-brand-muted">—</span>
+                )}
+              </td>
               <td className="px-4 py-3 text-right space-x-3">
                 <button onClick={() => onEdit(c)} className="text-xs text-brand-muted hover:text-gray-200">editar</button>
                 <button onClick={() => onRemove(c.id)} className="text-xs text-brand-muted hover:text-red-400">excluir</button>
@@ -414,7 +500,6 @@ function KanbanGP({
   onEdit: (c: ClienteView) => void;
   onRemove: (id: string) => void;
 }) {
-  // Agrupa por account_id (GP)
   const gps = pessoas.filter((p) => p.cargo === "gestor_projetos");
   const semGP = clientes.filter((c) => !c.account_id);
   return (
@@ -467,7 +552,6 @@ function KanbanSquad({
   onEdit: (c: ClienteView) => void;
   onRemove: (id: string) => void;
 }) {
-  // Data-driven: cada squad da tabela vira uma coluna automaticamente
   const semSquad = clientes.filter((c) => !c.squad_id);
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -536,6 +620,18 @@ function ClienteCard({
       {c.account_nome && !compact && (
         <p className="mt-1 text-[10px] text-brand-muted">GP: {c.account_nome}</p>
       )}
+      {c.data_vencimento_contrato && (() => {
+        const status = statusVencimento(c.data_vencimento_contrato);
+        if (status === "ok" || status === "sem_data") return null;
+        const dias = diasParaVencimento(c.data_vencimento_contrato);
+        return (
+          <div className={`mt-2 rounded border px-2 py-1 text-[10px] ${STATUS_VENCIMENTO_COLOR[status]}`}>
+            {status === "vencido"
+              ? `⚠ Vencido há ${-(dias ?? 0)} dias`
+              : `⏱ Vence em ${dias} dias (${formatDate(c.data_vencimento_contrato)})`}
+          </div>
+        );
+      })()}
       {onMove && (
         <select
           value={c.etapa}
