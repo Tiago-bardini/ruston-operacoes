@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 const NAV_ACTIVE = [
+  { href: "/cockpit", label: "Cockpit", icon: "★" },
   { href: "/clientes", label: "Clientes", icon: "◎" },
   { href: "/pessoas", label: "Pessoas", icon: "◆" },
   { href: "/squads", label: "Squads", icon: "◇" },
@@ -17,7 +18,6 @@ type NavSoonItem = { label: string; icon: string; subitems?: string[] };
 
 const NAV_SOON: NavSoonItem[] = [
   { label: "Entregas Mensais", icon: "✓", subitems: ["Análise Ekyte"] },
-  { label: "Cockpit", icon: "★" },
   { label: "Forecast", icon: "↗" },
   { label: "Radar de Clientes", icon: "◉" },
 ];
