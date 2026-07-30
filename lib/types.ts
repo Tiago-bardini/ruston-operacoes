@@ -122,6 +122,25 @@ export interface Forecast {
   novos_contratos_valor: number;
   mrr_realizado: number | null;
   observacoes: string | null;
+  // Projetado
+  mrr_aquisicao_projetado: number;
+  onetime_aquisicao_projetado: number;
+  mrr_upsell_projetado: number;
+  onetime_upsell_projetado: number;
+  clientes_churn_projetado: number;
+  // Realizado editável
+  mrr_aquisicao_realizado: number | null;
+  onetime_aquisicao_realizado: number | null;
+  mrr_upsell_realizado: number | null;
+  onetime_upsell_realizado: number | null;
+  clientes_churn_realizado: number | null;
+  // Fechamento
+  fechado: boolean;
+  fechado_em: string | null;
+  mrr_total_snapshot: number | null;
+  clientes_ativos_snapshot: number | null;
+  total_pessoas_snapshot: number | null;
+  folha_snapshot: number | null;
   created_at: string;
   updated_at: string;
 }
