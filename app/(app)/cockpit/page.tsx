@@ -7,7 +7,26 @@ import type {
 } from "@/lib/types";
 import {
   MESES_LABEL, formatBRL, statusVencimento, diasParaVencimento,
+  NIVEL_LABEL, V_LABEL, CARGO_LABEL,
 } from "@/lib/types";
+
+interface OkrMetricaLite {
+  id: string;
+  cargo: string;
+  nome: string;
+  unidade: string;
+}
+interface OkrMetaLite {
+  metrica_id: string;
+  nivel: string;
+  versao_v: string;
+  valor_meta: number | null;
+}
+interface OkrRealizadoLite {
+  pessoa_id: string;
+  metrica_id: string;
+  valor_realizado: number | null;
+}
 
 const CARGOS_OPERACIONAIS: Cargo[] = ["coordenador", "gestor_projetos", "gestor_trafego", "designer"];
 const MES_ATUAL = new Date().getMonth() + 1;
@@ -22,6 +41,9 @@ export default function CockpitPage() {
   const [metasSquad, setMetasSquad] = useState<MetaSquad[]>([]);
   const [fcas, setFcas] = useState<FcaView[]>([]);
   const [headcount, setHeadcount] = useState<HeadcountPlanejado[]>([]);
+  const [okrMetricas, setOkrMetricas] = useState<OkrMetricaLite[]>([]);
+  const [okrMetasRegua, setOkrMetasRegua] = useState<OkrMetaLite[]>([]);
+  const [okrRealizados, setOkrRealizados] = useState<OkrRealizadoLite[]>([]);
   const [loading, setLoading] = useState(true);
   const [mes, setMes] = useState(MES_ATUAL);
   const [ano, setAno] = useState(ANO_ATUAL);
@@ -31,6 +53,7 @@ export default function CockpitPage() {
     const [
       { data: cs }, { data: ps }, { data: sq },
       { data: me }, { data: ms }, { data: fc }, { data: hc },
+      { data: okm }, { data: okr }, { data: okra },
     ] = await Promise.all([
       supabase.from("ruston_clientes_view").select("*").eq("ativo", true),
       supabase.from("ruston_pessoas").select("*").eq("ativo", true),
@@ -39,6 +62,9 @@ export default function CockpitPage() {
       supabase.from("ruston_metas_squad").select("*").eq("ano", ano).eq("mes", mes),
       supabase.from("ruston_fca_view").select("*").eq("ano", ano).eq("mes", mes),
       supabase.from("ruston_headcount_planejado").select("*"),
+      supabase.from("ruston_okr_metricas").select("id,cargo,nome,unidade").eq("ativo", true),
+      supabase.from("ruston_okr_metas").select("metrica_id,nivel,versao_v,valor_meta").eq("ano", ano).eq("mes", mes),
+      supabase.from("ruston_okr_realizado_investidor").select("pessoa_id,metrica_id,valor_realizado").eq("ano", ano).eq("mes", mes),
     ]);
     setClientes((cs as ClienteView[]) ?? []);
     setPessoas((ps as Pessoa[]) ?? []);
@@ -47,6 +73,9 @@ export default function CockpitPage() {
     setMetasSquad((ms as MetaSquad[]) ?? []);
     setFcas((fc as FcaView[]) ?? []);
     setHeadcount((hc as HeadcountPlanejado[]) ?? []);
+    setOkrMetricas((okm as OkrMetricaLite[]) ?? []);
+    setOkrMetasRegua((okr as OkrMetaLite[]) ?? []);
+    setOkrRealizados((okra as OkrRealizadoLite[]) ?? []);
     setLoading(false);
   }
 
@@ -67,6 +96,12 @@ export default function CockpitPage() {
     const comLT = clientes.filter((c) => c.lt_meses != null);
     if (comLT.length === 0) return 0;
     return comLT.reduce((s, c) => s + (c.lt_meses ?? 0) * (Number(c.mrr) || 0), 0) / comLT.length;
+  }, [clientes]);
+
+  const ltMedio = useMemo(() => {
+    const comLT = clientes.filter((c) => c.lt_meses != null);
+    if (comLT.length === 0) return null;
+    return comLT.reduce((s, c) => s + (c.lt_meses ?? 0), 0) / comLT.length;
   }, [clientes]);
 
   const custoOperacional = useMemo(() => {
@@ -143,6 +178,36 @@ export default function CockpitPage() {
       return { squad: s, batidas, total, pct };
     }).sort((a, b) => b.pct - a.pct);
   }, [squads, metasSquad]);
+
+  // ============ Top 3 investidores por cargo ============
+
+  const top3PorCargo = useMemo(() => {
+    const cargosComMetricas = Array.from(new Set(okrMetricas.map((m) => m.cargo)));
+    return cargosComMetricas.map((cargo) => {
+      const metricasCargo = okrMetricas.filter((m) => m.cargo === cargo);
+      const pessoasCargo = pessoas.filter(
+        (p) => p.cargo === cargo && p.nivel_senioridade && p.nivel_v && p.ativo
+      );
+      const rank = pessoasCargo.map((p) => {
+        let batidas = 0;
+        metricasCargo.forEach((m) => {
+          const meta = okrMetasRegua.find(
+            (r) => r.metrica_id === m.id && r.nivel === p.nivel_senioridade && r.versao_v === p.nivel_v
+          );
+          const real = okrRealizados.find((r) => r.metrica_id === m.id && r.pessoa_id === p.id);
+          if (!meta?.valor_meta || real?.valor_realizado == null) return;
+          const menor = m.nome.toLowerCase().includes("churn") || m.nome.toLowerCase().includes("refação");
+          if (menor ? real.valor_realizado <= meta.valor_meta : real.valor_realizado >= meta.valor_meta) {
+            batidas++;
+          }
+        });
+        const total = metricasCargo.length;
+        const pct = total > 0 ? Math.round((batidas / total) * 100) : 0;
+        return { pessoa: p, batidas, total, pct };
+      }).sort((a, b) => b.pct - a.pct).slice(0, 3);
+      return { cargo, top: rank };
+    }).filter((c) => c.top.length > 0);
+  }, [okrMetricas, okrMetasRegua, okrRealizados, pessoas]);
 
   // ============ Timeline (últimos 6 meses de MRR — usa clientes atuais como aproximação) ============
 
@@ -271,8 +336,16 @@ export default function CockpitPage() {
               <p className="mb-3 text-sm font-semibold">📊 Métricas da carteira</p>
               <div className="space-y-3">
                 <div>
+                  <p className="text-[10px] uppercase tracking-wide text-brand-muted">LT médio da unidade</p>
+                  <p className="text-xl font-bold">
+                    {ltMedio != null ? `${ltMedio.toFixed(1)} meses` : "—"}
+                  </p>
+                  <p className="text-[10px] text-brand-muted">tempo médio de contrato ativo</p>
+                </div>
+                <div>
                   <p className="text-[10px] uppercase tracking-wide text-brand-muted">LTV médio estimado</p>
                   <p className="text-xl font-bold">{formatBRL(ltvMedio)}</p>
+                  <p className="text-[10px] text-brand-muted">MRR × LT em meses</p>
                 </div>
                 <div>
                   <p className="text-[10px] uppercase tracking-wide text-brand-muted">Time total</p>
@@ -288,6 +361,45 @@ export default function CockpitPage() {
               </div>
             </div>
           </div>
+
+          {/* ============ TOP 3 INVESTIDORES POR CADEIRA ============ */}
+          {top3PorCargo.length > 0 && (
+            <div className="mb-6">
+              <p className="mb-3 text-sm font-semibold">🏆 Top 3 investidores por cadeira</p>
+              <div className={`grid gap-3 grid-cols-1 md:grid-cols-2 ${top3PorCargo.length >= 3 ? "xl:grid-cols-3" : ""}`}>
+                {top3PorCargo.map(({ cargo, top }) => (
+                  <div key={cargo} className="card">
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-brand">
+                      {CARGO_LABEL[cargo as Cargo] ?? cargo}
+                    </p>
+                    <div className="space-y-2">
+                      {top.map((r, i) => (
+                        <div key={r.pessoa.id} className="flex items-center gap-2">
+                          <span className="w-8 text-center text-lg">
+                            {i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="truncate text-sm font-medium">{r.pessoa.nome}</p>
+                            <p className="text-[10px] text-brand-muted">
+                              {r.pessoa.nivel_senioridade ? NIVEL_LABEL[r.pessoa.nivel_senioridade] : "—"} {r.pessoa.nivel_v ? V_LABEL[r.pessoa.nivel_v] : ""}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className={`text-lg font-bold ${
+                              r.pct >= 80 ? "text-emerald-300" :
+                              r.pct >= 50 ? "text-amber-300" :
+                              "text-red-300"
+                            }`}>{r.pct}%</p>
+                            <p className="text-[9px] text-brand-muted">{r.batidas}/{r.total}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ============ CENTRAL DE ALERTAS ============ */}
           {totalAlertas > 0 && (
