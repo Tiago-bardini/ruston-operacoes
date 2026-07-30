@@ -12,13 +12,13 @@ const NAV_ACTIVE = [
   { href: "/metas", label: "Metas", icon: "◈" },
   { href: "/fca", label: "FCA", icon: "▤" },
   { href: "/headcount", label: "Headcount", icon: "☰" },
+  { href: "/forecast", label: "Forecast", icon: "↗" },
 ];
 
 type NavSoonItem = { label: string; icon: string; subitems?: string[] };
 
 const NAV_SOON: NavSoonItem[] = [
   { label: "Entregas Mensais", icon: "✓", subitems: ["Análise Ekyte"] },
-  { label: "Forecast", icon: "↗" },
   { label: "Radar de Clientes", icon: "◉" },
 ];
 
