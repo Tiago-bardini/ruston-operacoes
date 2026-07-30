@@ -19,8 +19,38 @@ const NAV_ACTIVE = [
 type NavSoonItem = { label: string; icon: string; subitems?: string[] };
 
 const NAV_SOON: NavSoonItem[] = [
-  { label: "Entregas Mensais", icon: "✓", subitems: ["Análise Ekyte"] },
-  { label: "Radar de Clientes", icon: "◉" },
+  {
+    label: "Radar de Clientes",
+    icon: "◉",
+    subitems: [
+      "Temperatura de reunião (IA)",
+      "Sinais de risco de churn",
+      "Sinais de upsell",
+      "Integração Google Meet",
+    ],
+  },
+  {
+    label: "Entregas Mensais",
+    icon: "✓",
+    subitems: ["Análise Ekyte", "Timesheet"],
+  },
+  {
+    label: "Playbooks",
+    icon: "▤",
+    subitems: [
+      "Playbook por cadeira",
+      "Templates de mensagem",
+      "Scripts de reunião",
+    ],
+  },
+  {
+    label: "Insights & Análises",
+    icon: "⚡",
+    subitems: [
+      "Motivos de churn agrupados",
+      "Análise de coorte",
+    ],
+  },
 ];
 
 export default function Sidebar({ email }: { email?: string }) {
