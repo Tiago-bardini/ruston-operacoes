@@ -98,6 +98,17 @@ export interface Pessoa {
   observacoes: string | null;
   nivel_senioridade: NivelSenioridade | null;
   nivel_v: VersaoV | null;
+  salario: number | null;
+  compartilhado_entre_squads: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HeadcountPlanejado {
+  id: string;
+  squad_id: string;
+  cargo: Cargo;
+  quantidade_planejada: number;
   created_at: string;
   updated_at: string;
 }
