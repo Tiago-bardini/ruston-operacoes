@@ -113,6 +113,19 @@ export interface HeadcountPlanejado {
   updated_at: string;
 }
 
+export interface Forecast {
+  id: string;
+  ano: number;
+  mes: number;
+  meta_mrr: number | null;
+  churn_projetado_pct: number;
+  novos_contratos_valor: number;
+  mrr_realizado: number | null;
+  observacoes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export type UnidadeMeta = "percentual" | "nota" | "reais" | "quantidade";
 
 export const UNIDADE_LABEL: Record<UnidadeMeta, string> = {
