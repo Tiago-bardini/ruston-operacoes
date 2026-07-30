@@ -10,6 +10,7 @@ const NAV_ACTIVE = [
   { href: "/squads", label: "Squads", icon: "◇" },
   { href: "/metas", label: "Metas", icon: "◈" },
   { href: "/fca", label: "FCA", icon: "▤" },
+  { href: "/headcount", label: "Headcount", icon: "☰" },
 ];
 
 type NavSoonItem = { label: string; icon: string; subitems?: string[] };
@@ -17,7 +18,6 @@ type NavSoonItem = { label: string; icon: string; subitems?: string[] };
 const NAV_SOON: NavSoonItem[] = [
   { label: "Entregas Mensais", icon: "✓", subitems: ["Análise Ekyte"] },
   { label: "Cockpit", icon: "★" },
-  { label: "Headcount", icon: "☰" },
   { label: "Forecast", icon: "↗" },
   { label: "Radar de Clientes", icon: "◉" },
 ];
