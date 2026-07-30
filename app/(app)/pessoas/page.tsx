@@ -25,6 +25,8 @@ const emptyForm = {
   squad_id: "",
   nivel_senioridade: "" as NivelSenioridade | "",
   nivel_v: "" as VersaoV | "",
+  salario: "",
+  compartilhado_entre_squads: false,
   observacoes: "",
 };
 
@@ -61,6 +63,8 @@ export default function PessoasPage() {
       squad_id: form.squad_id || null,
       nivel_senioridade: form.nivel_senioridade || null,
       nivel_v: form.nivel_v || null,
+      salario: form.salario ? Number(form.salario) : null,
+      compartilhado_entre_squads: form.compartilhado_entre_squads,
       observacoes: form.observacoes || null,
     };
     if (editingId) {
@@ -82,6 +86,8 @@ export default function PessoasPage() {
       squad_id: p.squad_id ?? "",
       nivel_senioridade: p.nivel_senioridade ?? "",
       nivel_v: p.nivel_v ?? "",
+      salario: p.salario != null ? String(p.salario) : "",
+      compartilhado_entre_squads: p.compartilhado_entre_squads ?? false,
       observacoes: p.observacoes ?? "",
     });
     setEditingId(p.id);
@@ -184,6 +190,24 @@ export default function PessoasPage() {
                 </div>
               </>
             )}
+            <div>
+              <label className="label">Salário (R$)</label>
+              <input type="number" step="0.01" className="input" value={form.salario}
+                onChange={(e) => setForm({ ...form, salario: e.target.value })}
+                placeholder="ex: 5000" />
+            </div>
+            <div className="lg:col-span-2">
+              <label className="label">Alocação</label>
+              <label className="flex h-10 items-center gap-2 cursor-pointer rounded-lg border border-white/10 bg-brand-panel/50 px-3">
+                <input
+                  type="checkbox"
+                  checked={form.compartilhado_entre_squads}
+                  onChange={(e) => setForm({ ...form, compartilhado_entre_squads: e.target.checked })}
+                  className="h-4 w-4"
+                />
+                <span className="text-sm">Compartilhado entre squads (Gerente, Tech, COO)</span>
+              </label>
+            </div>
             <div className="lg:col-span-3">
               <label className="label">Observações</label>
               <input className="input" value={form.observacoes}
