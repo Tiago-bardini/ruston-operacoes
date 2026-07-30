@@ -13,6 +13,7 @@ const NAV_ACTIVE = [
   { href: "/fca", label: "FCA", icon: "▤" },
   { href: "/headcount", label: "Headcount", icon: "☰" },
   { href: "/forecast", label: "Forecast", icon: "↗" },
+  { href: "/reunioes", label: "Reuniões", icon: "☎" },
 ];
 
 type NavSoonItem = { label: string; icon: string; subitems?: string[] };
