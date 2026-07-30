@@ -303,6 +303,10 @@ export interface Cliente {
   prazo_contrato_meses: number | null;
   data_vencimento_contrato: string | null;
   churn_realizado: boolean;
+  motivo_churn: string | null;
+  data_subir_churn_sistema: string | null;
+  subiu_no_sistema: boolean;
+  subiu_no_sistema_em: string | null;
   coordenador_id: string | null;
   account_id: string | null;
   gestor_trafego_id: string | null;
