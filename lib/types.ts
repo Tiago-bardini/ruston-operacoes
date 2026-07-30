@@ -113,6 +113,78 @@ export interface HeadcountPlanejado {
   updated_at: string;
 }
 
+export type TipoCadencia = "semanal" | "quinzenal" | "mensal" | "custom";
+export type TipoReuniao = "kickoff" | "periodica" | "urgente" | "upsell" | "renovacao" | "outra";
+
+export const TIPO_CADENCIA_LABEL: Record<TipoCadencia, string> = {
+  semanal: "Semanal",
+  quinzenal: "Quinzenal",
+  mensal: "Mensal",
+  custom: "Custom",
+};
+
+export const TIPO_REUNIAO_LABEL: Record<TipoReuniao, string> = {
+  kickoff: "Kickoff",
+  periodica: "Periódica",
+  urgente: "Urgente",
+  upsell: "Upsell",
+  renovacao: "Renovação",
+  outra: "Outra",
+};
+
+export interface ReuniaoCliente {
+  id: string;
+  cliente_id: string;
+  data_reuniao: string;
+  hora: string | null;
+  tipo_reuniao: TipoReuniao;
+  responsavel_id: string | null;
+  presentes: string | null;
+  resumo: string | null;
+  decisoes: string | null;
+  proximos_passos: string | null;
+  observacoes: string | null;
+  realizada: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReuniaoStatus {
+  cliente_id: string;
+  cliente_nome: string;
+  cliente_squad_id: string | null;
+  cliente_account_id: string | null;
+  cadencia_dias: number;
+  tipo_cadencia: TipoCadencia;
+  ultima_reuniao: string | null;
+  total_reunioes: number;
+  dias_sem_reuniao: number;
+}
+
+export function statusCadencia(status: ReuniaoStatus): "ok" | "proximo" | "atrasado" | "critico" {
+  if (status.ultima_reuniao == null) return "critico";
+  const dias = status.dias_sem_reuniao;
+  const cad = status.cadencia_dias;
+  if (dias >= cad * 1.5) return "critico";
+  if (dias >= cad) return "atrasado";
+  if (dias >= cad * 0.75) return "proximo";
+  return "ok";
+}
+
+export const STATUS_CADENCIA_COLOR = {
+  ok:       "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
+  proximo:  "bg-sky-500/20 text-sky-300 border-sky-500/40",
+  atrasado: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+  critico:  "bg-red-500/20 text-red-300 border-red-500/40",
+};
+
+export const STATUS_CADENCIA_LABEL = {
+  ok: "Em dia",
+  proximo: "Se aproximando",
+  atrasado: "Atrasado",
+  critico: "Crítico",
+};
+
 export interface Forecast {
   id: string;
   ano: number;
