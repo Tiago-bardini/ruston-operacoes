@@ -11,7 +11,7 @@ import {
 const ETAPAS: EtapaCliente[] = ["onboarding", "estruturacao_estrategica", "byline", "em_recuperacao", "suspenso"];
 const TIERS: TierCliente[] = ["tiny", "small", "medium", "large"];
 
-type View = "kanban_etapa" | "lista" | "kanban_gp" | "kanban_squad";
+type View = "kanban_etapa" | "lista" | "kanban_gp" | "kanban_squad" | "churn";
 
 const emptyForm = {
   nome: "",
@@ -38,6 +38,7 @@ export default function ClientesPage() {
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);
   const [fcasRecentes, setFcasRecentes] = useState<Record<string, FcaView>>({});
+  const [churnModal, setChurnModal] = useState<ClienteView | null>(null);
   const [view, setView] = useState<View>("kanban_etapa");
   const [form, setForm] = useState(emptyForm);
   const [formOpen, setFormOpen] = useState(false);
@@ -49,10 +50,10 @@ export default function ClientesPage() {
   async function load() {
     setLoading(true);
     const [{ data: cs }, { data: ps }, { data: sq }, { data: fs }] = await Promise.all([
-      supabase.from("ruston_clientes_view").select("*").eq("ativo", true).order("nome"),
+      // Traz TODOS (ativos + churn) — a view filtra em memória
+      supabase.from("ruston_clientes_view").select("*").order("nome"),
       supabase.from("ruston_pessoas").select("*").eq("ativo", true).order("nome"),
       supabase.from("ruston_squads").select("*").eq("ativo", true).order("nome"),
-      // Puxa FCA mais recente por cliente (view retorna todos, filtramos em memória)
       supabase.from("ruston_fca_view").select("*").order("ano", { ascending: false }).order("mes", { ascending: false }),
     ]);
     setClientes((cs as ClienteView[]) ?? []);
@@ -145,6 +146,12 @@ export default function ClientesPage() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return clientes.filter((c) => {
+      // Separa: view churn mostra só churn_realizado, resto mostra só ativos
+      if (view === "churn") {
+        if (!c.churn_realizado) return false;
+      } else {
+        if (!c.ativo || c.churn_realizado) return false;
+      }
       if (filterSquad && c.squad_id !== filterSquad) return false;
       if (!q) return true;
       return (
@@ -154,7 +161,18 @@ export default function ClientesPage() {
         (c.squad_nome ?? "").toLowerCase().includes(q)
       );
     });
-  }, [clientes, search, filterSquad]);
+  }, [clientes, search, filterSquad, view]);
+
+  // Alerta: churns pendentes de subir no sistema (data <= hoje E não subiu)
+  const churnsPendentes = useMemo(() => {
+    const hoje = new Date().toISOString().slice(0, 10);
+    return clientes.filter((c) =>
+      c.churn_realizado
+      && !c.subiu_no_sistema
+      && c.data_subir_churn_sistema != null
+      && c.data_subir_churn_sistema <= hoje
+    );
+  }, [clientes]);
 
   const totalMRR = filtered.reduce((s, c) => s + (Number(c.mrr) || 0), 0);
 
@@ -222,6 +240,23 @@ export default function ClientesPage() {
         </div>
       )}
 
+      {churnsPendentes.length > 0 && (
+        <div className="mb-4 card border border-purple-500/40 bg-purple-500/5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-purple-300">Churn pendente de subir no sistema</p>
+              <p className="mt-1 text-lg font-bold text-purple-300">
+                {churnsPendentes.length} cliente{churnsPendentes.length > 1 ? "s" : ""} pra processar no CRM externo
+              </p>
+              <p className="mt-1 text-[10px] text-brand-muted">
+                {churnsPendentes.map((c) => c.nome).join(" · ")}
+              </p>
+            </div>
+            <button className="btn text-xs" onClick={() => setView("churn")}>Ver churns</button>
+          </div>
+        </div>
+      )}
+
       {(vencendo.vencidos.length + vencendo.criticos.length + vencendo.atencao.length) > 0 && (
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
           {vencendo.vencidos.length > 0 && (
@@ -261,6 +296,7 @@ export default function ClientesPage() {
           { v: "lista", label: "Lista" },
           { v: "kanban_gp", label: "Kanban por GP" },
           { v: "kanban_squad", label: "Kanban por Squad" },
+          { v: "churn", label: `Churn (${clientes.filter((c) => c.churn_realizado).length})` },
         ].map((it) => (
           <button
             key={it.v}
@@ -425,6 +461,201 @@ export default function ClientesPage() {
       {!loading && filtered.length > 0 && view === "kanban_squad" && (
         <KanbanSquad clientes={filtered} squads={squads} onEdit={edit} onRemove={remove} />
       )}
+
+      {!loading && view === "churn" && (
+        <ChurnList clientes={filtered} onMarkarSubiu={async (id) => {
+          await supabase.from("ruston_clientes")
+            .update({ subiu_no_sistema: true, subiu_no_sistema_em: new Date().toISOString() })
+            .eq("id", id);
+          load();
+        }} onReativar={async (id) => {
+          if (!confirm("Reativar esse cliente? Ele volta pra base ativa.")) return;
+          await supabase.from("ruston_clientes")
+            .update({ churn_realizado: false, ativo: true, data_churn: null, subiu_no_sistema: false })
+            .eq("id", id);
+          load();
+        }} />
+      )}
+
+      {/* Modal SUBIR CHURN */}
+      {churnModal && (
+        <ModalSubirChurn
+          cliente={churnModal}
+          onFechar={() => setChurnModal(null)}
+          onConfirmar={async ({ data_churn, motivo_churn, data_subir_churn_sistema }) => {
+            await supabase.from("ruston_clientes").update({
+              churn_realizado: true,
+              ativo: false,
+              data_churn,
+              motivo_churn,
+              data_subir_churn_sistema,
+              etapa: "cancelado",
+            }).eq("id", churnModal.id);
+            setChurnModal(null);
+            load();
+          }}
+        />
+      )}
+
+      {/* Botão flutuante SUBIR CHURN quando editando */}
+      {formOpen && editingId && (
+        <div className="fixed bottom-4 right-4 z-40">
+          <button
+            className="btn bg-purple-600 hover:bg-purple-700 border-purple-500 text-white text-xs"
+            onClick={() => {
+              const c = clientes.find((x) => x.id === editingId);
+              if (c) { setFormOpen(false); setChurnModal(c); }
+            }}
+          >
+            ⚠ Subir Churn
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================== CHURN LIST ============================== */
+
+function ChurnList({ clientes, onMarkarSubiu, onReativar }: {
+  clientes: ClienteView[];
+  onMarkarSubiu: (id: string) => void;
+  onReativar: (id: string) => void;
+}) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  return (
+    <div className="card overflow-x-auto p-0">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-white/5 text-left text-xs uppercase tracking-wide text-brand-muted">
+            <th className="px-4 py-3">Cliente</th>
+            <th className="px-4 py-3">Data Churn</th>
+            <th className="px-4 py-3">GP</th>
+            <th className="px-4 py-3">Squad</th>
+            <th className="px-4 py-3">MRR perdido</th>
+            <th className="px-4 py-3">Motivo</th>
+            <th className="px-4 py-3">Subir no sistema</th>
+            <th className="px-4 py-3"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {clientes.length === 0 && (
+            <tr><td colSpan={8} className="px-4 py-12 text-center text-brand-muted">
+              Nenhum cliente em churn. Quando algum cliente pedir pra sair, edite ele e clique em "Subir Churn".
+            </td></tr>
+          )}
+          {clientes.map((c) => {
+            const dataSubir = c.data_subir_churn_sistema;
+            const pendente = !c.subiu_no_sistema && dataSubir != null && dataSubir <= hoje;
+            return (
+              <tr key={c.id} className="border-b border-white/5 last:border-0">
+                <td className="px-4 py-3 font-medium">{c.nome}</td>
+                <td className="px-4 py-3 text-brand-muted">{formatDate(c.data_churn)}</td>
+                <td className="px-4 py-3 text-brand-muted">{c.account_nome ?? "—"}</td>
+                <td className="px-4 py-3 text-brand-muted">{c.squad_nome ?? "—"}</td>
+                <td className="px-4 py-3 font-medium text-red-300">{formatBRL(c.mrr)}</td>
+                <td className="px-4 py-3 text-xs text-brand-muted line-clamp-2">{c.motivo_churn ?? "—"}</td>
+                <td className="px-4 py-3">
+                  {c.subiu_no_sistema ? (
+                    <span className="badge bg-emerald-500/15 text-emerald-300 border-emerald-500/30">✓ Subiu</span>
+                  ) : dataSubir ? (
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs ${pendente ? "text-purple-300 font-semibold" : "text-brand-muted"}`}>
+                        {formatDate(dataSubir)}{pendente ? " · pendente!" : ""}
+                      </span>
+                      <button
+                        className="text-[10px] text-emerald-300 hover:text-emerald-400"
+                        onClick={() => onMarkarSubiu(c.id)}
+                      >marcar como subiu</button>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-brand-muted">sem data</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <button onClick={() => onReativar(c.id)} className="text-xs text-brand hover:text-red-400">
+                    reativar
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ============================== MODAL SUBIR CHURN ============================== */
+
+function ModalSubirChurn({ cliente, onFechar, onConfirmar }: {
+  cliente: ClienteView;
+  onFechar: () => void;
+  onConfirmar: (payload: {
+    data_churn: string;
+    motivo_churn: string | null;
+    data_subir_churn_sistema: string | null;
+  }) => void;
+}) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const diasFuturos = (n: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+  const [dataChurn, setDataChurn] = useState(hoje);
+  const [motivo, setMotivo] = useState("");
+  const [dataSubir, setDataSubir] = useState(diasFuturos(7));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onFechar}>
+      <div className="w-full max-w-md rounded-xl bg-brand-panel p-6 shadow-lg"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4">
+          <h3 className="text-lg font-bold text-purple-300">⚠ Subir Churn</h3>
+          <p className="mt-1 text-sm text-brand-muted">
+            Cliente: <strong className="text-white">{cliente.nome}</strong>
+          </p>
+          <p className="text-xs text-brand-muted">
+            MRR perdido: {formatBRL(cliente.mrr)}
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="label">Data do churn</label>
+            <input type="date" className="input" value={dataChurn}
+              onChange={(e) => setDataChurn(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Motivo (opcional)</label>
+            <textarea className="input" rows={3} value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+              placeholder="Ex: sem verba, insatisfeito com resultado, mudou de agência..." />
+          </div>
+          <div>
+            <label className="label">Data pra subir no CRM externo (opcional)</label>
+            <input type="date" className="input" value={dataSubir}
+              onChange={(e) => setDataSubir(e.target.value)} />
+            <p className="mt-1 text-[10px] text-brand-muted">
+              Sistema vai lembrar quando essa data chegar
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 flex items-center gap-2">
+          <button
+            className="btn bg-purple-600 hover:bg-purple-700 border-purple-500"
+            onClick={() => onConfirmar({
+              data_churn: dataChurn,
+              motivo_churn: motivo || null,
+              data_subir_churn_sistema: dataSubir || null,
+            })}
+          >Confirmar Churn</button>
+          <button className="btn-ghost" onClick={onFechar}>Cancelar</button>
+        </div>
+      </div>
     </div>
   );
 }
