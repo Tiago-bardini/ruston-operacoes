@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { MetaEmpresa, MetaSquad, Squad, UnidadeMeta, NivelSenioridade, VersaoV, Pessoa } from "@/lib/types";
 import { MESES_LABEL, UNIDADE_LABEL, NIVEL_LABEL, V_LABEL, CARGO_LABEL } from "@/lib/types";
 
-type Tab = "empresa" | "squads" | "okrs" | "investidores" | "comparativo";
+type Tab = "empresa" | "squads" | "okrs" | "investidores" | "comparativo" | "ranking";
 
 const ANO_ATUAL = new Date().getFullYear();
 const MES_ATUAL = new Date().getMonth() + 1;
@@ -70,6 +70,7 @@ export default function MetasPage() {
           { v: "okrs",         label: "OKRs (Régua)" },
           { v: "investidores", label: "Investidores" },
           { v: "comparativo",  label: "Comparativo" },
+          { v: "ranking",      label: "Ranking" },
         ].map((it) => (
           <button
             key={it.v}
@@ -88,6 +89,7 @@ export default function MetasPage() {
       {tab === "okrs"         && <TabOKRs />}
       {tab === "investidores" && <TabInvestidores />}
       {tab === "comparativo"  && <TabComparativo />}
+      {tab === "ranking"      && <TabRanking />}
     </div>
   );
 }
@@ -772,6 +774,160 @@ function InputMeta({
   );
 }
 
+/* ============================== TAB RANKING ============================== */
+
+function TabRanking() {
+  const supabase = createClient();
+  const [cargosDisponiveis, setCargosDisponiveis] = useState<string[]>([]);
+  const [cargo, setCargo] = useState<string>("");
+  const [ano, setAno] = useState(ANO_ATUAL);
+  const [mes, setMes] = useState(MES_ATUAL);
+  const [ranking, setRanking] = useState<{
+    pessoa: Pessoa;
+    total: number;
+    batidas: number;
+    pct: number;
+  }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("ruston_okr_metricas").select("cargo").eq("ativo", true);
+      const uniq = Array.from(new Set(((data as { cargo: string }[]) ?? []).map((r) => r.cargo))).sort();
+      setCargosDisponiveis(uniq);
+      if (!cargo && uniq.length > 0) setCargo(uniq[0]);
+    })();
+  // eslint-disable-next-line
+  }, []);
+
+  async function load() {
+    if (!cargo) return;
+    setLoading(true);
+    // 1) Pessoas ativas desse cargo com nível+V preenchido
+    const { data: pessoas } = await supabase
+      .from("ruston_pessoas")
+      .select("*")
+      .eq("cargo", cargo).eq("ativo", true)
+      .not("nivel_senioridade", "is", null).not("nivel_v", "is", null);
+    const pessoasList = (pessoas as Pessoa[]) ?? [];
+    // 2) Métricas do cargo
+    const { data: metricas } = await supabase
+      .from("ruston_okr_metricas")
+      .select("*").eq("cargo", cargo).eq("ativo", true);
+    const metricasList = (metricas as OkrMetrica[]) ?? [];
+    // 3) Todas as metas da régua e realizados do mês
+    const [{ data: metasRegua }, { data: realizados }] = await Promise.all([
+      supabase.from("ruston_okr_metas").select("*")
+        .eq("ano", ano).eq("mes", mes)
+        .in("metrica_id", metricasList.map((m) => m.id)),
+      supabase.from("ruston_okr_realizado_investidor").select("*")
+        .eq("ano", ano).eq("mes", mes)
+        .in("pessoa_id", pessoasList.map((p) => p.id)),
+    ]);
+
+    // 4) Calcula score de cada pessoa
+    const rank = pessoasList.map((p) => {
+      let batidas = 0;
+      metricasList.forEach((m) => {
+        const meta = ((metasRegua as OkrMeta[]) ?? []).find((r) =>
+          r.metrica_id === m.id && r.nivel === p.nivel_senioridade && r.versao_v === p.nivel_v);
+        const real = ((realizados as any[]) ?? []).find((r) =>
+          r.metrica_id === m.id && r.pessoa_id === p.id);
+        if (!meta?.valor_meta || real?.valor_realizado == null) {
+          return; // não batida
+        }
+        const menorMelhor = m.nome.toLowerCase().includes("churn") || m.nome.toLowerCase().includes("refação");
+        if (menorMelhor ? real.valor_realizado <= meta.valor_meta : real.valor_realizado >= meta.valor_meta) {
+          batidas++;
+        }
+      });
+      const total = metricasList.length;
+      const pct = total > 0 ? Math.round((batidas / total) * 100) : 0;
+      return { pessoa: p, total, batidas, pct };
+    }).sort((a, b) => b.pct - a.pct);
+
+    setRanking(rank);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [cargo, ano, mes]);
+
+  const medalha = (pos: number) => pos === 0 ? "🥇" : pos === 1 ? "🥈" : pos === 2 ? "🥉" : `${pos + 1}º`;
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs uppercase tracking-wide text-brand-muted">Cargo</span>
+          <select className="input max-w-[220px]" value={cargo} onChange={(e) => setCargo(e.target.value)}>
+            {cargosDisponiveis.map((c) => (
+              <option key={c} value={c}>{CARGO_LABEL_OKR[c] ?? c}</option>
+            ))}
+          </select>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <select className="input max-w-[140px]" value={mes} onChange={(e) => setMes(Number(e.target.value))}>
+            {MESES_LABEL.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+          </select>
+          <select className="input max-w-[100px]" value={ano} onChange={(e) => setAno(Number(e.target.value))}>
+            {ANOS.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {loading && <p className="text-brand-muted">Calculando ranking...</p>}
+
+      {!loading && ranking.length === 0 && (
+        <div className="card text-center py-12">
+          <p className="text-brand-muted">
+            Nenhum investidor no cargo {CARGO_LABEL_OKR[cargo] ?? cargo} com nível/V preenchidos.
+          </p>
+        </div>
+      )}
+
+      {!loading && ranking.length > 0 && (
+        <div className="space-y-2">
+          {ranking.map((r, i) => {
+            const cor =
+              r.pct >= 80 ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/30" :
+              r.pct >= 50 ? "text-amber-300 bg-amber-500/10 border-amber-500/30" :
+              "text-red-300 bg-red-500/10 border-red-500/30";
+            return (
+              <div key={r.pessoa.id} className={`card flex items-center gap-4 border ${i < 3 ? cor : ""}`}>
+                <div className="w-12 text-center text-2xl font-bold">
+                  {medalha(i)}
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold">{r.pessoa.nome}</p>
+                  <p className="text-[10px] text-brand-muted">
+                    {r.pessoa.nivel_senioridade ? NIVEL_LABEL[r.pessoa.nivel_senioridade] : "—"} {r.pessoa.nivel_v ? V_LABEL[r.pessoa.nivel_v] : ""}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-bold">{r.pct}%</p>
+                  <p className="text-[10px] text-brand-muted">{r.batidas} de {r.total} batidas</p>
+                </div>
+                <div className="w-40">
+                  <div className="h-2 overflow-hidden rounded-full bg-white/5">
+                    <div
+                      className={`h-full transition-all ${
+                        r.pct >= 80 ? "bg-emerald-500" :
+                        r.pct >= 50 ? "bg-amber-500" :
+                        "bg-red-500"
+                      }`}
+                      style={{ width: `${r.pct}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ============================== TAB COMPARATIVO ============================== */
 
 function TabComparativo() {
@@ -851,6 +1007,50 @@ function TabComparativo() {
 
       {!loading && squads.length > 0 && (
         <>
+          {/* Ranking de Squads */}
+          {(() => {
+            const rank = [...statsPorSquad].sort((a, b) => b.pctBatidas - a.pctBatidas);
+            const medalha = (pos: number) => pos === 0 ? "🥇" : pos === 1 ? "🥈" : pos === 2 ? "🥉" : `${pos + 1}º`;
+            return (
+              <div className="mb-6">
+                <h3 className="mb-3 text-sm font-semibold">🏆 Ranking de Squads</h3>
+                <div className="space-y-2">
+                  {rank.map((r, i) => (
+                    <div key={r.squad.id} className="card flex items-center gap-4">
+                      <div className="w-12 text-center text-2xl font-bold">{medalha(i)}</div>
+                      <div
+                        className="flex h-10 w-10 items-center justify-center rounded-lg font-bold text-white"
+                        style={{ backgroundColor: r.squad.cor || "#1a1a1a" }}
+                      >
+                        {r.squad.nome.charAt(0)}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-semibold">{r.squad.nome}</p>
+                        <p className="text-[10px] text-brand-muted">{r.squad.label ?? "Squad"}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-2xl font-bold">{r.pctBatidas}%</p>
+                        <p className="text-[10px] text-brand-muted">{r.batidas} de {r.total} batidas</p>
+                      </div>
+                      <div className="w-40">
+                        <div className="h-2 overflow-hidden rounded-full bg-white/5">
+                          <div
+                            className={`h-full transition-all ${
+                              r.pctBatidas >= 80 ? "bg-emerald-500" :
+                              r.pctBatidas >= 50 ? "bg-amber-500" :
+                              "bg-red-500"
+                            }`}
+                            style={{ width: `${r.pctBatidas}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Cards resumo */}
           <div className={`mb-6 grid gap-4 grid-cols-1 ${squads.length === 2 ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
             {statsPorSquad.map(({ squad, total, preenchidas, batidas, pctBatidas }) => (
