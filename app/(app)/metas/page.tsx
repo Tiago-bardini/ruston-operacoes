@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { MetaEmpresa, MetaSquad, Squad, UnidadeMeta, NivelSenioridade, VersaoV, Pessoa } from "@/lib/types";
 import { MESES_LABEL, UNIDADE_LABEL, NIVEL_LABEL, V_LABEL, CARGO_LABEL } from "@/lib/types";
+import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
 type Tab = "empresa" | "squads" | "okrs" | "investidores" | "comparativo" | "ranking";
 
@@ -52,6 +53,7 @@ const CATALOGO_SQUAD: {
 const METRICAS_MENOR_MELHOR = new Set(["churn"]);
 
 export default function MetasPage() {
+  const { podeEditar } = useUsuarioPerfil();
   const [tab, setTab] = useState<Tab>("empresa");
 
   return (
@@ -61,7 +63,14 @@ export default function MetasPage() {
         <p className="text-sm text-brand-muted">
           Metas de empresa, squads e OKRs dos investidores — editáveis mês a mês
         </p>
+        {!podeEditar && (
+          <p className="mt-2 text-xs text-amber-300">
+            ⚠ Modo somente leitura. Apenas Gerentes e Coordenadores podem editar metas.
+          </p>
+        )}
       </div>
+      {/* Overlay pra bloquear cliques em toda a área de edição pra investidor */}
+      <div style={!podeEditar ? { pointerEvents: "none", opacity: 0.75 } : undefined}>
 
       <div className="mb-6 inline-flex rounded-lg border border-white/10 bg-brand-panel/50 p-1">
         {[
@@ -90,6 +99,7 @@ export default function MetasPage() {
       {tab === "investidores" && <TabInvestidores />}
       {tab === "comparativo"  && <TabComparativo />}
       {tab === "ranking"      && <TabRanking />}
+      </div>
     </div>
   );
 }
