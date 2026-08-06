@@ -33,7 +33,7 @@ const emptyForm = {
 
 export default function PessoasPage() {
   const supabase = createClient();
-  const { podeVerSalario } = useUsuarioPerfil();
+  const { podeVerSalario, podeEditar, isCoordenador, squadId } = useUsuarioPerfil();
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);
   const [form, setForm] = useState(emptyForm);
@@ -111,6 +111,10 @@ export default function PessoasPage() {
   const squadNome = (id: string | null) => squads.find((s) => s.id === id)?.nome ?? "—";
 
   const filtered = pessoas.filter((p) => {
+    // Coordenador só vê pessoas do seu squad (+ compartilhados como Gerente/Tech)
+    if (isCoordenador && squadId) {
+      if (!p.compartilhado_entre_squads && p.squad_id !== squadId) return false;
+    }
     if (filterCargo && p.cargo !== filterCargo) return false;
     if (filterSquad && p.squad_id !== filterSquad) return false;
     return true;
@@ -125,9 +129,11 @@ export default function PessoasPage() {
           <h1 className="text-2xl font-bold">Pessoas</h1>
           <p className="text-sm text-brand-muted">{filtered.length} de {pessoas.length} pessoas</p>
         </div>
-        <button className="btn" onClick={() => { setEditingId(null); setForm(emptyForm); setOpen(!open); }}>
-          {open ? "Fechar" : "+ Nova pessoa"}
-        </button>
+        {podeEditar && (
+          <button className="btn" onClick={() => { setEditingId(null); setForm(emptyForm); setOpen(!open); }}>
+            {open ? "Fechar" : "+ Nova pessoa"}
+          </button>
+        )}
       </div>
 
       <div className="mb-4 flex gap-3">
@@ -265,11 +271,17 @@ export default function PessoasPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-right space-x-3">
-                  <button onClick={() => edit(p)} className="text-xs text-brand-muted hover:text-gray-200">editar</button>
-                  <button onClick={() => toggleAtivo(p.id, p.ativo)} className="text-xs text-brand-muted hover:text-gray-200">
-                    {p.ativo ? "desativar" : "ativar"}
-                  </button>
-                  <button onClick={() => remove(p.id)} className="text-xs text-brand-muted hover:text-red-400">excluir</button>
+                  {podeEditar ? (
+                    <>
+                      <button onClick={() => edit(p)} className="text-xs text-brand-muted hover:text-gray-200">editar</button>
+                      <button onClick={() => toggleAtivo(p.id, p.ativo)} className="text-xs text-brand-muted hover:text-gray-200">
+                        {p.ativo ? "desativar" : "ativar"}
+                      </button>
+                      <button onClick={() => remove(p.id)} className="text-xs text-brand-muted hover:text-red-400">excluir</button>
+                    </>
+                  ) : (
+                    <span className="text-[10px] text-brand-muted/50">só leitura</span>
+                  )}
                 </td>
               </tr>
             ))}
