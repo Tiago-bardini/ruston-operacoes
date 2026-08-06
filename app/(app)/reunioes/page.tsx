@@ -9,6 +9,7 @@ import {
   formatDate, TIPO_REUNIAO_LABEL, TIPO_CADENCIA_LABEL,
   statusCadencia, STATUS_CADENCIA_COLOR, STATUS_CADENCIA_LABEL,
 } from "@/lib/types";
+import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
 export default function ReunioesPage() {
   const supabase = createClient();
@@ -19,6 +20,7 @@ export default function ReunioesPage() {
   const [filterSquad, setFilterSquad] = useState("");
   const [filterStatus, setFilterStatus] = useState<"" | "ok" | "proximo" | "atrasado" | "critico">("");
   const [modalCliente, setModalCliente] = useState<ReuniaoStatus | null>(null);
+  const { isGerente, squadId: perfilSquadId } = useUsuarioPerfil();
 
   async function load() {
     setLoading(true);
@@ -37,11 +39,13 @@ export default function ReunioesPage() {
 
   const filtered = useMemo(() => {
     return statusList.filter((s) => {
+      // Coordenador/Investidor só vê clientes do próprio squad
+      if (!isGerente && perfilSquadId && s.cliente_squad_id !== perfilSquadId) return false;
       if (filterSquad && s.cliente_squad_id !== filterSquad) return false;
       if (filterStatus && statusCadencia(s) !== filterStatus) return false;
       return true;
     }).sort((a, b) => b.dias_sem_reuniao - a.dias_sem_reuniao);
-  }, [statusList, filterSquad, filterStatus]);
+  }, [statusList, filterSquad, filterStatus, isGerente, perfilSquadId]);
 
   const contagem = useMemo(() => {
     const c = { ok: 0, proximo: 0, atrasado: 0, critico: 0 };
