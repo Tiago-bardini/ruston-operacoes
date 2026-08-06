@@ -9,6 +9,7 @@ import {
   MESES_LABEL, formatBRL, statusVencimento, diasParaVencimento,
   NIVEL_LABEL, V_LABEL, CARGO_LABEL,
 } from "@/lib/types";
+import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
 interface OkrMetricaLite {
   id: string;
@@ -47,6 +48,13 @@ export default function CockpitPage() {
   const [loading, setLoading] = useState(true);
   const [mes, setMes] = useState(MES_ATUAL);
   const [ano, setAno] = useState(ANO_ATUAL);
+  const [squadFiltro, setSquadFiltro] = useState<string>("");  // "" = Todos
+  const { isGerente, squadId: perfilSquadId } = useUsuarioPerfil();
+
+  // Coordenador/Investidor: força filtro pelo próprio squad
+  useEffect(() => {
+    if (!isGerente && perfilSquadId) setSquadFiltro(perfilSquadId);
+  }, [isGerente, perfilSquadId]);
 
   async function load() {
     setLoading(true);
@@ -81,42 +89,58 @@ export default function CockpitPage() {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [ano, mes]);
 
+  // ============ Filtragem por squad ============
+  const clientesFiltrados = useMemo(() => {
+    if (!squadFiltro) return clientes;
+    return clientes.filter((c) => c.squad_id === squadFiltro);
+  }, [clientes, squadFiltro]);
+
+  const pessoasFiltradas = useMemo(() => {
+    if (!squadFiltro) return pessoas;
+    return pessoas.filter((p) => p.compartilhado_entre_squads || p.squad_id === squadFiltro);
+  }, [pessoas, squadFiltro]);
+
+  const fcasFiltrados = useMemo(() => {
+    if (!squadFiltro) return fcas;
+    return fcas.filter((f) => f.cliente_squad_id === squadFiltro);
+  }, [fcas, squadFiltro]);
+
   // ============ KPIs derivados ============
 
   const mrrTotal = useMemo(
-    () => clientes.reduce((s, c) => s + (Number(c.mrr) || 0), 0),
-    [clientes]
+    () => clientesFiltrados.reduce((s, c) => s + (Number(c.mrr) || 0), 0),
+    [clientesFiltrados]
   );
 
-  const clientesAtivos = clientes.length;
+  const clientesAtivos = clientesFiltrados.length;
 
   const ticketMedio = clientesAtivos > 0 ? mrrTotal / clientesAtivos : 0;
 
   const ltvMedio = useMemo(() => {
-    const comLT = clientes.filter((c) => c.lt_meses != null);
+    const comLT = clientesFiltrados.filter((c) => c.lt_meses != null);
     if (comLT.length === 0) return 0;
     return comLT.reduce((s, c) => s + (c.lt_meses ?? 0) * (Number(c.mrr) || 0), 0) / comLT.length;
   }, [clientes]);
 
   const ltMedio = useMemo(() => {
-    const comLT = clientes.filter((c) => c.lt_meses != null);
+    const comLT = clientesFiltrados.filter((c) => c.lt_meses != null);
     if (comLT.length === 0) return null;
     return comLT.reduce((s, c) => s + (c.lt_meses ?? 0), 0) / comLT.length;
   }, [clientes]);
 
   const custoOperacional = useMemo(() => {
-    return pessoas.filter((p) => p.ativo).reduce((s, p) => s + (Number(p.salario) || 0), 0);
-  }, [pessoas]);
+    return pessoasFiltradas.filter((p) => p.ativo).reduce((s, p) => s + (Number(p.salario) || 0), 0);
+  }, [pessoasFiltradas]);
 
   const margemEstimada = mrrTotal - custoOperacional;
   const margemPct = mrrTotal > 0 ? (margemEstimada / mrrTotal) * 100 : 0;
 
   // FCA médio (só clientes com FCA no mês)
   const fcaMedio = useMemo(() => {
-    const comNota = fcas.filter((f) => f.nota_final != null);
+    const comNota = fcasFiltrados.filter((f) => f.nota_final != null);
     if (comNota.length === 0) return null;
     return comNota.reduce((s, f) => s + (f.nota_final ?? 0), 0) / comNota.length;
-  }, [fcas]);
+  }, [fcasFiltrados]);
 
   // % Metas Empresa batidas
   const metasEmpresaBatidas = useMemo(() => {
@@ -136,19 +160,19 @@ export default function CockpitPage() {
 
   // Bandeira FCA — contagem
   const fcaContagem = useMemo(() => {
-    const verde = fcas.filter((f) => f.bandeira === "verde").length;
-    const amarelo = fcas.filter((f) => f.bandeira === "amarelo").length;
-    const vermelho = fcas.filter((f) => f.bandeira === "vermelho").length;
+    const verde = fcasFiltrados.filter((f) => f.bandeira === "verde").length;
+    const amarelo = fcasFiltrados.filter((f) => f.bandeira === "amarelo").length;
+    const vermelho = fcasFiltrados.filter((f) => f.bandeira === "vermelho").length;
     return { verde, amarelo, vermelho };
-  }, [fcas]);
+  }, [fcasFiltrados]);
 
   // ============ Alertas críticos ============
 
-  const contratosVencidos = clientes.filter((c) => statusVencimento(c.data_vencimento_contrato) === "vencido");
-  const contratosCriticos = clientes.filter((c) => statusVencimento(c.data_vencimento_contrato) === "critico");
-  const contratosAtencao = clientes.filter((c) => statusVencimento(c.data_vencimento_contrato) === "atencao");
+  const contratosVencidos = clientesFiltrados.filter((c) => statusVencimento(c.data_vencimento_contrato) === "vencido");
+  const contratosCriticos = clientesFiltrados.filter((c) => statusVencimento(c.data_vencimento_contrato) === "critico");
+  const contratosAtencao = clientesFiltrados.filter((c) => statusVencimento(c.data_vencimento_contrato) === "atencao");
 
-  const fcaVermelhos = fcas.filter((f) => f.bandeira === "vermelho");
+  const fcaVermelhos = fcasFiltrados.filter((f) => f.bandeira === "vermelho");
 
   const gapHeadcount = useMemo(() => {
     return squads.flatMap((s) => {
@@ -161,7 +185,7 @@ export default function CockpitPage() {
     });
   }, [squads, pessoas, headcount]);
 
-  const fcasRascunho = fcas.filter((f) => f.status !== "validado");
+  const fcasRascunho = fcasFiltrados.filter((f) => f.status !== "validado");
 
   // ============ Ranking squads ============
 
@@ -238,9 +262,22 @@ export default function CockpitPage() {
           <h1 className="text-2xl font-bold">Cockpit</h1>
           <p className="text-sm text-brand-muted">
             Visão executiva · {MESES_LABEL[mes - 1]}/{ano}
+            {squadFiltro && squads.find((s) => s.id === squadFiltro)
+              ? ` · ${squads.find((s) => s.id === squadFiltro)?.nome}`
+              : isGerente ? " · Unidade completa" : ""}
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <select
+            className="input max-w-[180px]"
+            value={squadFiltro}
+            onChange={(e) => setSquadFiltro(e.target.value)}
+            disabled={!isGerente}
+            title={!isGerente ? "Você vê apenas o seu squad" : ""}
+          >
+            {isGerente && <option value="">Unidade completa</option>}
+            {squads.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+          </select>
           <select className="input max-w-[140px]" value={mes} onChange={(e) => setMes(Number(e.target.value))}>
             {MESES_LABEL.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
           </select>
