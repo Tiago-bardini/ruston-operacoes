@@ -9,6 +9,7 @@ import {
   MESES_LABEL, CRITERIOS_FCA, calcularNotaFinalFca, bandeiraDaNota,
   BANDEIRA_FCA_COLOR, BANDEIRA_FCA_LABEL, STATUS_FCA_COLOR, STATUS_FCA_LABEL,
 } from "@/lib/types";
+import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
 const ANO_ATUAL = new Date().getFullYear();
 const MES_ATUAL = new Date().getMonth() + 1;
@@ -26,6 +27,7 @@ export default function FcaPage() {
   const [filterBandeira, setFilterBandeira] = useState<BandeiraFca | "">("");
   const [filterStatus, setFilterStatus] = useState<StatusFca | "">("");
   const [modalCliente, setModalCliente] = useState<ClienteView | null>(null);
+  const { isGerente, squadId: perfilSquadId } = useUsuarioPerfil();
 
   async function load() {
     setLoading(true);
@@ -47,6 +49,8 @@ export default function FcaPage() {
 
   const filtered = useMemo(() => {
     return clientes.filter((c) => {
+      // Coordenador/Investidor só vê clientes do próprio squad
+      if (!isGerente && perfilSquadId && c.squad_id !== perfilSquadId) return false;
       if (filterSquad && c.squad_id !== filterSquad) return false;
       const av = getAvaliacao(c.id);
       const bandeira: BandeiraFca = av?.bandeira ?? "sem_dado";
@@ -56,7 +60,7 @@ export default function FcaPage() {
       return true;
     });
   // eslint-disable-next-line
-  }, [clientes, avaliacoes, filterSquad, filterBandeira, filterStatus]);
+  }, [clientes, avaliacoes, filterSquad, filterBandeira, filterStatus, isGerente, perfilSquadId]);
 
   // Estatísticas
   const stats = useMemo(() => {
