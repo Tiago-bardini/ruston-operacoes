@@ -17,6 +17,13 @@ export default function UsuariosPage() {
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
+  const [novoUsuario, setNovoUsuario] = useState(false);
+  const [formNovo, setFormNovo] = useState({
+    email: "",
+    perfil: "investidor" as PerfilUsuario,
+    squad_id: "",
+    pessoa_id: "",
+  });
 
   // Redirect se não for Gerente
   useEffect(() => {
@@ -56,17 +63,87 @@ export default function UsuariosPage() {
     load();
   }
 
+  async function criarUsuario() {
+    if (!formNovo.email.trim()) return;
+    if (!formNovo.email.toLowerCase().endsWith("@v4company.com")) {
+      alert("Email deve terminar com @v4company.com");
+      return;
+    }
+    await supabase.from("ruston_usuario_perfil").insert({
+      email: formNovo.email.toLowerCase().trim(),
+      perfil: formNovo.perfil,
+      squad_id: formNovo.squad_id || null,
+      pessoa_id: formNovo.pessoa_id || null,
+    });
+    setFormNovo({ email: "", perfil: "investidor", squad_id: "", pessoa_id: "" });
+    setNovoUsuario(false);
+    load();
+  }
+
   if (loadingPerfil) return <p className="text-brand-muted">Carregando...</p>;
   if (!isGerente) return <p className="text-brand-muted">Acesso negado.</p>;
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Gestão de Usuários</h1>
-        <p className="text-sm text-brand-muted">
-          Defina o perfil de cada pessoa que tem acesso ao sistema · só Gerente vê essa tela
-        </p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Gestão de Usuários</h1>
+          <p className="text-sm text-brand-muted">
+            Defina o perfil de cada pessoa que tem acesso ao sistema · só Gerente vê essa tela
+          </p>
+        </div>
+        <button className="btn" onClick={() => setNovoUsuario(!novoUsuario)}>
+          {novoUsuario ? "Fechar" : "+ Novo usuário"}
+        </button>
       </div>
+
+      {novoUsuario && (
+        <div className="mb-6 card border border-brand/40 bg-brand/5">
+          <p className="mb-3 text-sm font-semibold">Novo usuário</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label className="label">Email *</label>
+              <input type="email" className="input" value={formNovo.email}
+                onChange={(e) => setFormNovo({ ...formNovo, email: e.target.value })}
+                placeholder="fulano@v4company.com" />
+            </div>
+            <div>
+              <label className="label">Perfil *</label>
+              <select className="input" value={formNovo.perfil}
+                onChange={(e) => setFormNovo({ ...formNovo, perfil: e.target.value as PerfilUsuario })}>
+                <option value="gerente">Gerente</option>
+                <option value="coordenador">Coordenador</option>
+                <option value="investidor">Investidor</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Squad</label>
+              <select className="input" value={formNovo.squad_id}
+                onChange={(e) => setFormNovo({ ...formNovo, squad_id: e.target.value })}>
+                <option value="">— (sem squad)</option>
+                {squads.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Vincular à pessoa</label>
+              <select className="input" value={formNovo.pessoa_id}
+                onChange={(e) => setFormNovo({ ...formNovo, pessoa_id: e.target.value })}>
+                <option value="">— (não vincular)</option>
+                {pessoas.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              </select>
+            </div>
+          </div>
+          <p className="mt-3 text-[10px] text-brand-muted">
+            Depois de cadastrar aqui, a pessoa acessa <code className="text-brand">ruston-operacoes.vercel.app</code>,
+            clica em "Criar uma" e usa esse mesmo email + uma senha à escolha dela.
+            O perfil e squad definidos aqui já vão estar ativos no primeiro login.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button className="btn" onClick={criarUsuario}>Salvar</button>
+            <button className="btn-ghost" onClick={() => setNovoUsuario(false)}>Cancelar</button>
+          </div>
+        </div>
+      )}
 
       <div className="mb-4 rounded-lg border border-brand/40 bg-brand/5 p-3 text-xs text-brand-muted">
         <p className="mb-1"><strong className="text-white">O que cada perfil vê:</strong></p>
