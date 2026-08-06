@@ -1,9 +1,11 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Forecast } from "@/lib/types";
 import { MESES_LABEL, formatBRL } from "@/lib/types";
+import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
 const ANO_ATUAL = new Date().getFullYear();
 const MES_ATUAL = new Date().getMonth() + 1;
@@ -11,6 +13,12 @@ const ANOS = [ANO_ATUAL - 1, ANO_ATUAL, ANO_ATUAL + 1];
 
 export default function ForecastPage() {
   const supabase = createClient();
+  const router = useRouter();
+  const { loading: loadingPerfil, podeVerForecast } = useUsuarioPerfil();
+  useEffect(() => {
+    if (!loadingPerfil && !podeVerForecast) router.push("/cockpit");
+  }, [loadingPerfil, podeVerForecast, router]);
+
   const [ano, setAno] = useState(ANO_ATUAL);
   const [forecast, setForecast] = useState<Forecast[]>([]);
   const [mrrAtual, setMrrAtual] = useState(0);
