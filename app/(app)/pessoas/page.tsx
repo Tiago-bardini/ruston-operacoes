@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Pessoa, Squad, Cargo, NivelSenioridade, VersaoV } from "@/lib/types";
 import { CARGO_LABEL, NIVEL_LABEL, V_LABEL } from "@/lib/types";
+import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
 const CARGOS: Cargo[] = [
   "coordenador", "gestor_projetos", "gestor_trafego", "designer",
@@ -32,6 +33,7 @@ const emptyForm = {
 
 export default function PessoasPage() {
   const supabase = createClient();
+  const { podeVerSalario } = useUsuarioPerfil();
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);
   const [form, setForm] = useState(emptyForm);
@@ -190,24 +192,28 @@ export default function PessoasPage() {
                 </div>
               </>
             )}
-            <div>
-              <label className="label">Salário (R$)</label>
-              <input type="number" step="0.01" className="input" value={form.salario}
-                onChange={(e) => setForm({ ...form, salario: e.target.value })}
-                placeholder="ex: 5000" />
-            </div>
-            <div className="lg:col-span-2">
-              <label className="label">Alocação</label>
-              <label className="flex h-10 items-center gap-2 cursor-pointer rounded-lg border border-white/10 bg-brand-panel/50 px-3">
-                <input
-                  type="checkbox"
-                  checked={form.compartilhado_entre_squads}
-                  onChange={(e) => setForm({ ...form, compartilhado_entre_squads: e.target.checked })}
-                  className="h-4 w-4"
-                />
-                <span className="text-sm">Compartilhado entre squads (Gerente, Tech, COO)</span>
-              </label>
-            </div>
+            {podeVerSalario && (
+              <>
+                <div>
+                  <label className="label">Salário (R$)</label>
+                  <input type="number" step="0.01" className="input" value={form.salario}
+                    onChange={(e) => setForm({ ...form, salario: e.target.value })}
+                    placeholder="ex: 5000" />
+                </div>
+                <div className="lg:col-span-2">
+                  <label className="label">Alocação</label>
+                  <label className="flex h-10 items-center gap-2 cursor-pointer rounded-lg border border-white/10 bg-brand-panel/50 px-3">
+                    <input
+                      type="checkbox"
+                      checked={form.compartilhado_entre_squads}
+                      onChange={(e) => setForm({ ...form, compartilhado_entre_squads: e.target.checked })}
+                      className="h-4 w-4"
+                    />
+                    <span className="text-sm">Compartilhado entre squads (Gerente, Tech, COO)</span>
+                  </label>
+                </div>
+              </>
+            )}
             <div className="lg:col-span-3">
               <label className="label">Observações</label>
               <input className="input" value={form.observacoes}
