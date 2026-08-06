@@ -185,6 +185,25 @@ export const STATUS_CADENCIA_LABEL = {
   critico: "Crítico",
 };
 
+export type PerfilUsuario = "gerente" | "coordenador" | "investidor";
+
+export const PERFIL_LABEL: Record<PerfilUsuario, string> = {
+  gerente: "Gerente",
+  coordenador: "Coordenador",
+  investidor: "Investidor",
+};
+
+export interface UsuarioPerfil {
+  id: string;
+  email: string;
+  perfil: PerfilUsuario;
+  squad_id: string | null;
+  pessoa_id: string | null;
+  ativo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Forecast {
   id: string;
   ano: number;
