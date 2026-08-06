@@ -7,6 +7,7 @@ import {
   ETAPA_LABEL, ETAPA_COLOR, TIER_LABEL, formatBRL, formatDate,
   statusVencimento, diasParaVencimento, STATUS_VENCIMENTO_COLOR,
 } from "@/lib/types";
+import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
 const ETAPAS: EtapaCliente[] = ["onboarding", "estruturacao_estrategica", "byline", "em_recuperacao", "suspenso"];
 const TIERS: TierCliente[] = ["tiny", "small", "medium", "large"];
@@ -39,6 +40,7 @@ export default function ClientesPage() {
   const [squads, setSquads] = useState<Squad[]>([]);
   const [fcasRecentes, setFcasRecentes] = useState<Record<string, FcaView>>({});
   const [churnModal, setChurnModal] = useState<ClienteView | null>(null);
+  const { isGerente, squadId: perfilSquadId } = useUsuarioPerfil();
   const [view, setView] = useState<View>("kanban_etapa");
   const [form, setForm] = useState(emptyForm);
   const [formOpen, setFormOpen] = useState(false);
@@ -146,6 +148,8 @@ export default function ClientesPage() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return clientes.filter((c) => {
+      // Coordenador/Investidor: só vê clientes do próprio squad
+      if (!isGerente && perfilSquadId && c.squad_id !== perfilSquadId) return false;
       // Separa: view churn mostra só churn_realizado, resto mostra só ativos
       if (view === "churn") {
         if (!c.churn_realizado) return false;
@@ -161,7 +165,7 @@ export default function ClientesPage() {
         (c.squad_nome ?? "").toLowerCase().includes(q)
       );
     });
-  }, [clientes, search, filterSquad, view]);
+  }, [clientes, search, filterSquad, view, isGerente, perfilSquadId]);
 
   // Alerta: churns pendentes de subir no sistema (data <= hoje E não subiu)
   const churnsPendentes = useMemo(() => {
