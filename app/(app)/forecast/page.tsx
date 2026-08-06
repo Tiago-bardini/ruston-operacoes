@@ -14,7 +14,7 @@ const ANOS = [ANO_ATUAL - 1, ANO_ATUAL, ANO_ATUAL + 1];
 export default function ForecastPage() {
   const supabase = createClient();
   const router = useRouter();
-  const { loading: loadingPerfil, podeVerForecast } = useUsuarioPerfil();
+  const { loading: loadingPerfil, podeVerForecast, isCoordenador, squadId } = useUsuarioPerfil();
   useEffect(() => {
     if (!loadingPerfil && !podeVerForecast) router.push("/cockpit");
   }, [loadingPerfil, podeVerForecast, router]);
@@ -30,10 +30,18 @@ export default function ForecastPage() {
 
   async function load() {
     setLoading(true);
+    // Coordenador só vê MRR e Folha do squad dele
+    let csQuery = supabase.from("ruston_clientes_view").select("mrr,squad_id").eq("ativo", true);
+    let psQuery = supabase.from("ruston_pessoas").select("salario,squad_id,compartilhado_entre_squads").eq("ativo", true);
+    if (isCoordenador && squadId) {
+      csQuery = csQuery.eq("squad_id", squadId);
+      // Pra pessoas, precisa incluir compartilhados (Gerente/Tech) + do squad
+      // Vamos filtrar em memória depois pra manter o compartilhado
+    }
     const [{ data: fc }, { data: cs }, { data: ps }] = await Promise.all([
       supabase.from("ruston_forecast").select("*").eq("ano", ano).order("mes"),
-      supabase.from("ruston_clientes_view").select("mrr").eq("ativo", true),
-      supabase.from("ruston_pessoas").select("salario").eq("ativo", true),
+      csQuery,
+      psQuery,
     ]);
     let lista = (fc as Forecast[]) ?? [];
     if (lista.length < 12) {
@@ -54,13 +62,21 @@ export default function ForecastPage() {
     const clientes = (cs as { mrr: number }[]) ?? [];
     setMrrAtual(clientes.reduce((s, c) => s + (Number(c.mrr) || 0), 0));
     setClientesAtual(clientes.length);
-    const pessoas = (ps as { salario: number | null }[]) ?? [];
+    // Filtragem em memória de pessoas: coordenador vê squad dele + compartilhados
+    let pessoas = (ps as { salario: number | null; squad_id: string | null; compartilhado_entre_squads: boolean }[]) ?? [];
+    if (isCoordenador && squadId) {
+      pessoas = pessoas.filter((p) => p.compartilhado_entre_squads || p.squad_id === squadId);
+    }
     setPessoasAtual(pessoas.length);
     setFolhaAtual(pessoas.reduce((s, p) => s + (Number(p.salario) || 0), 0));
     setLoading(false);
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [ano]);
+  useEffect(() => {
+    if (loadingPerfil) return;
+    load();
+  /* eslint-disable-next-line */
+  }, [ano, loadingPerfil, isCoordenador, squadId]);
 
   async function atualizar(f: Forecast, campo: keyof Forecast, valor: number | null) {
     setSaving(f.id);
