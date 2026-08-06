@@ -16,7 +16,7 @@ const CARGOS_COMPARTILHADOS: Cargo[] = ["gerente", "tech", "coo"];
 export default function HeadcountPage() {
   const supabase = createClient();
   const router = useRouter();
-  const { loading: loadingPerfil, podeVerHeadcount } = useUsuarioPerfil();
+  const { loading: loadingPerfil, podeVerHeadcount, isCoordenador, squadId } = useUsuarioPerfil();
   useEffect(() => {
     if (!loadingPerfil && !podeVerHeadcount) router.push("/cockpit");
   }, [loadingPerfil, podeVerHeadcount, router]);
@@ -30,9 +30,14 @@ export default function HeadcountPage() {
 
   async function load() {
     setLoading(true);
+    let sqQuery = supabase.from("ruston_squads").select("*").eq("ativo", true)
+      .eq("incluir_em_comparativo", true).order("nome");
+    // Coordenador só vê o próprio squad
+    if (isCoordenador && squadId) {
+      sqQuery = sqQuery.eq("id", squadId);
+    }
     const [{ data: sq }, { data: ps }, { data: hp }] = await Promise.all([
-      supabase.from("ruston_squads").select("*").eq("ativo", true)
-        .eq("incluir_em_comparativo", true).order("nome"),
+      sqQuery,
       supabase.from("ruston_pessoas").select("*").eq("ativo", true).order("nome"),
       supabase.from("ruston_headcount_planejado").select("*"),
     ]);
@@ -42,7 +47,11 @@ export default function HeadcountPage() {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (loadingPerfil) return;
+    load();
+  /* eslint-disable-next-line */
+  }, [loadingPerfil, isCoordenador, squadId]);
 
   // Pessoas compartilhadas (Gerente/Tech/COO) — custo dividido entre squads operacionais
   const compartilhadas = useMemo(
