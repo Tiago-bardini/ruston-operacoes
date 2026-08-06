@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Squad } from "@/lib/types";
+import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
 const emptyForm = { nome: "", label: "", cor: "", incluir_em_comparativo: true };
 
 export default function SquadsPage() {
   const supabase = createClient();
+  const { podeEditar } = useUsuarioPerfil();
   const [squads, setSquads] = useState<Squad[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [open, setOpen] = useState(false);
@@ -77,9 +79,11 @@ export default function SquadsPage() {
           <h1 className="text-2xl font-bold">Squads</h1>
           <p className="text-sm text-brand-muted">{squads.length} squads cadastrados</p>
         </div>
-        <button className="btn" onClick={() => { setEditingId(null); setForm(emptyForm); setOpen(!open); }}>
-          {open ? "Fechar" : "+ Novo squad"}
-        </button>
+        {podeEditar && (
+          <button className="btn" onClick={() => { setEditingId(null); setForm(emptyForm); setOpen(!open); }}>
+            {open ? "Fechar" : "+ Novo squad"}
+          </button>
+        )}
       </div>
 
       {open && (
@@ -158,13 +162,17 @@ export default function SquadsPage() {
               </button>
             </div>
 
-            <div className="mt-3 flex gap-2">
-              <button onClick={() => edit(s)} className="btn-ghost flex-1 text-xs">Editar</button>
-              <button onClick={() => toggleAtivo(s.id, s.ativo)} className="btn-ghost text-xs">
-                {s.ativo ? "Desativar" : "Ativar"}
-              </button>
-              <button onClick={() => remove(s.id)} className="btn-ghost text-xs text-red-300">Excluir</button>
-            </div>
+            {podeEditar ? (
+              <div className="mt-3 flex gap-2">
+                <button onClick={() => edit(s)} className="btn-ghost flex-1 text-xs">Editar</button>
+                <button onClick={() => toggleAtivo(s.id, s.ativo)} className="btn-ghost text-xs">
+                  {s.ativo ? "Desativar" : "Ativar"}
+                </button>
+                <button onClick={() => remove(s.id)} className="btn-ghost text-xs text-red-300">Excluir</button>
+              </div>
+            ) : (
+              <p className="mt-3 text-[10px] text-brand-muted/50 text-center">só leitura</p>
+            )}
           </div>
         ))}
       </div>
