@@ -3,17 +3,28 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
+import { PERFIL_LABEL } from "@/lib/types";
 
-const NAV_ACTIVE = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: string;
+  soGerente?: boolean;
+  soGerenteCoord?: boolean;
+};
+
+const NAV_ACTIVE: NavItem[] = [
   { href: "/cockpit", label: "Cockpit", icon: "★" },
   { href: "/clientes", label: "Clientes", icon: "◎" },
   { href: "/pessoas", label: "Pessoas", icon: "◆" },
   { href: "/squads", label: "Squads", icon: "◇" },
   { href: "/metas", label: "Metas", icon: "◈" },
   { href: "/fca", label: "FCA", icon: "▤" },
-  { href: "/headcount", label: "Headcount", icon: "☰" },
-  { href: "/forecast", label: "Forecast", icon: "↗" },
+  { href: "/headcount", label: "Headcount", icon: "☰", soGerenteCoord: true },
+  { href: "/forecast", label: "Forecast", icon: "↗", soGerenteCoord: true },
   { href: "/reunioes", label: "Reuniões", icon: "☎" },
+  { href: "/usuarios", label: "Usuários", icon: "⚿", soGerente: true },
 ];
 
 type NavSoonItem = { label: string; icon: string; subitems?: string[] };
@@ -57,12 +68,19 @@ export default function Sidebar({ email }: { email?: string }) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
+  const { tipo, isGerente, isCoordenador } = useUsuarioPerfil();
 
   async function signOut() {
     await supabase.auth.signOut();
     router.push("/login");
     router.refresh();
   }
+
+  const items = NAV_ACTIVE.filter((it) => {
+    if (it.soGerente && !isGerente) return false;
+    if (it.soGerenteCoord && !(isGerente || isCoordenador)) return false;
+    return true;
+  });
 
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-white/5 bg-brand-panel/50 p-4">
@@ -75,7 +93,7 @@ export default function Sidebar({ email }: { email?: string }) {
       </div>
 
       <nav className="flex-1 space-y-1">
-        {NAV_ACTIVE.map((item) => {
+        {items.map((item) => {
           const active = pathname.startsWith(item.href);
           return (
             <Link
@@ -114,10 +132,13 @@ export default function Sidebar({ email }: { email?: string }) {
 
       <div className="mt-4 border-t border-white/5 pt-4">
         {email && (
-          <p className="mb-2 truncate px-2 text-xs text-brand-muted" title={email}>
+          <p className="mb-1 truncate px-2 text-xs text-brand-muted" title={email}>
             {email}
           </p>
         )}
+        <p className="mb-2 px-2 text-[10px] text-brand">
+          Perfil: {PERFIL_LABEL[tipo]}
+        </p>
         <button onClick={signOut} className="btn-ghost w-full text-xs">Sair</button>
       </div>
     </aside>
