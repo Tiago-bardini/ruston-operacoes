@@ -1,9 +1,11 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Pessoa, Squad, HeadcountPlanejado, Cargo } from "@/lib/types";
 import { CARGO_LABEL, formatBRL } from "@/lib/types";
+import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
 // Cargos operacionais que entram no planejamento por squad
 const CARGOS_OPERACIONAIS: Cargo[] = ["coordenador", "gestor_projetos", "gestor_trafego", "designer"];
@@ -13,6 +15,12 @@ const CARGOS_COMPARTILHADOS: Cargo[] = ["gerente", "tech", "coo"];
 
 export default function HeadcountPage() {
   const supabase = createClient();
+  const router = useRouter();
+  const { loading: loadingPerfil, podeVerHeadcount } = useUsuarioPerfil();
+  useEffect(() => {
+    if (!loadingPerfil && !podeVerHeadcount) router.push("/cockpit");
+  }, [loadingPerfil, podeVerHeadcount, router]);
+
   const [squads, setSquads] = useState<Squad[]>([]);
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
   const [planejados, setPlanejados] = useState<HeadcountPlanejado[]>([]);
