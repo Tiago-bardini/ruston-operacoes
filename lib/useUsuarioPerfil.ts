@@ -51,6 +51,11 @@ export function useUsuarioPerfil() {
     podeVerSalario:    p === "gerente" || p === "coordenador",
     podeVerHeadcount:  p === "gerente" || p === "coordenador",
     podeVerForecast:   p === "gerente" || p === "coordenador",
+    // EDIÇÃO — só Gerente e Coordenador podem editar/excluir Pessoas, Squads, Metas
+    // Investidor tem acesso APENAS DE LEITURA
+    podeEditar: p === "gerente" || p === "coordenador",
+    // Gerente vê tudo (global). Coordenador só vê o próprio squad
+    escopo: p === "gerente" ? "global" : "squad" as "global" | "squad",
     // Só Gerente pode gerenciar perfis de acesso
     podeGerenciarUsuarios: p === "gerente",
   };
