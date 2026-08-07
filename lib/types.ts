@@ -315,6 +315,7 @@ export interface FcaAvaliacao {
   cliente_id: string;
   ano: number;
   mes: number;
+  data_referencia: string; // sexta-feira da semana FCA (sábado→sexta)
   nota_resultado: number | null;
   nota_operacao_trafego: number | null;
   nota_prazo: number | null;
@@ -333,6 +334,43 @@ export interface FcaAvaliacao {
   updated_at: string;
 }
 
+/** Retorna a data da sexta-feira da semana FCA (sábado→sexta) que contém a data recebida.
+ * Ex: 06/08 (sábado) → 12/08 (próxima sexta) porque começa nova semana
+ *     08/08 (segunda) → 12/08 (sexta da mesma semana)
+ *     12/08 (sexta) → 12/08 (mesma data)
+ */
+export function sextaDaSemanaFca(data?: Date | string): string {
+  const d = data ? new Date(typeof data === "string" ? data + "T00:00:00" : data) : new Date();
+  d.setHours(0, 0, 0, 0);
+  const dow = d.getDay(); // 0=domingo, 1=segunda, ..., 5=sexta, 6=sábado
+  let dias: number;
+  if (dow === 6) dias = 6;          // sábado → próxima sexta (6 dias)
+  else if (dow === 5) dias = 0;     // sexta → hoje
+  else dias = 5 - dow;              // dom/seg/ter/qua/qui → dias até sexta
+  d.setDate(d.getDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Formata "Sexta, 07/ago" a partir de uma data ISO */
+export function formatSemanaFca(iso: string): string {
+  const d = new Date(iso + "T00:00:00");
+  const dia = String(d.getDate()).padStart(2, "0");
+  const mes = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"][d.getMonth()];
+  return `Sex. ${dia}/${mes}`;
+}
+
+/** Últimas N sextas-feiras a partir de hoje, ordenadas da mais nova pra mais antiga */
+export function ultimasSextas(n: number = 12): string[] {
+  const hoje = sextaDaSemanaFca();
+  const d = new Date(hoje + "T00:00:00");
+  const arr: string[] = [];
+  for (let i = 0; i < n; i++) {
+    arr.push(d.toISOString().slice(0, 10));
+    d.setDate(d.getDate() - 7);
+  }
+  return arr;
+}
+
 export interface FcaView extends FcaAvaliacao {
   nota_final: number | null;
   bandeira: BandeiraFca;
@@ -344,12 +382,42 @@ export interface FcaView extends FcaAvaliacao {
 }
 
 export const CRITERIOS_FCA = [
-  { chave: "nota_resultado",        label: "Resultado",           peso: 7 },
-  { chave: "nota_operacao_trafego", label: "Operação de Tráfego", peso: 5 },
-  { chave: "nota_prazo",            label: "Prazo",               peso: 5 },
-  { chave: "nota_qualidade",        label: "Qualidade",           peso: 4 },
-  { chave: "nota_relacionamento",   label: "Relacionamento",      peso: 4 },
-  { chave: "nota_roi",              label: "ROI",                 peso: 8 },
+  {
+    chave: "nota_resultado",
+    label: "Resultado",
+    peso: 7,
+    descricao: "Meta de Faturamento, Meta de MQLs e/ou OKRs definidas com o cliente.",
+  },
+  {
+    chave: "nota_operacao_trafego",
+    label: "Operação de Tráfego",
+    peso: 5,
+    descricao: "• Subiram campanhas?\n• Verba de mídia controlada?\n• Criativos estão sendo acompanhados?\n• Traqueamento e integração estão feitas?",
+  },
+  {
+    chave: "nota_prazo",
+    label: "Prazo",
+    peso: 5,
+    descricao: "• As entregas estão em dia?\n• Como está a situação do cliente?",
+  },
+  {
+    chave: "nota_qualidade",
+    label: "Qualidade",
+    peso: 4,
+    descricao: "• As entregas estão em dia?\n• Como está a situação do cliente?",
+  },
+  {
+    chave: "nota_relacionamento",
+    label: "Relacionamento",
+    peso: 4,
+    descricao: "• Como está o relacionamento com o cliente?\n• Mensagens no WhatsApp?\n• Check-ins estão sendo feitos?",
+  },
+  {
+    chave: "nota_roi",
+    label: "ROI",
+    peso: 8,
+    descricao: "ROI (Retorno sobre Investimento) — quanto o cliente ganhou pra cada R$ 1 investido em marketing.\n\nExemplo: cliente investiu R$ 10.000 em anúncios e faturou R$ 50.000 → ROI = 5x.\n\nAvalie se o cliente está tendo retorno positivo do investimento.",
+  },
 ] as const;
 
 export function calcularNotaFinalFca(f: Partial<FcaAvaliacao>): number | null {
