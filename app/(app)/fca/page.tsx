@@ -251,6 +251,8 @@ function FcaModal({ cliente, avaliacao, ano, mes, onFechar, onSalvo }: {
   onSalvo: () => void;
 }) {
   const supabase = createClient();
+  const { isGerente, isCoordenador } = useUsuarioPerfil();
+  const podeValidar = isGerente || isCoordenador;
   const [form, setForm] = useState(emptyAvaliacao);
   const [saving, setSaving] = useState(false);
 
@@ -410,10 +412,17 @@ function FcaModal({ cliente, avaliacao, ano, mes, onFechar, onSalvo }: {
           <button className="btn-ghost" disabled={saving} onClick={() => salvar("aguardando_validacao")}>
             Enviar para validação
           </button>
-          <button className="btn-ghost bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
-            disabled={saving} onClick={() => salvar("validado")}>
-            ✓ Validar (coordenador)
-          </button>
+          {podeValidar && (
+            <button className="btn-ghost bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+              disabled={saving} onClick={() => salvar("validado")}>
+              ✓ Validar (coordenador)
+            </button>
+          )}
+          {!podeValidar && (
+            <span className="text-[10px] text-brand-muted italic">
+              validação disponível apenas para Coordenador/Gerente
+            </span>
+          )}
           <div className="ml-auto flex items-center gap-2">
             {avaliacao && (
               <button className="text-xs text-red-300 hover:text-red-400" onClick={remover}>
