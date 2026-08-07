@@ -48,13 +48,8 @@ export default function CockpitPage() {
   const [loading, setLoading] = useState(true);
   const [mes, setMes] = useState(MES_ATUAL);
   const [ano, setAno] = useState(ANO_ATUAL);
-  const [squadFiltro, setSquadFiltro] = useState<string>("");  // "" = Todos
+  const [squadFiltro, setSquadFiltro] = useState<string>("");  // "" = Ruston (consolidado)
   const { isGerente, squadId: perfilSquadId } = useUsuarioPerfil();
-
-  // Coordenador/Investidor: força filtro pelo próprio squad
-  useEffect(() => {
-    if (!isGerente && perfilSquadId) setSquadFiltro(perfilSquadId);
-  }, [isGerente, perfilSquadId]);
 
   async function load() {
     setLoading(true);
@@ -65,7 +60,7 @@ export default function CockpitPage() {
     ] = await Promise.all([
       supabase.from("ruston_clientes_view").select("*").eq("ativo", true),
       supabase.from("ruston_pessoas").select("*").eq("ativo", true),
-      supabase.from("ruston_squads").select("*").eq("ativo", true).eq("incluir_em_comparativo", true),
+      supabase.from("ruston_squads").select("*").eq("ativo", true).order("nome"),
       supabase.from("ruston_metas_empresa").select("*").eq("ano", ano).eq("mes", mes),
       supabase.from("ruston_metas_squad").select("*").eq("ano", ano).eq("mes", mes),
       supabase.from("ruston_fca_view").select("*").eq("ano", ano).eq("mes", mes),
@@ -264,7 +259,7 @@ export default function CockpitPage() {
             Visão executiva · {MESES_LABEL[mes - 1]}/{ano}
             {squadFiltro && squads.find((s) => s.id === squadFiltro)
               ? ` · ${squads.find((s) => s.id === squadFiltro)?.nome}`
-              : isGerente ? " · Unidade completa" : ""}
+              : " · Ruston (consolidado)"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -272,10 +267,8 @@ export default function CockpitPage() {
             className="input max-w-[180px]"
             value={squadFiltro}
             onChange={(e) => setSquadFiltro(e.target.value)}
-            disabled={!isGerente}
-            title={!isGerente ? "Você vê apenas o seu squad" : ""}
           >
-            {isGerente && <option value="">Unidade completa</option>}
+            <option value="">Ruston (todos)</option>
             {squads.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
           </select>
           <select className="input max-w-[140px]" value={mes} onChange={(e) => setMes(Number(e.target.value))}>
