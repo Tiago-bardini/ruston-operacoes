@@ -12,7 +12,7 @@ import {
 } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
-type Aba = "avaliar" | "consolidado";
+type Aba = "avaliar" | "detalhes" | "consolidado";
 
 export default function FcaPage() {
   const supabase = createClient();
@@ -87,6 +87,7 @@ export default function FcaPage() {
       <div className="mb-6 inline-flex rounded-lg border border-white/10 bg-brand-panel/50 p-1">
         {[
           { v: "avaliar",     label: "Avaliar semana" },
+          { v: "detalhes",    label: "Vista detalhada" },
           { v: "consolidado", label: "Consolidado" },
         ].map((it) => (
           <button
@@ -164,6 +165,17 @@ export default function FcaPage() {
             </div>
           )}
         </>
+      )}
+
+      {aba === "detalhes" && (
+        <TabDetalhes
+          dataRef={dataRef}
+          sextas={sextas}
+          setDataRef={setDataRef}
+          clientes={filtered}
+          getAvaliacao={getAvaliacao}
+          onAbrir={(c) => setModalCliente(c)}
+        />
       )}
 
       {aba === "consolidado" && (
@@ -255,6 +267,141 @@ function FcaCard({ cliente, avaliacao, onAbrir }: {
         {avaliacao ? "editar avaliação →" : "+ avaliar cliente"}
       </p>
     </button>
+  );
+}
+
+/* ============================== TAB DETALHES ============================== */
+
+function TabDetalhes({ dataRef, sextas, setDataRef, clientes, getAvaliacao, onAbrir }: {
+  dataRef: string;
+  sextas: string[];
+  setDataRef: (s: string) => void;
+  clientes: ClienteView[];
+  getAvaliacao: (id: string) => FcaView | undefined;
+  onAbrir: (c: ClienteView) => void;
+}) {
+  const clientesComFca = clientes.filter((c) => getAvaliacao(c.id));
+
+  return (
+    <div>
+      <div className="mb-4 flex items-center gap-3">
+        <select className="input max-w-[240px]" value={dataRef} onChange={(e) => setDataRef(e.target.value)}>
+          {sextas.map((s) => (
+            <option key={s} value={s}>
+              {formatSemanaFca(s)} ({formatDate(s)})
+            </option>
+          ))}
+        </select>
+        <span className="text-xs text-brand-muted">
+          {clientesComFca.length} de {clientes.length} clientes preenchidos
+        </span>
+      </div>
+
+      {clientesComFca.length === 0 && (
+        <div className="card text-center py-12">
+          <p className="text-brand-muted">
+            Nenhum FCA preenchido pra {formatSemanaFca(dataRef)}. Volte pra aba "Avaliar semana" pra começar.
+          </p>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {clientesComFca.map((c) => {
+          const av = getAvaliacao(c.id)!;
+          return (
+            <div key={c.id} className={`card border ${BANDEIRA_FCA_COLOR[av.bandeira]}`}>
+              {/* Cabeçalho */}
+              <div className="mb-3 flex items-start justify-between">
+                <div>
+                  <p className="text-lg font-bold">{c.nome}</p>
+                  <p className="text-[10px] text-brand-muted">
+                    {c.squad_nome ?? "sem squad"} · GP: {c.account_nome ?? "—"} ·
+                    Preenchido por: {av.preenchido_por_nome ?? "—"}
+                    {av.validado_por_nome ? ` · Validado por: ${av.validado_por_nome}` : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`badge ${STATUS_FCA_COLOR[av.status]}`}>
+                    {STATUS_FCA_LABEL[av.status]}
+                  </span>
+                  <div className="text-right">
+                    <p className="text-[10px] uppercase tracking-wide text-brand-muted">Nota</p>
+                    <p className={`text-2xl font-bold ${
+                      av.bandeira === "verde"    ? "text-emerald-300" :
+                      av.bandeira === "amarelo"  ? "text-amber-300" :
+                      av.bandeira === "vermelho" ? "text-red-300" :
+                      "text-brand-muted"
+                    }`}>
+                      {av.nota_final?.toFixed(2) ?? "—"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Notas por critério */}
+              <div className="mb-3 grid grid-cols-3 gap-2 md:grid-cols-6">
+                {CRITERIOS_FCA.map((crit) => {
+                  const nota = (av as any)[crit.chave] as number | null;
+                  return (
+                    <div key={crit.chave} className="rounded bg-white/5 p-2 text-center">
+                      <p className="text-[9px] uppercase tracking-wide text-brand-muted">{crit.label}</p>
+                      <p className={`text-lg font-bold ${
+                        nota == null ? "text-brand-muted" :
+                        nota >= 8 ? "text-emerald-300" :
+                        nota >= 6 ? "text-amber-300" :
+                        "text-red-300"
+                      }`}>
+                        {nota != null ? nota.toFixed(1) : "—"}
+                      </p>
+                      <p className="text-[9px] text-brand-muted">peso {crit.peso}</p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Fato, Causa, Ação */}
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="rounded bg-white/5 p-3">
+                  <p className="mb-1 text-[9px] uppercase tracking-wide text-brand-muted">📌 Fato</p>
+                  <p className="text-xs whitespace-pre-wrap">
+                    {av.fato || <span className="italic text-brand-muted/60">Não preenchido</span>}
+                  </p>
+                </div>
+                <div className="rounded bg-white/5 p-3">
+                  <p className="mb-1 text-[9px] uppercase tracking-wide text-brand-muted">❓ Causa</p>
+                  <p className="text-xs whitespace-pre-wrap">
+                    {av.causa || <span className="italic text-brand-muted/60">Não preenchido</span>}
+                  </p>
+                </div>
+                <div className="rounded bg-white/5 p-3">
+                  <p className="mb-1 text-[9px] uppercase tracking-wide text-brand-muted">✅ Ação</p>
+                  <p className="text-xs whitespace-pre-wrap">
+                    {av.acao || <span className="italic text-brand-muted/60">Não preenchido</span>}
+                  </p>
+                </div>
+              </div>
+
+              {av.observacoes && (
+                <div className="mt-3 rounded bg-white/5 p-3">
+                  <p className="mb-1 text-[9px] uppercase tracking-wide text-brand-muted">📝 Observações</p>
+                  <p className="text-xs whitespace-pre-wrap">{av.observacoes}</p>
+                </div>
+              )}
+
+              <div className="mt-3 flex items-center justify-between">
+                <span className="text-[10px] text-brand-muted">
+                  Última atualização: {new Date(av.updated_at).toLocaleString("pt-BR")}
+                </span>
+                <button
+                  onClick={() => onAbrir(c)}
+                  className="text-xs text-brand hover:text-red-400"
+                >Editar avaliação →</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
