@@ -535,3 +535,62 @@ export const STATUS_VENCIMENTO_COLOR: Record<StatusVencimento, string> = {
   ok:       "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
   sem_data: "bg-white/5 text-brand-muted border-white/10",
 };
+// =====================================================================
+// ADIÇÕES ao arquivo lib/types.ts
+// =====================================================================
+// Copie estes tipos e ADICIONE ao final do arquivo lib/types.ts existente
+// (NÃO substitua o arquivo inteiro — só adicione essas linhas)
+// =====================================================================
+
+export type CategoriaEntrega = "recorrente" | "pontual_saber" | "pontual_ter" | "componente";
+
+export const CATEGORIA_ENTREGA_LABEL: Record<CategoriaEntrega, string> = {
+  recorrente: "Recorrente",
+  pontual_saber: "Pontual (Diagnóstico)",
+  pontual_ter: "Pontual (Implementação)",
+  componente: "Componente / Comissão",
+};
+
+export const CATEGORIA_ENTREGA_COR: Record<CategoriaEntrega, string> = {
+  recorrente: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  pontual_saber: "bg-blue-500/15 text-blue-300 border-blue-500/30",
+  pontual_ter: "bg-purple-500/15 text-purple-300 border-purple-500/30",
+  componente: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+};
+
+export type TipoEntrega = {
+  id: string;
+  nome: string;
+  categoria: CategoriaEntrega;
+  descricao: string | null;
+  unidade_padrao: string;
+  ativo: boolean;
+  ordem: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type EntregaPrevista = {
+  id: string;
+  cliente_id: string;
+  tipo_entrega_id: string;
+  quantidade_mensal: number | null;
+  quantidade_texto: string | null;
+  percentual_alocacao: string | null;
+  valor_mensal: number | null;
+  observacoes: string | null;
+  ativo: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+// View consolidada (com dados do cliente e do tipo já juntos)
+export type EntregaPrevistaView = EntregaPrevista & {
+  cliente_nome: string;
+  cliente_squad_id: string | null;
+  cliente_account_id: string | null;
+  tipo_entrega_nome: string;
+  tipo_entrega_categoria: CategoriaEntrega;
+  tipo_entrega_descricao: string | null;
+  unidade_padrao: string;
+};
