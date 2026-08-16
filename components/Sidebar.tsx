@@ -17,6 +17,10 @@ type NavItem = {
 const NAV_ACTIVE: NavItem[] = [
   { href: "/cockpit", label: "Cockpit", icon: "★" },
   { href: "/clientes", label: "Clientes", icon: "◎" },
+  { href: "/cockpit", label: "Cockpit", icon: "★" },
+  { href: "/clientes", label: "Clientes", icon: "◎" },
+  { href: "/entregas", label: "Entregas", icon: "✎" },
+  { href: "/pessoas", label: "Pessoas", icon: "◆" },
   { href: "/pessoas", label: "Pessoas", icon: "◆" },
   { href: "/squads", label: "Squads", icon: "◇" },
   { href: "/metas", label: "Metas", icon: "◈" },
