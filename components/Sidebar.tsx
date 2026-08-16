@@ -1,5 +1,4 @@
 "use client";
-
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -17,10 +16,7 @@ type NavItem = {
 const NAV_ACTIVE: NavItem[] = [
   { href: "/cockpit", label: "Cockpit", icon: "★" },
   { href: "/clientes", label: "Clientes", icon: "◎" },
-  { href: "/cockpit", label: "Cockpit", icon: "★" },
-  { href: "/clientes", label: "Clientes", icon: "◎" },
   { href: "/entregas", label: "Entregas", icon: "✎" },
-  { href: "/pessoas", label: "Pessoas", icon: "◆" },
   { href: "/pessoas", label: "Pessoas", icon: "◆" },
   { href: "/squads", label: "Squads", icon: "◇" },
   { href: "/metas", label: "Metas", icon: "◈" },
@@ -32,7 +28,6 @@ const NAV_ACTIVE: NavItem[] = [
 ];
 
 type NavSoonItem = { label: string; icon: string; subitems?: string[] };
-
 const NAV_SOON: NavSoonItem[] = [
   {
     label: "Radar de Clientes",
@@ -45,9 +40,9 @@ const NAV_SOON: NavSoonItem[] = [
     ],
   },
   {
-    label: "Entregas Mensais",
+    label: "Análise Ekyte",
     icon: "✓",
-    subitems: ["Análise Ekyte", "Timesheet"],
+    subitems: ["Cruzamento com Ekyte", "Timesheet"],
   },
   {
     label: "Playbooks",
@@ -95,7 +90,6 @@ export default function Sidebar({ email }: { email?: string }) {
           <p className="text-[10px] text-brand-muted">Painel interno</p>
         </div>
       </div>
-
       <nav className="flex-1 space-y-1">
         {items.map((item) => {
           const active = pathname.startsWith(item.href);
@@ -112,7 +106,6 @@ export default function Sidebar({ email }: { email?: string }) {
             </Link>
           );
         })}
-
         <div className="my-4 border-t border-white/5" />
         <p className="mb-2 px-3 text-[10px] uppercase tracking-wide text-brand-muted">Em breve</p>
         {NAV_SOON.map((item) => (
@@ -133,7 +126,6 @@ export default function Sidebar({ email }: { email?: string }) {
           </div>
         ))}
       </nav>
-
       <div className="mt-4 border-t border-white/5 pt-4">
         {email && (
           <p className="mb-1 truncate px-2 text-xs text-brand-muted" title={email}>
