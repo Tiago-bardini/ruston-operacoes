@@ -5,10 +5,9 @@ import { createClient } from "@/lib/supabase/client";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 import type {
   TipoEntrega,
-  EntregaPrevista,
   EntregaPrevistaView,
   CategoriaEntrega,
-  Cliente,
+  ClienteView,
 } from "@/lib/types";
 import { CATEGORIA_ENTREGA_LABEL, CATEGORIA_ENTREGA_COR } from "@/lib/types";
 
@@ -21,30 +20,29 @@ export default function EntregasPage() {
   const [aba, setAba] = useState<Aba>("por_cliente");
   const [loading, setLoading] = useState(true);
   const [tipos, setTipos] = useState<TipoEntrega[]>([]);
-  const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [clientes, setClientes] = useState<ClienteView[]>([]);
   const [entregas, setEntregas] = useState<EntregaPrevistaView[]>([]);
 
   async function load() {
     setLoading(true);
     const [{ data: t }, { data: c }, { data: e }] = await Promise.all([
       supabase.from("ruston_tipos_entrega").select("*").order("ordem"),
-      supabase.from("ruston_clientes_view").select("*").order("nome"),
+      supabase.from("ruston_clientes_view").select("*").eq("ativo", true).order("nome"),
       supabase.from("ruston_entregas_view").select("*"),
     ]);
     setTipos((t as TipoEntrega[]) ?? []);
-    setClientes((c as Cliente[]) ?? []);
+    setClientes((c as ClienteView[]) ?? []);
     setEntregas((e as EntregaPrevistaView[]) ?? []);
     setLoading(false);
   }
 
   useEffect(() => {
     if (!loadingPerfil) load();
-    /* eslint-disable-next-line */
+    // eslint-disable-next-line
   }, [loadingPerfil]);
 
-  // Filtra clientes por escopo (Investidor/Coordenador vê só do squad dele)
   const clientesFiltrados = useMemo(() => {
-    if (escopo === "todos") return clientes;
+    if (escopo === "global") return clientes;
     return clientes.filter((c) => c.squad_id === squadId);
   }, [clientes, escopo, squadId]);
 
@@ -59,7 +57,6 @@ export default function EntregasPage() {
         </p>
       </div>
 
-      {/* Abas */}
       <div className="mb-4 flex gap-2 border-b border-white/5">
         <button
           className={`px-4 py-2 text-sm ${aba === "por_cliente" ? "border-b-2 border-brand text-white" : "text-brand-muted hover:text-white"}`}
@@ -94,9 +91,6 @@ export default function EntregasPage() {
   );
 }
 
-// ====================================================================
-// ABA POR CLIENTE
-// ====================================================================
 function TabPorCliente({
   clientes,
   tipos,
@@ -104,7 +98,7 @@ function TabPorCliente({
   podeEditar,
   onChanged,
 }: {
-  clientes: Cliente[];
+  clientes: ClienteView[];
   tipos: TipoEntrega[];
   entregas: EntregaPrevistaView[];
   podeEditar: boolean;
@@ -138,7 +132,6 @@ function TabPorCliente({
     setModalAberto(true);
   }
 
-  // Agrupa por categoria
   const agrupado: Record<CategoriaEntrega, EntregaPrevistaView[]> = {
     recorrente: [],
     pontual_saber: [],
@@ -211,7 +204,7 @@ function TabPorCliente({
                       <td className="px-4 py-3">{e.percentual_alocacao || "—"}</td>
                       <td className="px-4 py-3 text-right tabular-nums">
                         {e.valor_mensal
-                          ? `R$ ${e.valor_mensal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+                          ? `R$ ${Number(e.valor_mensal).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
                           : "—"}
                       </td>
                       <td className="px-4 py-3 text-xs text-brand-muted">
@@ -278,9 +271,6 @@ function TabPorCliente({
   );
 }
 
-// ====================================================================
-// MODAL DE EDIÇÃO DE ENTREGA
-// ====================================================================
 function ModalEntrega({
   cliente,
   tipos,
@@ -288,7 +278,7 @@ function ModalEntrega({
   onClose,
   onSaved,
 }: {
-  cliente: Cliente;
+  cliente: ClienteView;
   tipos: TipoEntrega[];
   entrega: EntregaPrevistaView | null;
   onClose: () => void;
@@ -335,7 +325,7 @@ function ModalEntrega({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-lg border border-white/10 bg-brand-bg p-5"
+        className="w-full max-w-lg rounded-lg border border-white/10 bg-brand-panel p-5"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="mb-1 text-lg font-semibold">
@@ -432,9 +422,6 @@ function ModalEntrega({
   );
 }
 
-// ====================================================================
-// ABA CATÁLOGO DE SERVIÇOS
-// ====================================================================
 function TabCatalogo({
   tipos,
   podeEditar,
@@ -481,7 +468,6 @@ function TabCatalogo({
     onChanged();
   }
 
-  // Agrupa por categoria
   const agrupado: Record<CategoriaEntrega, TipoEntrega[]> = {
     recorrente: [],
     pontual_saber: [],
