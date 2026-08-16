@@ -315,7 +315,7 @@ export interface FcaAvaliacao {
   cliente_id: string;
   ano: number;
   mes: number;
-  data_referencia: string; // sexta-feira da semana FCA (sábado→sexta)
+  data_referencia: string;
   nota_resultado: number | null;
   nota_operacao_trafego: number | null;
   nota_prazo: number | null;
@@ -334,24 +334,18 @@ export interface FcaAvaliacao {
   updated_at: string;
 }
 
-/** Retorna a data da sexta-feira da semana FCA (sábado→sexta) que contém a data recebida.
- * Ex: 06/08 (sábado) → 12/08 (próxima sexta) porque começa nova semana
- *     08/08 (segunda) → 12/08 (sexta da mesma semana)
- *     12/08 (sexta) → 12/08 (mesma data)
- */
 export function sextaDaSemanaFca(data?: Date | string): string {
   const d = data ? new Date(typeof data === "string" ? data + "T00:00:00" : data) : new Date();
   d.setHours(0, 0, 0, 0);
-  const dow = d.getDay(); // 0=domingo, 1=segunda, ..., 5=sexta, 6=sábado
+  const dow = d.getDay();
   let dias: number;
-  if (dow === 6) dias = 6;          // sábado → próxima sexta (6 dias)
-  else if (dow === 5) dias = 0;     // sexta → hoje
-  else dias = 5 - dow;              // dom/seg/ter/qua/qui → dias até sexta
+  if (dow === 6) dias = 6;
+  else if (dow === 5) dias = 0;
+  else dias = 5 - dow;
   d.setDate(d.getDate() + dias);
   return d.toISOString().slice(0, 10);
 }
 
-/** Formata "Sexta, 07/ago" a partir de uma data ISO */
 export function formatSemanaFca(iso: string): string {
   const d = new Date(iso + "T00:00:00");
   const dia = String(d.getDate()).padStart(2, "0");
@@ -359,7 +353,6 @@ export function formatSemanaFca(iso: string): string {
   return `Sex. ${dia}/${mes}`;
 }
 
-/** Últimas N sextas-feiras a partir de hoje, ordenadas da mais nova pra mais antiga */
 export function ultimasSextas(n: number = 12): string[] {
   const hoje = sextaDaSemanaFca();
   const d = new Date(hoje + "T00:00:00");
@@ -497,7 +490,6 @@ export function formatDate(iso: string | null | undefined): string {
   return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR");
 }
 
-/** Status de vencimento do contrato — usado pra colorir badges e alertas */
 export type StatusVencimento = "vencido" | "critico" | "atencao" | "ok" | "sem_data";
 
 export function statusVencimento(dataVencimento: string | null | undefined): StatusVencimento {
@@ -535,12 +527,8 @@ export const STATUS_VENCIMENTO_COLOR: Record<StatusVencimento, string> = {
   ok:       "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
   sem_data: "bg-white/5 text-brand-muted border-white/10",
 };
-// =====================================================================
-// ADIÇÕES ao arquivo lib/types.ts
-// =====================================================================
-// Copie estes tipos e ADICIONE ao final do arquivo lib/types.ts existente
-// (NÃO substitua o arquivo inteiro — só adicione essas linhas)
-// =====================================================================
+
+/* ================= ENTREGAS CONTRATADAS ================= */
 
 export type CategoriaEntrega = "recorrente" | "pontual_saber" | "pontual_ter" | "componente";
 
@@ -584,7 +572,6 @@ export type EntregaPrevista = {
   updated_at?: string;
 };
 
-// View consolidada (com dados do cliente e do tipo já juntos)
 export type EntregaPrevistaView = EntregaPrevista & {
   cliente_nome: string;
   cliente_squad_id: string | null;
