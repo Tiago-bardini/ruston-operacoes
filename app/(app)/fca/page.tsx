@@ -11,6 +11,7 @@ import {
   sextaDaSemanaFca, formatSemanaFca, ultimasSextas, formatDate,
 } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
+import FcaImportJson from "@/components/FcaImportJson";
 
 type Aba = "avaliar" | "detalhes" | "consolidado";
 
@@ -130,6 +131,9 @@ export default function FcaPage() {
               <option value="aguardando_validacao">Aguardando validação</option>
               <option value="validado">Validado</option>
             </select>
+            <div className="ml-auto">
+              <FcaImportJson onDone={load} />
+            </div>
           </div>
 
           {/* Stats */}
