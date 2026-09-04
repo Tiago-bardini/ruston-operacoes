@@ -1,477 +1,597 @@
-"use client";
+export type Cargo =
+  | "coordenador"
+  | "gestor_projetos"
+  | "gestor_trafego"
+  | "designer"
+  | "social_media"
+  | "copy"
+  | "gerente"
+  | "coo"
+  | "tech"
+  | "closer"
+  | "pre_vendas"
+  | "pp"
+  | "financeiro"
+  | "isaas"
+  | "outro";
 
-import { useEffect, useState, useMemo } from "react";
-import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
-import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
-
-// ============================================================
-// TIPOS
-// ============================================================
-type Pessoa = {
-  id: string;
-  nome: string;
-  email: string | null;
-  cargo: string;
-  squad_id: string | null;
-  foto_url: string | null;
-  ativo: boolean;
-  area_organograma: string | null; // 'gerencia' | 'comercial' | 'administrativo' | 'operacao'
-  organograma_row: number;
-  ordem_org: number;
-  role_organograma: string | null;
+export const CARGO_LABEL: Record<Cargo, string> = {
+  coordenador: "Coordenador",
+  gestor_projetos: "Gestor de Projetos",
+  gestor_trafego: "Gestor de Tráfego",
+  designer: "Designer",
+  social_media: "Social Media",
+  copy: "Copy",
+  gerente: "Gerente",
+  coo: "COO",
+  tech: "TECH",
+  closer: "Closer",
+  pre_vendas: "Pré-Vendas",
+  pp: "P&P",
+  financeiro: "Financeiro",
+  isaas: "ISAAS",
+  outro: "Outro",
 };
 
-type Squad = {
+export type EtapaCliente =
+  | "onboarding"
+  | "estruturacao_estrategica"
+  | "byline"
+  | "em_recuperacao"
+  | "suspenso"
+  | "cancelado";
+
+export const ETAPA_LABEL: Record<EtapaCliente, string> = {
+  onboarding: "Onboarding",
+  estruturacao_estrategica: "Estruturação Estratégica",
+  byline: "By-line",
+  em_recuperacao: "Em Recuperação",
+  suspenso: "Suspenso",
+  cancelado: "Cancelado",
+};
+
+export const ETAPA_COLOR: Record<EtapaCliente, string> = {
+  onboarding: "bg-sky-500/20 text-sky-300 border-sky-500/30",
+  estruturacao_estrategica: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+  byline: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+  em_recuperacao: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+  suspenso: "bg-orange-500/20 text-orange-300 border-orange-500/30",
+  cancelado: "bg-red-500/20 text-red-300 border-red-500/30",
+};
+
+export type TierCliente = "tiny" | "small" | "medium" | "large";
+
+export const TIER_LABEL: Record<TierCliente, string> = {
+  tiny: "TINY",
+  small: "SMALL",
+  medium: "MEDIUM",
+  large: "LARGE",
+};
+
+export interface Squad {
   id: string;
   nome: string;
   label: string | null;
+  cor: string | null;
+  logo_url: string | null;
   coordenador_id: string | null;
   ativo: boolean;
+  incluir_em_comparativo: boolean;
+  created_at: string;
+}
+
+export type NivelSenioridade = "junior" | "pleno" | "senior" | "especialista";
+export type VersaoV = "v1" | "v2" | "v3" | "v4";
+
+export const NIVEL_LABEL: Record<NivelSenioridade, string> = {
+  junior: "Junior",
+  pleno: "Pleno",
+  senior: "Sênior",
+  especialista: "Especialista",
 };
 
-// ============================================================
-// PÁGINA
-// ============================================================
-export default function OrganogramaPage() {
-  const supabase = createClient();
-  const { loading: loadingPerfil, podeEditar } = useUsuarioPerfil();
-  const [pessoas, setPessoas] = useState<Pessoa[]>([]);
-  const [squads, setSquads] = useState<Squad[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [pessoaFoto, setPessoaFoto] = useState<Pessoa | null>(null);
+export const V_LABEL: Record<VersaoV, string> = {
+  v1: "V1",
+  v2: "V2",
+  v3: "V3",
+  v4: "V4",
+};
 
-  async function load() {
-    setLoading(true);
-    const [{ data: ps }, { data: sq }] = await Promise.all([
-      supabase.from("ruston_pessoas").select("*").eq("ativo", true).order("ordem_org"),
-      supabase.from("ruston_squads").select("*").eq("ativo", true).order("nome"),
-    ]);
-    setPessoas((ps as Pessoa[]) ?? []);
-    setSquads((sq as Squad[]) ?? []);
-    setLoading(false);
-  }
-
-  useEffect(() => { if (!loadingPerfil) load(); /* eslint-disable-next-line */ }, [loadingPerfil]);
-
-  // Filtra por área
-  const gerente = useMemo(
-    () => pessoas.find((p) => p.area_organograma === "gerencia"),
-    [pessoas]
-  );
-
-  const comercial = useMemo(() => {
-    return {
-      coord: pessoas.find((p) => p.area_organograma === "comercial" && p.organograma_row === 0),
-      membros: pessoas.filter((p) => p.area_organograma === "comercial" && p.organograma_row > 0),
-    };
-  }, [pessoas]);
-
-  const administrativo = useMemo(() => {
-    return {
-      coord: gerente, // Coord ADM = Nicolas (mesmo do Gerente)
-      membros: pessoas.filter((p) => p.area_organograma === "administrativo"),
-    };
-  }, [pessoas, gerente]);
-
-  const squadsData = useMemo(() => {
-    return squads.map((sq) => {
-      const membrosSquad = pessoas.filter((p) => p.squad_id === sq.id);
-      const coord = membrosSquad.find((p) => p.organograma_row === 0);
-      const rows: Pessoa[][] = [];
-      const maxRow = Math.max(0, ...membrosSquad.map((p) => p.organograma_row));
-      for (let r = 1; r <= maxRow; r++) {
-        rows.push(
-          membrosSquad
-            .filter((p) => p.organograma_row === r)
-            .sort((a, b) => a.ordem_org - b.ordem_org)
-        );
-      }
-      return { squad: sq, coord, rows };
-    });
-  }, [pessoas, squads]);
-
-  if (loadingPerfil || loading) {
-    return <p className="text-brand-muted">Carregando organograma...</p>;
-  }
-
-  return (
-    <div>
-      <div className="mb-6 flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">👥 Organograma</h1>
-          <p className="text-sm text-brand-muted">
-            Estrutura do time da Ruston. Edite pessoas em <Link href="/pessoas" className="text-brand hover:underline">/pessoas</Link>
-          </p>
-        </div>
-        {podeEditar && (
-          <Link href="/pessoas" className="btn-ghost text-xs">
-            + Editar time
-          </Link>
-        )}
-      </div>
-
-      {/* GERENTE */}
-      {gerente && (
-        <div className="mb-6 flex justify-center">
-          <PessoaCard
-            pessoa={gerente}
-            destaque
-            podeEditar={podeEditar}
-            onFoto={() => setPessoaFoto(gerente)}
-          />
-        </div>
-      )}
-
-      {/* Linha 2: COMERCIAL + ADMINISTRATIVO */}
-      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-        <SecaoCard title="💼 COMERCIAL" cor="border-blue-500/30">
-          {comercial.coord && (
-            <>
-              <p className="mb-2 text-[10px] uppercase tracking-wide text-brand-muted">Coordenador</p>
-              <PessoaCard
-                pessoa={comercial.coord}
-                small
-                podeEditar={podeEditar}
-                onFoto={() => setPessoaFoto(comercial.coord!)}
-              />
-              <div className="my-3 border-t border-white/5" />
-            </>
-          )}
-          <p className="mb-2 text-[10px] uppercase tracking-wide text-brand-muted">Time</p>
-          <div className="grid grid-cols-2 gap-2">
-            {comercial.membros.map((p) => (
-              <PessoaCard
-                key={p.id}
-                pessoa={p}
-                small
-                podeEditar={podeEditar}
-                onFoto={() => setPessoaFoto(p)}
-              />
-            ))}
-          </div>
-        </SecaoCard>
-
-        <SecaoCard title="📊 ADMINISTRATIVO" cor="border-emerald-500/30">
-          {administrativo.coord && (
-            <>
-              <p className="mb-2 text-[10px] uppercase tracking-wide text-brand-muted">Coordenador (acumula)</p>
-              <PessoaCard
-                pessoa={administrativo.coord}
-                small
-                cargoOverride="Coordenador ADM"
-                podeEditar={podeEditar}
-                onFoto={() => setPessoaFoto(administrativo.coord!)}
-              />
-              <div className="my-3 border-t border-white/5" />
-            </>
-          )}
-          <p className="mb-2 text-[10px] uppercase tracking-wide text-brand-muted">Time</p>
-          <div className="grid grid-cols-2 gap-2">
-            {administrativo.membros.map((p) => (
-              <PessoaCard
-                key={p.id}
-                pessoa={p}
-                small
-                podeEditar={podeEditar}
-                onFoto={() => setPessoaFoto(p)}
-              />
-            ))}
-          </div>
-        </SecaoCard>
-      </div>
-
-      {/* SQUADS */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {squadsData.map(({ squad, coord, rows }) => (
-          <SecaoCard
-            key={squad.id}
-            title={`⚔️ SQUAD ${squad.nome}`}
-            cor="border-amber-500/30"
-            subtitle={squad.label ?? undefined}
-          >
-            {coord && (
-              <>
-                <p className="mb-2 text-[10px] uppercase tracking-wide text-brand-muted">Coordenador</p>
-                <PessoaCard
-                  pessoa={coord}
-                  podeEditar={podeEditar}
-                  onFoto={() => setPessoaFoto(coord)}
-                />
-                <div className="my-3 border-t border-white/5" />
-              </>
-            )}
-            <p className="mb-2 text-[10px] uppercase tracking-wide text-brand-muted">
-              Membros ({rows.reduce((a, b) => a + b.length, 0)})
-            </p>
-            <div className="space-y-2">
-              {rows.map((row, i) => (
-                <div key={i} className="grid grid-cols-3 gap-2">
-                  {row.map((p) => (
-                    <PessoaCard
-                      key={p.id}
-                      pessoa={p}
-                      small
-                      podeEditar={podeEditar}
-                      onFoto={() => setPessoaFoto(p)}
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-          </SecaoCard>
-        ))}
-      </div>
-
-      {/* Modal de upload de foto */}
-      {pessoaFoto && (
-        <ModalUploadFoto
-          pessoa={pessoaFoto}
-          onFechar={() => setPessoaFoto(null)}
-          onSalvo={() => {
-            setPessoaFoto(null);
-            load();
-          }}
-        />
-      )}
-    </div>
-  );
+export interface Pessoa {
+  id: string;
+  nome: string;
+  email: string | null;
+  cargo: Cargo;
+  squad_id: string | null;
+  foto_url: string | null;
+  ativo: boolean;
+  observacoes: string | null;
+  nivel_senioridade: NivelSenioridade | null;
+  nivel_v: VersaoV | null;
+  salario: number | null;
+  compartilhado_entre_squads: boolean;
+  area_organograma: string | null;
+  organograma_row: number;
+  ordem_org: number;
+  role_organograma: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
-// ============================================================
-// SEÇÃO CARD (wrapper)
-// ============================================================
-function SecaoCard({
-  title,
-  subtitle,
-  cor,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  cor: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={`card border ${cor}`}>
-      <div className="mb-3 flex items-baseline gap-2">
-        <h2 className="text-sm font-bold uppercase tracking-wide">{title}</h2>
-        {subtitle && <span className="text-[10px] text-brand-muted">{subtitle}</span>}
-      </div>
-      {children}
-    </div>
-  );
+export interface HeadcountPlanejado {
+  id: string;
+  squad_id: string;
+  cargo: Cargo;
+  quantidade_planejada: number;
+  created_at: string;
+  updated_at: string;
 }
 
-// ============================================================
-// PESSOA CARD
-// ============================================================
-function PessoaCard({
-  pessoa,
-  destaque,
-  small,
-  cargoOverride,
-  podeEditar,
-  onFoto,
-}: {
-  pessoa: Pessoa;
-  destaque?: boolean;
-  small?: boolean;
-  cargoOverride?: string;
-  podeEditar: boolean;
-  onFoto: () => void;
-}) {
-  const cargo = cargoOverride ?? pessoa.role_organograma ?? pessoa.cargo;
-  const iniciais = pessoa.nome
-    .split(" ")
-    .map((s) => s[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
+export type TipoCadencia = "semanal" | "quinzenal" | "mensal" | "custom";
+export type TipoReuniao = "kickoff" | "periodica" | "urgente" | "upsell" | "renovacao" | "outra";
 
-  return (
-    <div
-      className={`rounded-lg border p-3 transition ${
-        destaque
-          ? "border-brand bg-brand/5 min-w-[220px]"
-          : "border-white/10 bg-white/[0.02] hover:border-white/20"
-      }`}
-    >
-      <div className="flex items-center gap-2">
-        <button
-          onClick={podeEditar ? onFoto : undefined}
-          className={`relative flex-shrink-0 rounded-full overflow-hidden ${
-            destaque ? "h-14 w-14" : small ? "h-8 w-8" : "h-10 w-10"
-          } bg-gradient-to-br from-brand/60 to-brand/30 flex items-center justify-center ${
-            podeEditar ? "cursor-pointer hover:ring-2 hover:ring-brand" : ""
-          }`}
-          title={podeEditar ? "Clica pra trocar foto" : ""}
-        >
-          {pessoa.foto_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={pessoa.foto_url} alt={pessoa.nome} className="h-full w-full object-cover" />
-          ) : (
-            <span className={`font-bold text-white ${destaque ? "text-lg" : small ? "text-[10px]" : "text-xs"}`}>
-              {iniciais}
-            </span>
-          )}
-        </button>
-        <div className="min-w-0 flex-1">
-          <p className={`font-semibold truncate ${destaque ? "text-base" : small ? "text-xs" : "text-sm"}`}>
-            {pessoa.nome}
-          </p>
-          <p className={`text-brand-muted truncate ${destaque ? "text-xs" : "text-[10px]"}`}>
-            {cargo}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
+export const TIPO_CADENCIA_LABEL: Record<TipoCadencia, string> = {
+  semanal: "Semanal",
+  quinzenal: "Quinzenal",
+  mensal: "Mensal",
+  custom: "Custom",
+};
+
+export const TIPO_REUNIAO_LABEL: Record<TipoReuniao, string> = {
+  kickoff: "Kickoff",
+  periodica: "Periódica",
+  urgente: "Urgente",
+  upsell: "Upsell",
+  renovacao: "Renovação",
+  outra: "Outra",
+};
+
+export interface ReuniaoCliente {
+  id: string;
+  cliente_id: string;
+  data_reuniao: string;
+  hora: string | null;
+  tipo_reuniao: TipoReuniao;
+  responsavel_id: string | null;
+  presentes: string | null;
+  resumo: string | null;
+  decisoes: string | null;
+  proximos_passos: string | null;
+  observacoes: string | null;
+  realizada: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
-// ============================================================
-// MODAL DE UPLOAD DE FOTO
-// ============================================================
-function ModalUploadFoto({
-  pessoa,
-  onFechar,
-  onSalvo,
-}: {
-  pessoa: Pessoa;
-  onFechar: () => void;
-  onSalvo: () => void;
-}) {
-  const supabase = createClient();
-  const [uploading, setUploading] = useState(false);
-  const [preview, setPreview] = useState<string | null>(pessoa.foto_url);
-  const [arquivo, setArquivo] = useState<File | null>(null);
-
-  function selecionar(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setArquivo(file);
-    const reader = new FileReader();
-    reader.onload = (ev) => setPreview(ev.target?.result as string);
-    reader.readAsDataURL(file);
-  }
-
-  async function salvar() {
-    if (!arquivo) {
-      alert("Selecione uma foto primeiro");
-      return;
-    }
-    setUploading(true);
-
-    // Nome do arquivo: pessoa_id + extensão
-    const ext = arquivo.name.split(".").pop() ?? "jpg";
-    const path = `${pessoa.id}.${ext}`;
-
-    // Upload no bucket 'fotos-pessoas'
-    const { error: uploadError } = await supabase.storage
-      .from("fotos-pessoas")
-      .upload(path, arquivo, { upsert: true, contentType: arquivo.type });
-
-    if (uploadError) {
-      alert("Erro no upload: " + uploadError.message);
-      setUploading(false);
-      return;
-    }
-
-    // Pega URL pública
-    const { data: urlData } = supabase.storage.from("fotos-pessoas").getPublicUrl(path);
-    const publicUrl = urlData.publicUrl + `?t=${Date.now()}`; // força reload cache
-
-    // Salva no ruston_pessoas
-    const { error: updateError } = await supabase
-      .from("ruston_pessoas")
-      .update({ foto_url: publicUrl })
-      .eq("id", pessoa.id);
-
-    if (updateError) {
-      alert("Erro ao salvar URL: " + updateError.message);
-      setUploading(false);
-      return;
-    }
-
-    setUploading(false);
-    onSalvo();
-  }
-
-  async function remover() {
-    if (!confirm("Remover foto?")) return;
-    setUploading(true);
-    await supabase.from("ruston_pessoas").update({ foto_url: null }).eq("id", pessoa.id);
-    setUploading(false);
-    onSalvo();
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onClick={onFechar}
-    >
-      <div
-        className="w-full max-w-md rounded-lg border border-white/10 bg-brand-panel p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-start justify-between">
-          <div>
-            <h3 className="text-lg font-semibold">Foto — {pessoa.nome}</h3>
-            <p className="text-xs text-brand-muted">
-              {pessoa.role_organograma ?? pessoa.cargo}
-            </p>
-          </div>
-          <button onClick={onFechar} className="text-brand-muted hover:text-white">✕</button>
-        </div>
-
-        <div className="mb-4 flex justify-center">
-          <div className="h-40 w-40 rounded-full overflow-hidden bg-gradient-to-br from-brand/60 to-brand/30 flex items-center justify-center border-2 border-white/10">
-            {preview ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={preview} alt="preview" className="h-full w-full object-cover" />
-            ) : (
-              <span className="text-4xl font-bold text-white/60">
-                {pessoa.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase()}
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="mb-4">
-          <label className="btn w-full cursor-pointer text-center block">
-            📸 Escolher foto
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={selecionar}
-            />
-          </label>
-          <p className="mt-2 text-[10px] text-brand-muted text-center">
-            JPG, PNG ou WEBP · Recomendado 300×300 (quadrada)
-          </p>
-        </div>
-
-        <div className="flex justify-between gap-2">
-          {pessoa.foto_url && (
-            <button
-              className="text-xs text-red-300 hover:text-red-400"
-              onClick={remover}
-              disabled={uploading}
-            >
-              Remover foto atual
-            </button>
-          )}
-          <div className="ml-auto flex gap-2">
-            <button className="btn-ghost" onClick={onFechar} disabled={uploading}>
-              Cancelar
-            </button>
-            <button className="btn" onClick={salvar} disabled={uploading || !arquivo}>
-              {uploading ? "Salvando..." : "Salvar"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+export interface ReuniaoStatus {
+  cliente_id: string;
+  cliente_nome: string;
+  cliente_squad_id: string | null;
+  cliente_account_id: string | null;
+  cadencia_dias: number;
+  tipo_cadencia: TipoCadencia;
+  ultima_reuniao: string | null;
+  total_reunioes: number;
+  dias_sem_reuniao: number;
 }
+
+export function statusCadencia(status: ReuniaoStatus): "ok" | "proximo" | "atrasado" | "critico" {
+  if (status.ultima_reuniao == null) return "critico";
+  const dias = status.dias_sem_reuniao;
+  const cad = status.cadencia_dias;
+  if (dias >= cad * 1.5) return "critico";
+  if (dias >= cad) return "atrasado";
+  if (dias >= cad * 0.75) return "proximo";
+  return "ok";
+}
+
+export const STATUS_CADENCIA_COLOR = {
+  ok:       "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
+  proximo:  "bg-sky-500/20 text-sky-300 border-sky-500/40",
+  atrasado: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+  critico:  "bg-red-500/20 text-red-300 border-red-500/40",
+};
+
+export const STATUS_CADENCIA_LABEL = {
+  ok: "Em dia",
+  proximo: "Se aproximando",
+  atrasado: "Atrasado",
+  critico: "Crítico",
+};
+
+export type PerfilUsuario = "gerente" | "coordenador" | "investidor";
+
+export const PERFIL_LABEL: Record<PerfilUsuario, string> = {
+  gerente: "Gerente",
+  coordenador: "Coordenador",
+  investidor: "Investidor",
+};
+
+export interface UsuarioPerfil {
+  id: string;
+  email: string;
+  perfil: PerfilUsuario;
+  squad_id: string | null;
+  pessoa_id: string | null;
+  ativo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Forecast {
+  id: string;
+  ano: number;
+  mes: number;
+  meta_mrr: number | null;
+  churn_projetado_pct: number;
+  novos_contratos_valor: number;
+  mrr_realizado: number | null;
+  observacoes: string | null;
+  // Projetado
+  mrr_aquisicao_projetado: number;
+  onetime_aquisicao_projetado: number;
+  mrr_upsell_projetado: number;
+  onetime_upsell_projetado: number;
+  clientes_churn_projetado: number;
+  // Realizado editável
+  mrr_aquisicao_realizado: number | null;
+  onetime_aquisicao_realizado: number | null;
+  mrr_upsell_realizado: number | null;
+  onetime_upsell_realizado: number | null;
+  clientes_churn_realizado: number | null;
+  // Fechamento
+  fechado: boolean;
+  fechado_em: string | null;
+  mrr_total_snapshot: number | null;
+  clientes_ativos_snapshot: number | null;
+  total_pessoas_snapshot: number | null;
+  folha_snapshot: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type UnidadeMeta = "percentual" | "nota" | "reais" | "quantidade";
+
+export const UNIDADE_LABEL: Record<UnidadeMeta, string> = {
+  percentual: "%",
+  nota: "nota",
+  reais: "R$",
+  quantidade: "qtde",
+};
+
+export interface MetaEmpresa {
+  id: string;
+  ano: number;
+  mes: number;
+  metrica: string;
+  metrica_label: string;
+  unidade: UnidadeMeta;
+  valor_meta: number;
+  valor_realizado: number | null;
+  observacoes: string | null;
+  responsavel_id: string | null;
+  ordem: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MetaSquad extends MetaEmpresa {
+  squad_id: string;
+}
+
+export function formatMeta(valor: number | null | undefined, unidade: UnidadeMeta): string {
+  if (valor == null) return "—";
+  if (unidade === "percentual") return `${valor}%`;
+  if (unidade === "reais") return formatBRL(valor);
+  if (unidade === "nota") return String(valor);
+  return String(valor);
+}
+
+export const MESES_LABEL = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+];
+
+/* ================= FCA (Fato-Causa-Ação) ================= */
+
+export type StatusFca = "rascunho" | "aguardando_validacao" | "validado";
+
+export const STATUS_FCA_LABEL: Record<StatusFca, string> = {
+  rascunho: "Rascunho",
+  aguardando_validacao: "Aguardando validação",
+  validado: "Validado",
+};
+
+export const STATUS_FCA_COLOR: Record<StatusFca, string> = {
+  rascunho: "bg-white/5 text-brand-muted border-white/10",
+  aguardando_validacao: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+  validado: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+};
+
+export type BandeiraFca = "verde" | "amarelo" | "vermelho" | "sem_dado";
+
+export const BANDEIRA_FCA_LABEL: Record<BandeiraFca, string> = {
+  verde: "Verde",
+  amarelo: "Amarelo",
+  vermelho: "Vermelho",
+  sem_dado: "Sem dado",
+};
+
+export const BANDEIRA_FCA_COLOR: Record<BandeiraFca, string> = {
+  verde: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
+  amarelo: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+  vermelho: "bg-red-500/20 text-red-300 border-red-500/40",
+  sem_dado: "bg-white/5 text-brand-muted border-white/10",
+};
+
+export interface FcaAvaliacao {
+  id: string;
+  cliente_id: string;
+  ano: number;
+  mes: number;
+  data_referencia: string;
+  nota_resultado: number | null;
+  nota_operacao_trafego: number | null;
+  nota_prazo: number | null;
+  nota_qualidade: number | null;
+  nota_relacionamento: number | null;
+  nota_roi: number | null;
+  fato: string | null;
+  causa: string | null;
+  acao: string | null;
+  status: StatusFca;
+  preenchido_por_id: string | null;
+  validado_por_id: string | null;
+  validado_at: string | null;
+  observacoes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export function sextaDaSemanaFca(data?: Date | string): string {
+  const d = data ? new Date(typeof data === "string" ? data + "T00:00:00" : data) : new Date();
+  d.setHours(0, 0, 0, 0);
+  const dow = d.getDay();
+  let dias: number;
+  if (dow === 6) dias = 6;
+  else if (dow === 5) dias = 0;
+  else dias = 5 - dow;
+  d.setDate(d.getDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+export function formatSemanaFca(iso: string): string {
+  const d = new Date(iso + "T00:00:00");
+  const dia = String(d.getDate()).padStart(2, "0");
+  const mes = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"][d.getMonth()];
+  return `Sex. ${dia}/${mes}`;
+}
+
+export function ultimasSextas(n: number = 12): string[] {
+  const hoje = sextaDaSemanaFca();
+  const d = new Date(hoje + "T00:00:00");
+  const arr: string[] = [];
+  for (let i = 0; i < n; i++) {
+    arr.push(d.toISOString().slice(0, 10));
+    d.setDate(d.getDate() - 7);
+  }
+  return arr;
+}
+
+export interface FcaView extends FcaAvaliacao {
+  nota_final: number | null;
+  bandeira: BandeiraFca;
+  cliente_nome: string;
+  cliente_squad_id: string | null;
+  cliente_account_id: string | null;
+  preenchido_por_nome: string | null;
+  validado_por_nome: string | null;
+}
+
+export const CRITERIOS_FCA = [
+  {
+    chave: "nota_resultado",
+    label: "Resultado",
+    peso: 7,
+    descricao: "Meta de Faturamento, Meta de MQLs e/ou OKRs definidas com o cliente.",
+  },
+  {
+    chave: "nota_operacao_trafego",
+    label: "Operação de Tráfego",
+    peso: 5,
+    descricao: "• Subiram campanhas?\n• Verba de mídia controlada?\n• Criativos estão sendo acompanhados?\n• Traqueamento e integração estão feitas?",
+  },
+  {
+    chave: "nota_prazo",
+    label: "Prazo",
+    peso: 5,
+    descricao: "• As entregas estão em dia?\n• Como está a situação do cliente?",
+  },
+  {
+    chave: "nota_qualidade",
+    label: "Qualidade",
+    peso: 4,
+    descricao: "• As entregas estão em dia?\n• Como está a situação do cliente?",
+  },
+  {
+    chave: "nota_relacionamento",
+    label: "Relacionamento",
+    peso: 4,
+    descricao: "• Como está o relacionamento com o cliente?\n• Mensagens no WhatsApp?\n• Check-ins estão sendo feitos?",
+  },
+  {
+    chave: "nota_roi",
+    label: "ROI",
+    peso: 8,
+    descricao: "ROI (Retorno sobre Investimento) — quanto o cliente ganhou pra cada R$ 1 investido em marketing.\n\nExemplo: cliente investiu R$ 10.000 em anúncios e faturou R$ 50.000 → ROI = 5x.\n\nAvalie se o cliente está tendo retorno positivo do investimento.",
+  },
+] as const;
+
+export function calcularNotaFinalFca(f: Partial<FcaAvaliacao>): number | null {
+  const notas = [
+    f.nota_resultado,
+    f.nota_operacao_trafego,
+    f.nota_prazo,
+    f.nota_qualidade,
+    f.nota_relacionamento,
+    f.nota_roi,
+  ];
+  if (notas.some((n) => n == null)) return null;
+  const soma =
+    (f.nota_resultado ?? 0) * 7 +
+    (f.nota_operacao_trafego ?? 0) * 5 +
+    (f.nota_prazo ?? 0) * 5 +
+    (f.nota_qualidade ?? 0) * 4 +
+    (f.nota_relacionamento ?? 0) * 4 +
+    (f.nota_roi ?? 0) * 8;
+  return Math.round((soma / 33) * 100) / 100;
+}
+
+export function bandeiraDaNota(nota: number | null): BandeiraFca {
+  if (nota == null) return "sem_dado";
+  if (nota >= 8) return "verde";
+  if (nota >= 6) return "amarelo";
+  return "vermelho";
+}
+
+export interface Cliente {
+  id: string;
+  codigo_interno: string | null;
+  nome: string;
+  etapa: EtapaCliente;
+  mrr: number;
+  fee: number | null;
+  tier: TierCliente | null;
+  data_assinatura: string | null;
+  data_ultima_alteracao_fee: string | null;
+  data_churn: string | null;
+  contrato_url: string | null;
+  prazo_contrato_meses: number | null;
+  data_vencimento_contrato: string | null;
+  churn_realizado: boolean;
+  motivo_churn: string | null;
+  data_subir_churn_sistema: string | null;
+  subiu_no_sistema: boolean;
+  subiu_no_sistema_em: string | null;
+  coordenador_id: string | null;
+  account_id: string | null;
+  gestor_trafego_id: string | null;
+  designer_id: string | null;
+  squad_id: string | null;
+  observacoes: string | null;
+  ativo: boolean;
+  created_at: string;
+  updated_at: string;
+  updated_by: string | null;
+}
+
+export interface ClienteView extends Cliente {
+  lt_meses: number | null;
+  coordenador_nome: string | null;
+  account_nome: string | null;
+  gestor_trafego_nome: string | null;
+  designer_nome: string | null;
+  squad_nome: string | null;
+}
+
+export function formatBRL(value: number | null | undefined): string {
+  if (value == null) return "—";
+  return Number(value).toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+export function formatDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR");
+}
+
+export type StatusVencimento = "vencido" | "critico" | "atencao" | "ok" | "sem_data";
+
+export function statusVencimento(dataVencimento: string | null | undefined): StatusVencimento {
+  if (!dataVencimento) return "sem_data";
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const venc = new Date(dataVencimento + "T00:00:00");
+  const diasRestantes = Math.floor((venc.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
+  if (diasRestantes < 0) return "vencido";
+  if (diasRestantes <= 30) return "critico";
+  if (diasRestantes <= 60) return "atencao";
+  return "ok";
+}
+
+export function diasParaVencimento(dataVencimento: string | null | undefined): number | null {
+  if (!dataVencimento) return null;
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const venc = new Date(dataVencimento + "T00:00:00");
+  return Math.floor((venc.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+export const STATUS_VENCIMENTO_LABEL: Record<StatusVencimento, string> = {
+  vencido: "Vencido",
+  critico: "Crítico (≤30 dias)",
+  atencao: "Atenção (≤60 dias)",
+  ok: "OK",
+  sem_data: "Sem data",
+};
+
+export const STATUS_VENCIMENTO_COLOR: Record<StatusVencimento, string> = {
+  vencido:  "bg-red-500/20 text-red-300 border-red-500/40",
+  critico:  "bg-orange-500/20 text-orange-300 border-orange-500/40",
+  atencao:  "bg-amber-500/20 text-amber-300 border-amber-500/40",
+  ok:       "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+  sem_data: "bg-white/5 text-brand-muted border-white/10",
+};
+
+/* ================= ENTREGAS CONTRATADAS ================= */
+
+export type CategoriaEntrega = "recorrente" | "pontual_saber" | "pontual_ter" | "componente";
+
+export const CATEGORIA_ENTREGA_LABEL: Record<CategoriaEntrega, string> = {
+  recorrente: "Recorrente",
+  pontual_saber: "Pontual (Diagnóstico)",
+  pontual_ter: "Pontual (Implementação)",
+  componente: "Componente / Comissão",
+};
+
+export const CATEGORIA_ENTREGA_COR: Record<CategoriaEntrega, string> = {
+  recorrente: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  pontual_saber: "bg-blue-500/15 text-blue-300 border-blue-500/30",
+  pontual_ter: "bg-purple-500/15 text-purple-300 border-purple-500/30",
+  componente: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+};
+
+export type TipoEntrega = {
+  id: string;
+  nome: string;
+  categoria: CategoriaEntrega;
+  descricao: string | null;
+  unidade_padrao: string;
+  ativo: boolean;
+  ordem: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type EntregaPrevista = {
+  id: string;
+  cliente_id: string;
+  tipo_entrega_id: string;
+  quantidade_mensal: number | null;
+  quantidade_texto: string | null;
+  percentual_alocacao: string | null;
+  valor_mensal: number | null;
+  observacoes: string | null;
+  ativo: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type EntregaPrevistaView = EntregaPrevista & {
+  cliente_nome: string;
+  cliente_squad_id: string | null;
+  cliente_account_id: string | null;
+  tipo_entrega_nome: string;
+  tipo_entrega_categoria: CategoriaEntrega;
+  tipo_entrega_descricao: string | null;
+  unidade_padrao: string;
+};
