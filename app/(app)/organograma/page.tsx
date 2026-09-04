@@ -1,32 +1,50 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
 // ============================================================
 // TIPOS
 // ============================================================
-type Pessoa = {
+type Area = {
   id: string;
   nome: string;
-  email: string | null;
-  cargo: string;
-  squad_id: string | null;
-  foto_url: string | null;
+  tipo: "fixa" | "squad";
+  cor: string;
+  ordem: number;
   ativo: boolean;
-  area_organograma: string | null; // 'gerencia' | 'comercial' | 'administrativo' | 'operacao'
-  organograma_row: number;
-  ordem_org: number;
-  role_organograma: string | null;
 };
 
-type Squad = {
+type Subsecao = {
   id: string;
+  area_id: string;
   nome: string;
-  label: string | null;
-  coordenador_id: string | null;
+  ordem: number;
+  ativo: boolean;
+};
+
+type OrgPessoa = {
+  id: string;
+  area_id: string;
+  subsecao_id: string | null;
+  nome: string;
+  cargo: string | null;
+  foto_url: string | null;
+  destaque: boolean;
+  linha: number;
+  coluna: number;
+  ordem: number;
+  ativo: boolean;
+  tem_carteira: boolean;
+};
+
+type Carteira = {
+  id: string;
+  pessoa_id: string;
+  cliente_nome: string;
+  tags: string[];
+  ordem: number;
   ativo: boolean;
 };
 
@@ -36,60 +54,56 @@ type Squad = {
 export default function OrganogramaPage() {
   const supabase = createClient();
   const { loading: loadingPerfil, podeEditar } = useUsuarioPerfil();
-  const [pessoas, setPessoas] = useState<Pessoa[]>([]);
-  const [squads, setSquads] = useState<Squad[]>([]);
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [subsecoes, setSubsecoes] = useState<Subsecao[]>([]);
+  const [pessoas, setPessoas] = useState<OrgPessoa[]>([]);
+  const [carteiras, setCarteiras] = useState<Carteira[]>([]);
   const [loading, setLoading] = useState(true);
-  const [pessoaFoto, setPessoaFoto] = useState<Pessoa | null>(null);
+  const [abaAtiva, setAbaAtiva] = useState<string>("todos");
+  const [editando, setEditando] = useState<OrgPessoa | null>(null);
+  const [novaPessoa, setNovaPessoa] = useState<{ area_id: string; subsecao_id: string | null } | null>(null);
 
   async function load() {
     setLoading(true);
-    const [{ data: ps }, { data: sq }] = await Promise.all([
-      supabase.from("ruston_pessoas").select("*").eq("ativo", true).order("ordem_org"),
-      supabase.from("ruston_squads").select("*").eq("ativo", true).order("nome"),
+    const [{ data: a }, { data: s }, { data: p }, { data: c }] = await Promise.all([
+      supabase.from("ruston_org_areas").select("*").eq("ativo", true).order("ordem"),
+      supabase.from("ruston_org_subsecoes").select("*").eq("ativo", true).order("ordem"),
+      supabase.from("ruston_org_pessoas").select("*").eq("ativo", true).order("linha").order("coluna"),
+      supabase.from("ruston_org_carteiras").select("*").eq("ativo", true).order("ordem"),
     ]);
-    setPessoas((ps as Pessoa[]) ?? []);
-    setSquads((sq as Squad[]) ?? []);
+    setAreas((a as Area[]) ?? []);
+    setSubsecoes((s as Subsecao[]) ?? []);
+    setPessoas((p as OrgPessoa[]) ?? []);
+    setCarteiras((c as Carteira[]) ?? []);
     setLoading(false);
   }
 
   useEffect(() => { if (!loadingPerfil) load(); /* eslint-disable-next-line */ }, [loadingPerfil]);
 
-  // Filtra por área
-  const gerente = useMemo(
-    () => pessoas.find((p) => p.area_organograma === "gerencia"),
-    [pessoas]
-  );
+  const areasFixas = useMemo(() => areas.filter((a) => a.tipo === "fixa"), [areas]);
+  const squads = useMemo(() => areas.filter((a) => a.tipo === "squad"), [areas]);
 
-  const comercial = useMemo(() => {
-    return {
-      coord: pessoas.find((p) => p.area_organograma === "comercial" && p.organograma_row === 0),
-      membros: pessoas.filter((p) => p.area_organograma === "comercial" && p.organograma_row > 0),
-    };
-  }, [pessoas]);
+  const contagens = useMemo(() => {
+    const map: Record<string, number> = { todos: 0 };
+    areasFixas.forEach((a) => (map.todos += pessoas.filter((p) => p.area_id === a.id).length));
+    squads.forEach((a) => (map[a.id] = pessoas.filter((p) => p.area_id === a.id).length));
+    return map;
+  }, [pessoas, areasFixas, squads]);
 
-  const administrativo = useMemo(() => {
-    return {
-      coord: gerente, // Coord ADM = Nicolas (mesmo do Gerente)
-      membros: pessoas.filter((p) => p.area_organograma === "administrativo"),
-    };
-  }, [pessoas, gerente]);
+  const areasVisiveis = useMemo(() => {
+    if (abaAtiva === "todos") return areasFixas;
+    return areas.filter((a) => a.id === abaAtiva);
+  }, [abaAtiva, areas, areasFixas]);
 
-  const squadsData = useMemo(() => {
-    return squads.map((sq) => {
-      const membrosSquad = pessoas.filter((p) => p.squad_id === sq.id);
-      const coord = membrosSquad.find((p) => p.organograma_row === 0);
-      const rows: Pessoa[][] = [];
-      const maxRow = Math.max(0, ...membrosSquad.map((p) => p.organograma_row));
-      for (let r = 1; r <= maxRow; r++) {
-        rows.push(
-          membrosSquad
-            .filter((p) => p.organograma_row === r)
-            .sort((a, b) => a.ordem_org - b.ordem_org)
-        );
-      }
-      return { squad: sq, coord, rows };
-    });
-  }, [pessoas, squads]);
+  // Pessoas com carteira do squad atual (ou todos os squads se "todos")
+  const pessoasCarteira = useMemo(() => {
+    const squadIds = abaAtiva === "todos"
+      ? squads.map((s) => s.id)
+      : [abaAtiva];
+    return pessoas
+      .filter((p) => p.tem_carteira && squadIds.includes(p.area_id))
+      .sort((a, b) => a.linha - b.linha || a.ordem - b.ordem);
+  }, [pessoas, squads, abaAtiva]);
 
   if (loadingPerfil || loading) {
     return <p className="text-brand-muted">Carregando organograma...</p>;
@@ -101,137 +115,125 @@ export default function OrganogramaPage() {
         <div>
           <h1 className="text-2xl font-bold">👥 Organograma</h1>
           <p className="text-sm text-brand-muted">
-            Estrutura do time da Ruston. Edite pessoas em <Link href="/pessoas" className="text-brand hover:underline">/pessoas</Link>
+            Estrutura visual da Ruston · edita direto aqui sem afetar a aba Pessoas
           </p>
         </div>
-        {podeEditar && (
-          <Link href="/pessoas" className="btn-ghost text-xs">
-            + Editar time
-          </Link>
-        )}
       </div>
 
-      {/* GERENTE */}
-      {gerente && (
-        <div className="mb-6 flex justify-center">
-          <PessoaCard
-            pessoa={gerente}
-            destaque
+      {/* GRID DE ÁREAS (topo) */}
+      <div className={`mb-6 grid gap-4 ${areasVisiveis.length === 1 ? "grid-cols-1 max-w-3xl mx-auto" : "grid-cols-1 lg:grid-cols-3"}`}>
+        {areasVisiveis.map((area) => (
+          <AreaCard
+            key={area.id}
+            area={area}
+            subsecoes={subsecoes.filter((s) => s.area_id === area.id)}
+            pessoas={pessoas.filter((p) => p.area_id === area.id)}
             podeEditar={podeEditar}
-            onFoto={() => setPessoaFoto(gerente)}
+            onEditar={setEditando}
+            onAdicionar={(sub) => setNovaPessoa({ area_id: area.id, subsecao_id: sub })}
           />
-        </div>
-      )}
-
-      {/* Linha 2: COMERCIAL + ADMINISTRATIVO */}
-      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-        <SecaoCard title="💼 COMERCIAL" cor="border-blue-500/30">
-          {comercial.coord && (
-            <>
-              <p className="mb-2 text-[10px] uppercase tracking-wide text-brand-muted">Coordenador</p>
-              <PessoaCard
-                pessoa={comercial.coord}
-                small
-                podeEditar={podeEditar}
-                onFoto={() => setPessoaFoto(comercial.coord!)}
-              />
-              <div className="my-3 border-t border-white/5" />
-            </>
-          )}
-          <p className="mb-2 text-[10px] uppercase tracking-wide text-brand-muted">Time</p>
-          <div className="grid grid-cols-2 gap-2">
-            {comercial.membros.map((p) => (
-              <PessoaCard
-                key={p.id}
-                pessoa={p}
-                small
-                podeEditar={podeEditar}
-                onFoto={() => setPessoaFoto(p)}
-              />
-            ))}
-          </div>
-        </SecaoCard>
-
-        <SecaoCard title="📊 ADMINISTRATIVO" cor="border-emerald-500/30">
-          {administrativo.coord && (
-            <>
-              <p className="mb-2 text-[10px] uppercase tracking-wide text-brand-muted">Coordenador (acumula)</p>
-              <PessoaCard
-                pessoa={administrativo.coord}
-                small
-                cargoOverride="Coordenador ADM"
-                podeEditar={podeEditar}
-                onFoto={() => setPessoaFoto(administrativo.coord!)}
-              />
-              <div className="my-3 border-t border-white/5" />
-            </>
-          )}
-          <p className="mb-2 text-[10px] uppercase tracking-wide text-brand-muted">Time</p>
-          <div className="grid grid-cols-2 gap-2">
-            {administrativo.membros.map((p) => (
-              <PessoaCard
-                key={p.id}
-                pessoa={p}
-                small
-                podeEditar={podeEditar}
-                onFoto={() => setPessoaFoto(p)}
-              />
-            ))}
-          </div>
-        </SecaoCard>
-      </div>
-
-      {/* SQUADS */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {squadsData.map(({ squad, coord, rows }) => (
-          <SecaoCard
-            key={squad.id}
-            title={`⚔️ SQUAD ${squad.nome}`}
-            cor="border-amber-500/30"
-            subtitle={squad.label ?? undefined}
-          >
-            {coord && (
-              <>
-                <p className="mb-2 text-[10px] uppercase tracking-wide text-brand-muted">Coordenador</p>
-                <PessoaCard
-                  pessoa={coord}
-                  podeEditar={podeEditar}
-                  onFoto={() => setPessoaFoto(coord)}
-                />
-                <div className="my-3 border-t border-white/5" />
-              </>
-            )}
-            <p className="mb-2 text-[10px] uppercase tracking-wide text-brand-muted">
-              Membros ({rows.reduce((a, b) => a + b.length, 0)})
-            </p>
-            <div className="space-y-2">
-              {rows.map((row, i) => (
-                <div key={i} className="grid grid-cols-3 gap-2">
-                  {row.map((p) => (
-                    <PessoaCard
-                      key={p.id}
-                      pessoa={p}
-                      small
-                      podeEditar={podeEditar}
-                      onFoto={() => setPessoaFoto(p)}
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-          </SecaoCard>
         ))}
       </div>
 
-      {/* Modal de upload de foto */}
-      {pessoaFoto && (
-        <ModalUploadFoto
-          pessoa={pessoaFoto}
-          onFechar={() => setPessoaFoto(null)}
-          onSalvo={() => {
-            setPessoaFoto(null);
-            load();
+      {/* ABAS DE SQUADS */}
+      <div className="mt-6 flex flex-wrap gap-2 border-t border-white/5 pt-4">
+        <TabButton
+          label="Todos"
+          count={contagens.todos}
+          ativo={abaAtiva === "todos"}
+          onClick={() => setAbaAtiva("todos")}
+        />
+        {squads.map((s) => (
+          <TabButton
+            key={s.id}
+            label={s.nome}
+            count={contagens[s.id] ?? 0}
+            ativo={abaAtiva === s.id}
+            onClick={() => setAbaAtiva(s.id)}
+          />
+        ))}
+        {podeEditar && (
+          <button
+            onClick={async () => {
+              const nome = prompt("Nome do novo squad:");
+              if (!nome) return;
+              await supabase.from("ruston_org_areas").insert({
+                nome: nome.toUpperCase(),
+                tipo: "squad",
+                ordem: (squads.length + 1) * 10,
+              });
+              load();
+            }}
+            className="rounded-lg border border-dashed border-white/20 px-3 py-1.5 text-xs text-brand-muted hover:border-brand hover:text-brand"
+          >
+            + squad
+          </button>
+        )}
+      </div>
+
+      {/* SEÇÃO: CARTEIRA DE CLIENTES */}
+      {pessoasCarteira.length > 0 && (
+        <div className="mt-8 border-t border-white/5 pt-6">
+          <h2 className="mb-6 flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-brand-muted">
+            📋 Carteira de Clientes
+          </h2>
+          <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {pessoasCarteira.map((p) => (
+              <CarteiraCard
+                key={p.id}
+                pessoa={p}
+                clientes={carteiras.filter((c) => c.pessoa_id === p.id)}
+                podeEditar={podeEditar}
+                onChanged={load}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Se está em uma aba de squad e ninguém tem carteira ainda */}
+      {pessoasCarteira.length === 0 && abaAtiva !== "todos" && (
+        <div className="mt-8 border-t border-white/5 pt-6">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-brand-muted">
+            📋 Carteira de Clientes
+          </h2>
+          <p className="text-xs text-brand-muted">
+            Nenhuma pessoa desse squad está marcada como "tem carteira". Clica em uma pessoa
+            (avatar) e marca <strong>"Tem carteira de clientes"</strong> pra ela aparecer aqui.
+          </p>
+        </div>
+      )}
+
+      {/* Modais */}
+      {editando && (
+        <ModalPessoa
+          pessoa={editando}
+          areas={areas}
+          subsecoes={subsecoes}
+          onFechar={() => setEditando(null)}
+          onSalvo={() => { setEditando(null); load(); }}
+        />
+      )}
+      {novaPessoa && (
+        <ModalPessoa
+          pessoa={{
+            id: "",
+            area_id: novaPessoa.area_id,
+            subsecao_id: novaPessoa.subsecao_id,
+            nome: "",
+            cargo: "",
+            foto_url: null,
+            destaque: false,
+            linha: 0,
+            coluna: 0,
+            ordem: 0,
+            ativo: true,
+            tem_carteira: false,
           }}
+          areas={areas}
+          subsecoes={subsecoes}
+          onFechar={() => setNovaPessoa(null)}
+          onSalvo={() => { setNovaPessoa(null); load(); }}
         />
       )}
     </div>
@@ -239,236 +241,502 @@ export default function OrganogramaPage() {
 }
 
 // ============================================================
-// SEÇÃO CARD (wrapper)
+// TAB BUTTON
 // ============================================================
-function SecaoCard({
-  title,
-  subtitle,
-  cor,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  cor: string;
-  children: React.ReactNode;
+function TabButton({ label, count, ativo, onClick }: {
+  label: string; count: number; ativo: boolean; onClick: () => void;
 }) {
   return (
-    <div className={`card border ${cor}`}>
-      <div className="mb-3 flex items-baseline gap-2">
-        <h2 className="text-sm font-bold uppercase tracking-wide">{title}</h2>
-        {subtitle && <span className="text-[10px] text-brand-muted">{subtitle}</span>}
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+        ativo ? "bg-brand text-white" : "bg-white/5 text-brand-muted hover:bg-white/10 hover:text-white"
+      }`}
+    >
+      {label}
+      <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${
+        ativo ? "bg-white/20 text-white" : "bg-brand text-white"
+      }`}>
+        {count}
+      </span>
+    </button>
+  );
+}
+
+// ============================================================
+// AREA CARD (COMERCIAL, GERENTE, ADMIN)
+// ============================================================
+function AreaCard({ area, subsecoes, pessoas, podeEditar, onEditar, onAdicionar }: {
+  area: Area;
+  subsecoes: Subsecao[];
+  pessoas: OrgPessoa[];
+  podeEditar: boolean;
+  onEditar: (p: OrgPessoa) => void;
+  onAdicionar: (subsecao_id: string | null) => void;
+}) {
+  const pessoasTopo = pessoas.filter((p) => !p.subsecao_id);
+  const linhas: Record<number, OrgPessoa[]> = {};
+  pessoasTopo.forEach((p) => {
+    if (!linhas[p.linha]) linhas[p.linha] = [];
+    linhas[p.linha].push(p);
+  });
+  Object.keys(linhas).forEach((k) => linhas[Number(k)].sort((a, b) => a.coluna - b.coluna || a.ordem - b.ordem));
+  const linhasOrdenadas = Object.keys(linhas).map((k) => Number(k)).sort((a, b) => a - b);
+
+  return (
+    <div className="rounded-2xl border-2 border-red-500/60 bg-white/[0.02] p-6">
+      <h2 className="mb-6 text-center text-sm font-bold uppercase tracking-widest text-white">
+        {area.nome}
+      </h2>
+      <div className="space-y-6">
+        {linhasOrdenadas.map((linha) => (
+          <div key={linha} className="flex flex-wrap justify-center gap-6">
+            {linhas[linha].map((p) => (
+              <PessoaAvatar key={p.id} pessoa={p} podeEditar={podeEditar} onClick={() => onEditar(p)} />
+            ))}
+          </div>
+        ))}
+        {podeEditar && (
+          <div className="flex justify-center">
+            <button onClick={() => onAdicionar(null)} className="text-xs text-brand-muted hover:text-brand">
+              + adicionar pessoa
+            </button>
+          </div>
+        )}
       </div>
-      {children}
+      {subsecoes.map((sub) => {
+        const pSub = pessoas.filter((p) => p.subsecao_id === sub.id);
+        const linhasSub: Record<number, OrgPessoa[]> = {};
+        pSub.forEach((p) => {
+          if (!linhasSub[p.linha]) linhasSub[p.linha] = [];
+          linhasSub[p.linha].push(p);
+        });
+        Object.keys(linhasSub).forEach((k) => linhasSub[Number(k)].sort((a, b) => a.coluna - b.coluna || a.ordem - b.ordem));
+        const linhasSubOrd = Object.keys(linhasSub).map((k) => Number(k)).sort((a, b) => a - b);
+        return (
+          <div key={sub.id} className="mt-8 border-t border-white/10 pt-4">
+            <p className="mb-4 text-[10px] font-semibold uppercase tracking-widest text-brand-muted">{sub.nome}</p>
+            <div className="space-y-6">
+              {linhasSubOrd.map((linha) => (
+                <div key={linha} className="flex flex-wrap justify-center gap-6">
+                  {linhasSub[linha].map((p) => (
+                    <PessoaAvatar key={p.id} pessoa={p} podeEditar={podeEditar} onClick={() => onEditar(p)} />
+                  ))}
+                </div>
+              ))}
+              {podeEditar && (
+                <div className="flex justify-center">
+                  <button onClick={() => onAdicionar(sub.id)} className="text-xs text-brand-muted hover:text-brand">
+                    + adicionar em {sub.nome}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 // ============================================================
-// PESSOA CARD
+// AVATAR
 // ============================================================
-function PessoaCard({
-  pessoa,
-  destaque,
-  small,
-  cargoOverride,
-  podeEditar,
-  onFoto,
-}: {
-  pessoa: Pessoa;
-  destaque?: boolean;
-  small?: boolean;
-  cargoOverride?: string;
-  podeEditar: boolean;
-  onFoto: () => void;
+function PessoaAvatar({ pessoa, podeEditar, onClick }: {
+  pessoa: OrgPessoa; podeEditar: boolean; onClick: () => void;
 }) {
-  const cargo = cargoOverride ?? pessoa.role_organograma ?? pessoa.cargo;
-  const iniciais = pessoa.nome
-    .split(" ")
-    .map((s) => s[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
+  const iniciais = pessoa.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
+  const size = pessoa.destaque ? "h-24 w-24" : "h-16 w-16";
+  const textSize = pessoa.destaque ? "text-2xl" : "text-lg";
+  return (
+    <button
+      onClick={podeEditar ? onClick : undefined}
+      className={`flex flex-col items-center gap-2 ${podeEditar ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
+    >
+      <div className={`${size} rounded-full overflow-hidden bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center border-2 border-red-500/40`}>
+        {pessoa.foto_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={pessoa.foto_url} alt={pessoa.nome} className="h-full w-full object-cover" />
+        ) : (
+          <span className={`font-black text-white ${textSize}`}>{iniciais}</span>
+        )}
+      </div>
+      <div className="text-center">
+        <p className={`font-bold text-white uppercase ${pessoa.destaque ? "text-sm" : "text-xs"}`}>{pessoa.nome}</p>
+        {pessoa.cargo && (
+          <p className="mt-0.5 text-[10px] text-red-300 whitespace-pre-line max-w-[140px]">{pessoa.cargo}</p>
+        )}
+      </div>
+    </button>
+  );
+}
+
+// ============================================================
+// CARTEIRA CARD — mostra clientes de UMA pessoa
+// ============================================================
+function CarteiraCard({ pessoa, clientes, podeEditar, onChanged }: {
+  pessoa: OrgPessoa;
+  clientes: Carteira[];
+  podeEditar: boolean;
+  onChanged: () => void;
+}) {
+  const supabase = createClient();
+  const [adicionando, setAdicionando] = useState(false);
+  const [novoNome, setNovoNome] = useState("");
+  const iniciais = pessoa.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
+
+  async function adicionar() {
+    const nome = novoNome.trim();
+    if (!nome) return;
+    await supabase.from("ruston_org_carteiras").insert({
+      pessoa_id: pessoa.id,
+      cliente_nome: nome,
+      ordem: clientes.length,
+    });
+    setNovoNome("");
+    setAdicionando(false);
+    onChanged();
+  }
 
   return (
-    <div
-      className={`rounded-lg border p-3 transition ${
-        destaque
-          ? "border-brand bg-brand/5 min-w-[220px]"
-          : "border-white/10 bg-white/[0.02] hover:border-white/20"
-      }`}
-    >
-      <div className="flex items-center gap-2">
-        <button
-          onClick={podeEditar ? onFoto : undefined}
-          className={`relative flex-shrink-0 rounded-full overflow-hidden ${
-            destaque ? "h-14 w-14" : small ? "h-8 w-8" : "h-10 w-10"
-          } bg-gradient-to-br from-brand/60 to-brand/30 flex items-center justify-center ${
-            podeEditar ? "cursor-pointer hover:ring-2 hover:ring-brand" : ""
-          }`}
-          title={podeEditar ? "Clica pra trocar foto" : ""}
-        >
+    <div className="rounded-2xl border-2 border-red-500/40 bg-white/[0.02] p-4">
+      {/* Header: foto + nome + contagem */}
+      <div className="mb-3 flex flex-col items-center gap-2">
+        <div className="h-14 w-14 rounded-full overflow-hidden bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center border-2 border-red-500/40">
           {pessoa.foto_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={pessoa.foto_url} alt={pessoa.nome} className="h-full w-full object-cover" />
           ) : (
-            <span className={`font-bold text-white ${destaque ? "text-lg" : small ? "text-[10px]" : "text-xs"}`}>
-              {iniciais}
-            </span>
+            <span className="font-black text-white">{iniciais}</span>
           )}
-        </button>
-        <div className="min-w-0 flex-1">
-          <p className={`font-semibold truncate ${destaque ? "text-base" : small ? "text-xs" : "text-sm"}`}>
-            {pessoa.nome}
-          </p>
-          <p className={`text-brand-muted truncate ${destaque ? "text-xs" : "text-[10px]"}`}>
-            {cargo}
-          </p>
         </div>
+        <p className="text-sm font-bold uppercase tracking-wide text-white">
+          {pessoa.nome} <span className="text-red-300">| {clientes.length}</span>
+        </p>
+      </div>
+
+      <div className="mb-3 border-t border-red-500/30" />
+
+      {/* Lista de clientes */}
+      <div className="space-y-2">
+        {clientes.map((c) => (
+          <ClienteRow key={c.id} carteira={c} podeEditar={podeEditar} onChanged={onChanged} />
+        ))}
+        {clientes.length === 0 && !adicionando && (
+          <p className="text-center text-[11px] text-brand-muted italic py-4">Sem clientes</p>
+        )}
+      </div>
+
+      {/* Botão adicionar */}
+      {podeEditar && !adicionando && (
+        <button
+          onClick={() => setAdicionando(true)}
+          className="mt-3 w-full rounded-lg border border-dashed border-white/20 py-2 text-xs text-brand-muted hover:border-brand hover:text-brand"
+        >
+          + Adicionar cliente
+        </button>
+      )}
+      {adicionando && (
+        <div className="mt-3 space-y-2">
+          <input
+            className="input text-xs"
+            placeholder="Nome do cliente"
+            value={novoNome}
+            onChange={(e) => setNovoNome(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") adicionar();
+              if (e.key === "Escape") { setAdicionando(false); setNovoNome(""); }
+            }}
+            autoFocus
+          />
+          <div className="flex gap-2">
+            <button className="btn text-xs flex-1" onClick={adicionar}>Adicionar</button>
+            <button className="btn-ghost text-xs" onClick={() => { setAdicionando(false); setNovoNome(""); }}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// LINHA DE UM CLIENTE (com tags e edição inline)
+// ============================================================
+function ClienteRow({ carteira, podeEditar, onChanged }: {
+  carteira: Carteira; podeEditar: boolean; onChanged: () => void;
+}) {
+  const supabase = createClient();
+  const [editando, setEditando] = useState(false);
+  const [nome, setNome] = useState(carteira.cliente_nome);
+  const [tags, setTags] = useState<string[]>(carteira.tags ?? []);
+  const [novaTag, setNovaTag] = useState("");
+
+  async function salvar() {
+    await supabase.from("ruston_org_carteiras")
+      .update({ cliente_nome: nome.trim(), tags })
+      .eq("id", carteira.id);
+    setEditando(false);
+    onChanged();
+  }
+
+  async function remover() {
+    if (!confirm(`Remover ${carteira.cliente_nome} da carteira?`)) return;
+    await supabase.from("ruston_org_carteiras").delete().eq("id", carteira.id);
+    onChanged();
+  }
+
+  function adicionarTag() {
+    const t = novaTag.trim().toUpperCase();
+    if (!t || tags.includes(t)) return;
+    setTags([...tags, t]);
+    setNovaTag("");
+  }
+
+  function removerTag(t: string) {
+    setTags(tags.filter((x) => x !== t));
+  }
+
+  if (!editando) {
+    return (
+      <div className="group rounded-lg border border-white/10 bg-white/[0.03] p-2 hover:border-red-500/40 transition">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold uppercase text-white truncate">
+              {carteira.cliente_nome}
+            </p>
+            {carteira.tags && carteira.tags.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {carteira.tags.map((t) => (
+                  <span
+                    key={t}
+                    className="rounded border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[8px] font-bold text-red-300"
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          {podeEditar && (
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+              <button onClick={() => setEditando(true)} className="text-[10px] text-brand hover:text-brand/80" title="Editar">
+                ✏️
+              </button>
+              <button onClick={remover} className="text-[10px] text-red-300 hover:text-red-400" title="Remover">
+                ✕
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-brand/40 bg-brand/5 p-2 space-y-2">
+      <input
+        className="input py-1 text-xs"
+        value={nome}
+        onChange={(e) => setNome(e.target.value)}
+        placeholder="Nome do cliente"
+        autoFocus
+      />
+      <div>
+        <label className="text-[9px] text-brand-muted uppercase">Tags</label>
+        <div className="flex flex-wrap gap-1 mb-1">
+          {tags.map((t) => (
+            <span key={t} className="inline-flex items-center gap-1 rounded border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[9px] font-bold text-red-300">
+              {t}
+              <button onClick={() => removerTag(t)} className="text-red-400 hover:text-red-200">×</button>
+            </span>
+          ))}
+        </div>
+        <div className="flex gap-1">
+          <input
+            className="input py-1 text-[10px] flex-1"
+            placeholder="Nova tag (ex: PONTUAL)"
+            value={novaTag}
+            onChange={(e) => setNovaTag(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); adicionarTag(); }
+            }}
+          />
+          <button onClick={adicionarTag} className="btn-ghost text-[10px]">+ tag</button>
+        </div>
+      </div>
+      <div className="flex gap-1">
+        <button className="btn text-xs flex-1 py-1" onClick={salvar}>Salvar</button>
+        <button className="btn-ghost text-xs py-1" onClick={() => {
+          setEditando(false);
+          setNome(carteira.cliente_nome);
+          setTags(carteira.tags ?? []);
+        }}>
+          Cancelar
+        </button>
       </div>
     </div>
   );
 }
 
 // ============================================================
-// MODAL DE UPLOAD DE FOTO
+// MODAL DE EDIÇÃO / CRIAÇÃO DE PESSOA
 // ============================================================
-function ModalUploadFoto({
-  pessoa,
-  onFechar,
-  onSalvo,
-}: {
-  pessoa: Pessoa;
+function ModalPessoa({ pessoa, areas, subsecoes, onFechar, onSalvo }: {
+  pessoa: OrgPessoa;
+  areas: Area[];
+  subsecoes: Subsecao[];
   onFechar: () => void;
   onSalvo: () => void;
 }) {
   const supabase = createClient();
+  const [form, setForm] = useState({
+    nome: pessoa.nome,
+    cargo: pessoa.cargo ?? "",
+    area_id: pessoa.area_id,
+    subsecao_id: pessoa.subsecao_id ?? "",
+    linha: pessoa.linha,
+    coluna: pessoa.coluna,
+    destaque: pessoa.destaque,
+    tem_carteira: pessoa.tem_carteira,
+    foto_url: pessoa.foto_url,
+  });
+  const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [preview, setPreview] = useState<string | null>(pessoa.foto_url);
-  const [arquivo, setArquivo] = useState<File | null>(null);
 
-  function selecionar(e: React.ChangeEvent<HTMLInputElement>) {
+  const subsecoesDaArea = subsecoes.filter((s) => s.area_id === form.area_id);
+
+  async function fazerUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setArquivo(file);
-    const reader = new FileReader();
-    reader.onload = (ev) => setPreview(ev.target?.result as string);
-    reader.readAsDataURL(file);
+    setUploading(true);
+    const ext = file.name.split(".").pop() ?? "jpg";
+    const path = `org_${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("fotos-pessoas").upload(path, file, { upsert: true, contentType: file.type });
+    if (error) {
+      alert("Erro no upload: " + error.message);
+      setUploading(false);
+      return;
+    }
+    const { data } = supabase.storage.from("fotos-pessoas").getPublicUrl(path);
+    setForm({ ...form, foto_url: data.publicUrl + `?t=${Date.now()}` });
+    setUploading(false);
   }
 
   async function salvar() {
-    if (!arquivo) {
-      alert("Selecione uma foto primeiro");
-      return;
+    if (!form.nome.trim()) { alert("Nome é obrigatório"); return; }
+    setSaving(true);
+    const payload = {
+      nome: form.nome.trim(),
+      cargo: form.cargo || null,
+      area_id: form.area_id,
+      subsecao_id: form.subsecao_id || null,
+      linha: form.linha,
+      coluna: form.coluna,
+      destaque: form.destaque,
+      tem_carteira: form.tem_carteira,
+      foto_url: form.foto_url,
+    };
+    if (pessoa.id) {
+      await supabase.from("ruston_org_pessoas").update(payload).eq("id", pessoa.id);
+    } else {
+      await supabase.from("ruston_org_pessoas").insert(payload);
     }
-    setUploading(true);
-
-    // Nome do arquivo: pessoa_id + extensão
-    const ext = arquivo.name.split(".").pop() ?? "jpg";
-    const path = `${pessoa.id}.${ext}`;
-
-    // Upload no bucket 'fotos-pessoas'
-    const { error: uploadError } = await supabase.storage
-      .from("fotos-pessoas")
-      .upload(path, arquivo, { upsert: true, contentType: arquivo.type });
-
-    if (uploadError) {
-      alert("Erro no upload: " + uploadError.message);
-      setUploading(false);
-      return;
-    }
-
-    // Pega URL pública
-    const { data: urlData } = supabase.storage.from("fotos-pessoas").getPublicUrl(path);
-    const publicUrl = urlData.publicUrl + `?t=${Date.now()}`; // força reload cache
-
-    // Salva no ruston_pessoas
-    const { error: updateError } = await supabase
-      .from("ruston_pessoas")
-      .update({ foto_url: publicUrl })
-      .eq("id", pessoa.id);
-
-    if (updateError) {
-      alert("Erro ao salvar URL: " + updateError.message);
-      setUploading(false);
-      return;
-    }
-
-    setUploading(false);
+    setSaving(false);
     onSalvo();
   }
 
   async function remover() {
-    if (!confirm("Remover foto?")) return;
-    setUploading(true);
-    await supabase.from("ruston_pessoas").update({ foto_url: null }).eq("id", pessoa.id);
-    setUploading(false);
+    if (!pessoa.id) return;
+    if (!confirm(`Remover ${pessoa.nome} do organograma?`)) return;
+    await supabase.from("ruston_org_pessoas").delete().eq("id", pessoa.id);
     onSalvo();
   }
 
+  const iniciais = form.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onClick={onFechar}
-    >
-      <div
-        className="w-full max-w-md rounded-lg border border-white/10 bg-brand-panel p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onFechar}>
+      <div className="w-full max-w-md rounded-lg border border-white/10 bg-brand-panel p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-start justify-between">
-          <div>
-            <h3 className="text-lg font-semibold">Foto — {pessoa.nome}</h3>
-            <p className="text-xs text-brand-muted">
-              {pessoa.role_organograma ?? pessoa.cargo}
-            </p>
-          </div>
+          <h3 className="text-lg font-semibold">{pessoa.id ? "Editar pessoa" : "Nova pessoa"}</h3>
           <button onClick={onFechar} className="text-brand-muted hover:text-white">✕</button>
         </div>
 
         <div className="mb-4 flex justify-center">
-          <div className="h-40 w-40 rounded-full overflow-hidden bg-gradient-to-br from-brand/60 to-brand/30 flex items-center justify-center border-2 border-white/10">
-            {preview ? (
+          <div className="h-24 w-24 rounded-full overflow-hidden bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center border-2 border-red-500/40">
+            {form.foto_url ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={preview} alt="preview" className="h-full w-full object-cover" />
+              <img src={form.foto_url} alt="preview" className="h-full w-full object-cover" />
             ) : (
-              <span className="text-4xl font-bold text-white/60">
-                {pessoa.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase()}
-              </span>
+              <span className="text-2xl font-black text-white">{iniciais || "?"}</span>
             )}
           </div>
         </div>
 
         <div className="mb-4">
-          <label className="btn w-full cursor-pointer text-center block">
-            📸 Escolher foto
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={selecionar}
-            />
+          <label className="btn-ghost w-full cursor-pointer text-center text-xs block">
+            {uploading ? "Enviando..." : "📸 Trocar foto"}
+            <input type="file" accept="image/*" className="hidden" onChange={fazerUpload} disabled={uploading} />
           </label>
-          <p className="mt-2 text-[10px] text-brand-muted text-center">
-            JPG, PNG ou WEBP · Recomendado 300×300 (quadrada)
-          </p>
+        </div>
+
+        <div className="mb-3">
+          <label className="label">Nome *</label>
+          <input className="input" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="Ex: MAITHE" />
+        </div>
+
+        <div className="mb-3">
+          <label className="label">Cargo (texto livre)</label>
+          <input className="input" value={form.cargo} onChange={(e) => setForm({ ...form, cargo: e.target.value })} placeholder="Ex: Gestora de Projetos, Closer" />
+        </div>
+
+        <div className="mb-3">
+          <label className="label">Área</label>
+          <select className="input" value={form.area_id} onChange={(e) => setForm({ ...form, area_id: e.target.value, subsecao_id: "" })}>
+            {areas.map((a) => (<option key={a.id} value={a.id}>{a.nome} ({a.tipo})</option>))}
+          </select>
+        </div>
+
+        {subsecoesDaArea.length > 0 && (
+          <div className="mb-3">
+            <label className="label">Subseção (opcional)</label>
+            <select className="input" value={form.subsecao_id} onChange={(e) => setForm({ ...form, subsecao_id: e.target.value })}>
+              <option value="">— sem subseção —</option>
+              {subsecoesDaArea.map((s) => (<option key={s.id} value={s.id}>{s.nome}</option>))}
+            </select>
+          </div>
+        )}
+
+        <div className="mb-3 grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Linha</label>
+            <input type="number" className="input" value={form.linha} onChange={(e) => setForm({ ...form, linha: Number(e.target.value) })} />
+          </div>
+          <div>
+            <label className="label">Coluna</label>
+            <input type="number" className="input" value={form.coluna} onChange={(e) => setForm({ ...form, coluna: Number(e.target.value) })} />
+          </div>
+        </div>
+
+        <div className="mb-2 flex items-center gap-2">
+          <input type="checkbox" id="destaque" checked={form.destaque} onChange={(e) => setForm({ ...form, destaque: e.target.checked })} />
+          <label htmlFor="destaque" className="text-sm">Foto grande (destaque — pra Gerente)</label>
+        </div>
+
+        <div className="mb-4 flex items-center gap-2">
+          <input type="checkbox" id="carteira" checked={form.tem_carteira} onChange={(e) => setForm({ ...form, tem_carteira: e.target.checked })} />
+          <label htmlFor="carteira" className="text-sm">📋 Tem carteira de clientes (aparece na seção de baixo)</label>
         </div>
 
         <div className="flex justify-between gap-2">
-          {pessoa.foto_url && (
-            <button
-              className="text-xs text-red-300 hover:text-red-400"
-              onClick={remover}
-              disabled={uploading}
-            >
-              Remover foto atual
-            </button>
+          {pessoa.id && (
+            <button className="text-xs text-red-300 hover:text-red-400" onClick={remover}>Remover</button>
           )}
           <div className="ml-auto flex gap-2">
-            <button className="btn-ghost" onClick={onFechar} disabled={uploading}>
-              Cancelar
-            </button>
-            <button className="btn" onClick={salvar} disabled={uploading || !arquivo}>
-              {uploading ? "Salvando..." : "Salvar"}
-            </button>
+            <button className="btn-ghost" onClick={onFechar}>Cancelar</button>
+            <button className="btn" onClick={salvar} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</button>
           </div>
         </div>
       </div>
