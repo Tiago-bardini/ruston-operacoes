@@ -19,6 +19,7 @@ const NAV_ACTIVE: NavItem[] = [
   { href: "/entregas", label: "Entregas", icon: "✎" },
   { href: "/pessoas", label: "Pessoas", icon: "◆" },
   { href: "/squads", label: "Squads", icon: "◇" },
+  { href: "/organograma", label: "Organograma", icon: "👥" },
   { href: "/metas", label: "Metas", icon: "◈" },
   { href: "/fca", label: "FCA", icon: "▤" },
   { href: "/headcount", label: "Headcount", icon: "☰", soGerenteCoord: true },
@@ -43,6 +44,15 @@ const NAV_SOON: NavSoonItem[] = [
     label: "Análise Ekyte",
     icon: "✓",
     subitems: ["Cruzamento com Ekyte", "Timesheet"],
+  },
+  {
+    label: "Radar WhatsApp",
+    icon: "💬",
+    subitems: [
+      "Alerta 5 dias sem contato",
+      "Análise IA de grupos",
+      "Sinais de churn/upsell",
+    ],
   },
   {
     label: "Playbooks",
