@@ -119,9 +119,9 @@ export default function FcaPage() {
             </select>
             <select className="input max-w-[140px]" value={filterBandeira} onChange={(e) => setFilterBandeira(e.target.value as BandeiraFca | "")}>
               <option value="">Todas bandeiras</option>
-              <option value="verde">🟢 Verde</option>
-              <option value="amarelo">🟡 Amarelo</option>
-              <option value="vermelho">🔴 Vermelho</option>
+              <option value="verde">🟢 Safe</option>
+              <option value="amarelo">🟡 Care</option>
+              <option value="vermelho">🔴 Danger</option>
               <option value="sem_dado">⚪ Sem dado</option>
             </select>
             <select className="input max-w-[180px]" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as StatusFca | "")}>
@@ -135,9 +135,9 @@ export default function FcaPage() {
           {/* Stats */}
           <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
             <StatCard label="Total" valor={stats.total} cor="text-white" />
-            <StatCard label="Verde" valor={stats.verde} cor="text-emerald-300" />
-            <StatCard label="Amarelo" valor={stats.amarelo} cor="text-amber-300" />
-            <StatCard label="Vermelho" valor={stats.vermelho} cor="text-red-300" />
+            <StatCard label="Safe" valor={stats.verde} cor="text-emerald-300" />
+            <StatCard label="Care" valor={stats.amarelo} cor="text-amber-300" />
+            <StatCard label="Danger" valor={stats.vermelho} cor="text-red-300" />
             <StatCard label="Validados" valor={stats.validados} cor="text-emerald-300" sublabel={`de ${stats.total}`} />
           </div>
 
@@ -549,8 +549,8 @@ function TabConsolidado({ historico, clientes, squads, sextas, isGerente, perfil
               <tr className="border-b border-white/5 text-left text-xs uppercase tracking-wide text-brand-muted">
                 <th className="py-2">Cliente</th>
                 <th className="py-2">Squad</th>
-                <th className="py-2 text-center w-24">🔴 Vermelhas</th>
-                <th className="py-2 text-center w-24">🟡 Amarelas</th>
+                <th className="py-2 text-center w-24">🔴 Danger</th>
+                <th className="py-2 text-center w-24">🟡 Care</th>
               </tr>
             </thead>
             <tbody>
