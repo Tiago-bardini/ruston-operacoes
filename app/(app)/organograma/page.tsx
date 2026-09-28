@@ -18,18 +18,6 @@ type OrgPessoa = {
 type Carteira = { id: string; pessoa_id: string; cliente_nome: string; tags: string[]; ordem: number; ativo: boolean };
 
 // ============================================================
-// Helper — pega o pessoa-id do elemento sob o cursor (mais confiável
-// que rastrear hover state, pois HTML5 dispara leave/enter em filhos)
-// ============================================================
-function pessoaIdSobCursor(e: React.DragEvent): string | null {
-  // Prefere e.target, mas se não achou usa elementFromPoint
-  const alvo = (e.target as HTMLElement).closest?.("[data-pessoa-id]");
-  if (alvo) return alvo.getAttribute("data-pessoa-id");
-  const pt = document.elementFromPoint(e.clientX, e.clientY);
-  return pt?.closest("[data-pessoa-id]")?.getAttribute("data-pessoa-id") ?? null;
-}
-
-// ============================================================
 // PÁGINA
 // ============================================================
 export default function OrganogramaPage() {
@@ -43,15 +31,14 @@ export default function OrganogramaPage() {
   const [abaAtiva, setAbaAtiva] = useState<string>("todos");
   const [editando, setEditando] = useState<OrgPessoa | null>(null);
   const [novaPessoa, setNovaPessoa] = useState<{ area_id: string; subsecao_id: string | null } | null>(null);
-  const [arrastando, setArrastando] = useState<string | null>(null); // pessoaId sendo arrastada
-  const [dropzoneAtiva, setDropzoneAtiva] = useState<string | null>(null); // id do container/tab
+  const [arrastando, setArrastando] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
     const [{ data: a }, { data: s }, { data: p }, { data: c }] = await Promise.all([
       supabase.from("ruston_org_areas").select("*").eq("ativo", true).order("ordem"),
       supabase.from("ruston_org_subsecoes").select("*").eq("ativo", true).order("ordem"),
-      supabase.from("ruston_org_pessoas").select("*").eq("ativo", true).order("ordem"),
+      supabase.from("ruston_org_pessoas").select("*").eq("ativo", true).order("linha").order("coluna"),
       supabase.from("ruston_org_carteiras").select("*").eq("ativo", true).order("ordem"),
     ]);
     setAreas((a as Area[]) ?? []);
@@ -64,77 +51,163 @@ export default function OrganogramaPage() {
   useEffect(() => { if (!loadingPerfil) load(); /* eslint-disable-next-line */ }, [loadingPerfil]);
 
   // ------------------------------------------------------------
-  // Recalcula toda a ordem do grupo destino e persiste em lote
+  // Move pessoa pra (area, subsecao, linha, colunaAlvo)
+  // Reindexa colunas da linha destino e da linha origem
   // ------------------------------------------------------------
-  async function reordenarGrupo(
+  async function moverPessoa(
     pessoaId: string,
-    novaAreaId: string,
-    novaSubsecaoId: string | null,
-    destinoId: string | null   // se null → vai pro fim; se id → vai pra posição do destino
+    destino: { area_id: string; subsecao_id: string | null; linha: number; colunaAlvo: number }
   ) {
-    const doGrupoAtual = pessoas
-      .filter((p) => p.area_id === novaAreaId && (p.subsecao_id ?? null) === (novaSubsecaoId ?? null) && p.id !== pessoaId)
-      .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
+    const pessoa = pessoas.find((p) => p.id === pessoaId);
+    if (!pessoa) return;
 
-    // Constrói nova lista com pessoa arrastada na posição certa
-    const novaLista: string[] = [];
-    if (destinoId) {
-      for (const p of doGrupoAtual) {
-        if (p.id === destinoId) novaLista.push(pessoaId); // insere ANTES do destino
-        novaLista.push(p.id);
-      }
-      if (!novaLista.includes(pessoaId)) novaLista.push(pessoaId);
-    } else {
-      // Vai pro fim
-      for (const p of doGrupoAtual) novaLista.push(p.id);
-      novaLista.push(pessoaId);
+    const mesmaLinha =
+      pessoa.area_id === destino.area_id &&
+      (pessoa.subsecao_id ?? null) === (destino.subsecao_id ?? null) &&
+      pessoa.linha === destino.linha;
+
+    // Pessoas na linha destino (sem a arrastada)
+    const linhaDestino = pessoas
+      .filter((p) =>
+        p.area_id === destino.area_id &&
+        (p.subsecao_id ?? null) === (destino.subsecao_id ?? null) &&
+        p.linha === destino.linha &&
+        p.id !== pessoaId
+      )
+      .sort((a, b) => a.coluna - b.coluna);
+
+    // Insere a arrastada na posição colunaAlvo
+    const idx = Math.max(0, Math.min(destino.colunaAlvo, linhaDestino.length));
+    const novaLinhaOrdem = [
+      ...linhaDestino.slice(0, idx),
+      { ...pessoa, area_id: destino.area_id, subsecao_id: destino.subsecao_id, linha: destino.linha },
+      ...linhaDestino.slice(idx),
+    ];
+
+    // Novas colunas 0, 1, 2...
+    const atualizacoesDestino = novaLinhaOrdem.map((p, i) => ({ id: p.id, coluna: i }));
+
+    // Se mudou de linha/container, precisa também reindexar a linha origem
+    let atualizacoesOrigem: { id: string; coluna: number }[] = [];
+    if (!mesmaLinha) {
+      const linhaOrigem = pessoas
+        .filter((p) =>
+          p.area_id === pessoa.area_id &&
+          (p.subsecao_id ?? null) === (pessoa.subsecao_id ?? null) &&
+          p.linha === pessoa.linha &&
+          p.id !== pessoaId
+        )
+        .sort((a, b) => a.coluna - b.coluna);
+      atualizacoesOrigem = linhaOrigem.map((p, i) => ({ id: p.id, coluna: i }));
     }
-
-    // Atribui ordens 10, 20, 30...
-    const atualizacoes = novaLista.map((id, i) => ({ id, ordem: (i + 1) * 10 }));
 
     // Optimistic update
     setPessoas((prev) =>
       prev.map((p) => {
-        const found = atualizacoes.find((x) => x.id === p.id);
-        if (!found) return p;
-        return p.id === pessoaId
-          ? { ...p, area_id: novaAreaId, subsecao_id: novaSubsecaoId, ordem: found.ordem }
-          : { ...p, ordem: found.ordem };
+        if (p.id === pessoaId) {
+          const found = atualizacoesDestino.find((x) => x.id === pessoaId)!;
+          return { ...p, area_id: destino.area_id, subsecao_id: destino.subsecao_id, linha: destino.linha, coluna: found.coluna };
+        }
+        const upd = [...atualizacoesDestino, ...atualizacoesOrigem].find((x) => x.id === p.id);
+        if (upd) return { ...p, coluna: upd.coluna };
+        return p;
       })
     );
 
-    // Persiste a pessoa arrastada primeiro (pode mudar de container)
-    const ordemArrastada = atualizacoes.find((x) => x.id === pessoaId)!.ordem;
+    // Persiste a pessoa arrastada
+    const colunaArrastada = atualizacoesDestino.find((x) => x.id === pessoaId)!.coluna;
     await supabase.from("ruston_org_pessoas")
-      .update({ area_id: novaAreaId, subsecao_id: novaSubsecaoId, ordem: ordemArrastada })
+      .update({
+        area_id: destino.area_id,
+        subsecao_id: destino.subsecao_id,
+        linha: destino.linha,
+        coluna: colunaArrastada,
+      })
       .eq("id", pessoaId);
 
-    // Depois as demais (ordem)
-    for (const x of atualizacoes) {
+    // Persiste as outras da linha destino
+    for (const x of atualizacoesDestino) {
       if (x.id === pessoaId) continue;
-      await supabase.from("ruston_org_pessoas").update({ ordem: x.ordem }).eq("id", x.id);
+      await supabase.from("ruston_org_pessoas").update({ coluna: x.coluna }).eq("id", x.id);
+    }
+    // Persiste as outras da linha origem
+    for (const x of atualizacoesOrigem) {
+      await supabase.from("ruston_org_pessoas").update({ coluna: x.coluna }).eq("id", x.id);
     }
     load();
   }
 
   // ------------------------------------------------------------
-  // Handler de drop em um container (área/subseção): decide se
-  // é reordenação (dropou em cima de outra pessoa) ou vai pro fim
+  // Inserir em nova linha (dropou entre linhas). Empurra todas as
+  // linhas >= insertLinha um índice pra frente.
   // ------------------------------------------------------------
-  async function handleDropContainer(
-    e: React.DragEvent,
-    novaAreaId: string,
-    novaSubsecaoId: string | null
+  async function moverPessoaNovaLinha(
+    pessoaId: string,
+    destino: { area_id: string; subsecao_id: string | null; insertLinha: number }
   ) {
-    e.preventDefault();
-    if (!arrastando) return;
-    const destinoId = pessoaIdSobCursor(e);
-    // Se soltou em cima de si mesmo, ignora
-    if (destinoId === arrastando) { setArrastando(null); setDropzoneAtiva(null); return; }
-    await reordenarGrupo(arrastando, novaAreaId, novaSubsecaoId, destinoId);
-    setArrastando(null);
-    setDropzoneAtiva(null);
+    const pessoa = pessoas.find((p) => p.id === pessoaId);
+    if (!pessoa) return;
+
+    // Empurra linhas >= insertLinha
+    const paraEmpurrar = pessoas.filter((p) =>
+      p.area_id === destino.area_id &&
+      (p.subsecao_id ?? null) === (destino.subsecao_id ?? null) &&
+      p.linha >= destino.insertLinha &&
+      p.id !== pessoaId
+    );
+
+    // Reindexa linha origem se veio de outro container/linha
+    const mesmaLinha =
+      pessoa.area_id === destino.area_id &&
+      (pessoa.subsecao_id ?? null) === (destino.subsecao_id ?? null) &&
+      pessoa.linha === destino.insertLinha;
+
+    let atualizacoesOrigem: { id: string; coluna: number }[] = [];
+    if (!mesmaLinha) {
+      const linhaOrigem = pessoas
+        .filter((p) =>
+          p.area_id === pessoa.area_id &&
+          (p.subsecao_id ?? null) === (pessoa.subsecao_id ?? null) &&
+          p.linha === pessoa.linha &&
+          p.id !== pessoaId
+        )
+        .sort((a, b) => a.coluna - b.coluna);
+      atualizacoesOrigem = linhaOrigem.map((p, i) => ({ id: p.id, coluna: i }));
+    }
+
+    // Optimistic
+    setPessoas((prev) =>
+      prev.map((p) => {
+        if (p.id === pessoaId) {
+          return { ...p, area_id: destino.area_id, subsecao_id: destino.subsecao_id, linha: destino.insertLinha, coluna: 0 };
+        }
+        if (paraEmpurrar.find((x) => x.id === p.id)) {
+          return { ...p, linha: p.linha + 1 };
+        }
+        const upd = atualizacoesOrigem.find((x) => x.id === p.id);
+        if (upd) return { ...p, coluna: upd.coluna };
+        return p;
+      })
+    );
+
+    // Persiste arrastada
+    await supabase.from("ruston_org_pessoas")
+      .update({
+        area_id: destino.area_id,
+        subsecao_id: destino.subsecao_id,
+        linha: destino.insertLinha,
+        coluna: 0,
+      })
+      .eq("id", pessoaId);
+    // Persiste empurradas
+    for (const p of paraEmpurrar) {
+      await supabase.from("ruston_org_pessoas").update({ linha: p.linha + 1 }).eq("id", p.id);
+    }
+    // Persiste origem
+    for (const x of atualizacoesOrigem) {
+      await supabase.from("ruston_org_pessoas").update({ coluna: x.coluna }).eq("id", x.id);
+    }
+    load();
   }
 
   const areasFixas = useMemo(() => areas.filter((a) => a.tipo === "fixa"), [areas]);
@@ -151,18 +224,29 @@ export default function OrganogramaPage() {
     return <p className="text-brand-muted">Carregando organograma...</p>;
   }
 
+  const commonProps = {
+    podeEditar,
+    onEditar: setEditando,
+    onAdicionar: (area_id: string, subsecao_id: string | null) => setNovaPessoa({ area_id, subsecao_id }),
+    arrastando,
+    setArrastando,
+    moverPessoa,
+    moverPessoaNovaLinha,
+    subsecoes,
+  };
+
   return (
-    <div onDragEnd={() => { setArrastando(null); setDropzoneAtiva(null); }}>
+    <div onDragEnd={() => setArrastando(null)}>
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold">👥 Organograma</h1>
           <p className="text-sm text-brand-muted">
-            Estrutura visual da Ruston · <strong>arrasta em cima de outra pessoa pra ficar ao lado dela</strong>
+            <strong>Arrasta em cima de uma linha existente</strong> pra encaixar entre as pessoas · <strong>Solta no espaço entre linhas</strong> pra criar nova linha
           </p>
         </div>
       </div>
 
-      {/* ABAS DE SQUADS */}
+      {/* ABAS */}
       <div className="mb-6 flex flex-wrap gap-2 border-b border-white/5 pb-4">
         <TabButton label="Todos" count={contagens.todos} ativo={abaAtiva === "todos"} onClick={() => setAbaAtiva("todos")} />
         {squads.map((s) => (
@@ -172,11 +256,6 @@ export default function OrganogramaPage() {
             count={contagens[s.id] ?? 0}
             ativo={abaAtiva === s.id}
             onClick={() => setAbaAtiva(s.id)}
-            areaId={s.id}
-            arrastando={arrastando}
-            dropzoneAtiva={dropzoneAtiva}
-            setDropzoneAtiva={setDropzoneAtiva}
-            reordenarGrupo={reordenarGrupo}
           />
         ))}
         {podeEditar && (
@@ -184,11 +263,7 @@ export default function OrganogramaPage() {
             onClick={async () => {
               const nome = prompt("Nome do novo squad:");
               if (!nome) return;
-              await supabase.from("ruston_org_areas").insert({
-                nome: nome.toUpperCase(),
-                tipo: "squad",
-                ordem: (squads.length + 1) * 10,
-              });
+              await supabase.from("ruston_org_areas").insert({ nome: nome.toUpperCase(), tipo: "squad", ordem: (squads.length + 1) * 10 });
               load();
             }}
             className="rounded-lg border border-dashed border-white/20 px-3 py-1.5 text-xs text-brand-muted hover:border-brand hover:text-brand"
@@ -202,23 +277,7 @@ export default function OrganogramaPage() {
         <>
           <div className="mb-8 grid gap-4 grid-cols-1 lg:grid-cols-3">
             {areasFixas.map((area) => (
-              <AreaCard
-                key={area.id}
-                area={area}
-                subsecoes={subsecoes.filter((s) => s.area_id === area.id)}
-                pessoas={pessoas.filter((p) => p.area_id === area.id)}
-                podeEditar={podeEditar}
-                onEditar={setEditando}
-                onAdicionar={(sub) => setNovaPessoa({ area_id: area.id, subsecao_id: sub })}
-                arrastando={arrastando}
-                setArrastando={setArrastando}
-                dropzoneAtiva={dropzoneAtiva}
-                setDropzoneAtiva={setDropzoneAtiva}
-                handleDropContainer={handleDropContainer}
-                mostrarCarteira={false}
-                carteiras={[]}
-                onChangedCarteira={load}
-              />
+              <AreaCard key={area.id} area={area} pessoas={pessoas.filter((p) => p.area_id === area.id)} carteiras={[]} mostrarCarteira={false} onChangedCarteira={load} {...commonProps} />
             ))}
           </div>
           {squads.length > 0 && (
@@ -226,74 +285,32 @@ export default function OrganogramaPage() {
               <h2 className="mb-4 text-sm font-semibold uppercase tracking-widest text-brand-muted">Squads</h2>
               <div className="grid gap-4 grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
                 {squads.map((squad) => (
-                  <AreaCard
-                    key={squad.id}
-                    area={squad}
-                    subsecoes={subsecoes.filter((s) => s.area_id === squad.id)}
-                    pessoas={pessoas.filter((p) => p.area_id === squad.id)}
-                    podeEditar={podeEditar}
-                    onEditar={setEditando}
-                    onAdicionar={(sub) => setNovaPessoa({ area_id: squad.id, subsecao_id: sub })}
-                    arrastando={arrastando}
-                    setArrastando={setArrastando}
-                    dropzoneAtiva={dropzoneAtiva}
-                    setDropzoneAtiva={setDropzoneAtiva}
-                    handleDropContainer={handleDropContainer}
-                    mostrarCarteira={false}
-                    carteiras={[]}
-                    onChangedCarteira={load}
-                  />
+                  <AreaCard key={squad.id} area={squad} pessoas={pessoas.filter((p) => p.area_id === squad.id)} carteiras={[]} mostrarCarteira={false} onChangedCarteira={load} {...commonProps} />
                 ))}
               </div>
             </>
           )}
         </>
       ) : (
-        <>
-          {areas
-            .filter((a) => a.id === abaAtiva)
-            .map((squad) => (
-              <div key={squad.id} className="max-w-5xl mx-auto">
-                <AreaCard
-                  area={squad}
-                  subsecoes={subsecoes.filter((s) => s.area_id === squad.id)}
-                  pessoas={pessoas.filter((p) => p.area_id === squad.id)}
-                  podeEditar={podeEditar}
-                  onEditar={setEditando}
-                  onAdicionar={(sub) => setNovaPessoa({ area_id: squad.id, subsecao_id: sub })}
-                  arrastando={arrastando}
-                  setArrastando={setArrastando}
-                  dropzoneAtiva={dropzoneAtiva}
-                  setDropzoneAtiva={setDropzoneAtiva}
-                  handleDropContainer={handleDropContainer}
-                  mostrarCarteira={true}
-                  carteiras={carteiras}
-                  onChangedCarteira={load}
-                />
-              </div>
-            ))}
-        </>
+        areas.filter((a) => a.id === abaAtiva).map((squad) => (
+          <div key={squad.id} className="max-w-5xl mx-auto">
+            <AreaCard area={squad} pessoas={pessoas.filter((p) => p.area_id === squad.id)} carteiras={carteiras} mostrarCarteira={true} onChangedCarteira={load} {...commonProps} />
+          </div>
+        ))
       )}
 
       {editando && (
-        <ModalPessoa
-          pessoa={editando}
-          areas={areas}
-          subsecoes={subsecoes}
-          onFechar={() => setEditando(null)}
-          onSalvo={() => { setEditando(null); load(); }}
-        />
+        <ModalPessoa pessoa={editando} areas={areas} subsecoes={subsecoes} onFechar={() => setEditando(null)} onSalvo={() => { setEditando(null); load(); }} />
       )}
       {novaPessoa && (
         <ModalPessoa
           pessoa={{
             id: "", area_id: novaPessoa.area_id, subsecao_id: novaPessoa.subsecao_id,
             nome: "", cargo: "", foto_url: null, destaque: false,
-            linha: 0, coluna: 0, ordem: 9999,
+            linha: 0, coluna: 0, ordem: 0,
             ativo: true, tem_carteira: false,
           }}
-          areas={areas}
-          subsecoes={subsecoes}
+          areas={areas} subsecoes={subsecoes}
           onFechar={() => setNovaPessoa(null)}
           onSalvo={() => { setNovaPessoa(null); load(); }}
         />
@@ -303,174 +320,81 @@ export default function OrganogramaPage() {
 }
 
 // ============================================================
-// TAB BUTTON — dropar aqui move pro fim do squad
+// TAB BUTTON simples (sem drop)
 // ============================================================
-function TabButton({
-  label, count, ativo, onClick, areaId, arrastando, dropzoneAtiva, setDropzoneAtiva, reordenarGrupo,
-}: {
-  label: string; count: number; ativo: boolean; onClick: () => void;
-  areaId?: string;
-  arrastando?: string | null;
-  dropzoneAtiva?: string | null;
-  setDropzoneAtiva?: (v: string | null) => void;
-  reordenarGrupo?: (pessoaId: string, novaAreaId: string, novaSubsecaoId: string | null, destinoId: string | null) => Promise<void>;
-}) {
-  const podeReceber = !!areaId && !!arrastando;
-  const ativaDropzone = dropzoneAtiva === `tab:${areaId}`;
-
+function TabButton({ label, count, ativo, onClick }: { label: string; count: number; ativo: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      onDragOver={(e) => {
-        if (podeReceber) {
-          e.preventDefault();
-          setDropzoneAtiva?.(`tab:${areaId}`);
-        }
-      }}
-      onDragLeave={() => { if (ativaDropzone) setDropzoneAtiva?.(null); }}
-      onDrop={async (e) => {
-        e.preventDefault();
-        if (arrastando && areaId && reordenarGrupo) {
-          await reordenarGrupo(arrastando, areaId, null, null);
-          setDropzoneAtiva?.(null);
-        }
-      }}
       className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-        ativaDropzone ? "ring-2 ring-emerald-400 bg-emerald-500/20 text-emerald-100" :
         ativo ? "bg-brand text-white" : "bg-white/5 text-brand-muted hover:bg-white/10 hover:text-white"
       }`}
     >
       {label}
-      <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${
-        ativo ? "bg-white/20 text-white" : "bg-brand text-white"
-      }`}>
-        {count}
-      </span>
+      <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${ativo ? "bg-white/20 text-white" : "bg-brand text-white"}`}>{count}</span>
     </button>
   );
 }
 
 // ============================================================
-// AREA CARD — dropar em cima de pessoa reordena, dropar no vazio vai pro fim
+// AREA CARD — cada subseção (e o topo) vira uma coluna com LINHAS
 // ============================================================
-function AreaCard({
-  area, subsecoes, pessoas, podeEditar, onEditar, onAdicionar,
-  arrastando, setArrastando, dropzoneAtiva, setDropzoneAtiva, handleDropContainer,
-  mostrarCarteira, carteiras, onChangedCarteira,
-}: {
-  area: Area;
-  subsecoes: Subsecao[];
-  pessoas: OrgPessoa[];
+type CommonProps = {
   podeEditar: boolean;
   onEditar: (p: OrgPessoa) => void;
-  onAdicionar: (subsecao_id: string | null) => void;
+  onAdicionar: (area_id: string, subsecao_id: string | null) => void;
   arrastando: string | null;
   setArrastando: (id: string | null) => void;
-  dropzoneAtiva: string | null;
-  setDropzoneAtiva: (v: string | null) => void;
-  handleDropContainer: (e: React.DragEvent, novaAreaId: string, novaSubsecaoId: string | null) => Promise<void>;
-  mostrarCarteira: boolean;
-  carteiras: Carteira[];
-  onChangedCarteira: () => void;
-}) {
-  const pessoasTopo = pessoas.filter((p) => !p.subsecao_id).sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
-  const destaques = pessoasTopo.filter((p) => p.destaque);
-  const normais = pessoasTopo.filter((p) => !p.destaque);
+  moverPessoa: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; linha: number; colunaAlvo: number }) => Promise<void>;
+  moverPessoaNovaLinha: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; insertLinha: number }) => Promise<void>;
+  subsecoes: Subsecao[];
+};
 
-  const dropId = area.id;
-  const isDropzoneAtiva = dropzoneAtiva === dropId;
-  const podeReceber = !!arrastando;
+function AreaCard({
+  area, pessoas, carteiras, mostrarCarteira, onChangedCarteira, ...common
+}: {
+  area: Area;
+  pessoas: OrgPessoa[];
+  carteiras: Carteira[];
+  mostrarCarteira: boolean;
+  onChangedCarteira: () => void;
+} & CommonProps) {
+  const subsecoesArea = common.subsecoes.filter((s) => s.area_id === area.id);
+  const pessoasTopo = pessoas.filter((p) => !p.subsecao_id);
   const pessoasCarteira = mostrarCarteira ? pessoas.filter((p) => p.tem_carteira) : [];
 
   return (
-    <div
-      onDragOver={(e) => { if (podeReceber) { e.preventDefault(); setDropzoneAtiva(dropId); } }}
-      onDragLeave={(e) => { if (e.currentTarget === e.target) setDropzoneAtiva(null); }}
-      onDrop={(e) => handleDropContainer(e, area.id, null)}
-      className={`rounded-2xl border-2 bg-white/[0.02] p-6 transition ${
-        isDropzoneAtiva ? "border-emerald-400 shadow-lg shadow-emerald-500/20 scale-[1.01]" : "border-red-500/60"
-      }`}
-    >
+    <div className="rounded-2xl border-2 border-red-500/60 bg-white/[0.02] p-6">
       <h2 className="mb-6 text-center text-sm font-bold uppercase tracking-widest text-white">{area.nome}</h2>
 
-      {destaques.length > 0 && (
-        <div className="mb-6 flex flex-wrap justify-center gap-6">
-          {destaques.map((p) => (
-            <PessoaAvatar
-              key={p.id}
-              pessoa={p}
-              podeEditar={podeEditar}
-              onClick={() => onEditar(p)}
-              arrastando={arrastando}
-              setArrastando={setArrastando}
-            />
-          ))}
-        </div>
-      )}
+      <LinhasContainer
+        pessoas={pessoasTopo}
+        areaId={area.id}
+        subsecaoId={null}
+        {...common}
+      />
 
-      <div className="flex flex-wrap justify-center gap-6 min-h-[80px]">
-        {normais.map((p) => (
-          <PessoaAvatar
-            key={p.id}
-            pessoa={p}
-            podeEditar={podeEditar}
-            onClick={() => onEditar(p)}
-            arrastando={arrastando}
-            setArrastando={setArrastando}
-          />
-        ))}
-        {normais.length === 0 && podeReceber && (
-          <p className="text-xs text-brand-muted italic">solta aqui</p>
-        )}
-      </div>
-
-      {podeEditar && (
+      {common.podeEditar && (
         <div className="mt-4 flex justify-center">
-          <button onClick={() => onAdicionar(null)} className="text-xs text-brand-muted hover:text-brand">+ adicionar pessoa</button>
+          <button onClick={() => common.onAdicionar(area.id, null)} className="text-xs text-brand-muted hover:text-brand">+ adicionar pessoa</button>
         </div>
       )}
 
       {/* Subseções */}
-      {subsecoes.map((sub) => {
-        const dropSubId = `${area.id}:${sub.id}`;
-        const isSubDropzone = dropzoneAtiva === dropSubId;
-        const pSub = pessoas.filter((p) => p.subsecao_id === sub.id).sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
-
+      {subsecoesArea.map((sub) => {
+        const pSub = pessoas.filter((p) => p.subsecao_id === sub.id);
         return (
-          <div
-            key={sub.id}
-            onDragOver={(e) => {
-              if (podeReceber) {
-                e.preventDefault();
-                e.stopPropagation();
-                setDropzoneAtiva(dropSubId);
-              }
-            }}
-            onDragLeave={(e) => { if (e.currentTarget === e.target) setDropzoneAtiva(null); }}
-            onDrop={(e) => { e.stopPropagation(); handleDropContainer(e, area.id, sub.id); }}
-            className={`mt-8 border-t pt-4 rounded-lg transition ${
-              isSubDropzone ? "border-emerald-400 bg-emerald-500/10" : "border-white/10"
-            }`}
-          >
+          <div key={sub.id} className="mt-8 border-t border-white/10 pt-4">
             <p className="mb-4 text-[10px] font-semibold uppercase tracking-widest text-brand-muted">{sub.nome}</p>
-            <div className="flex flex-wrap justify-center gap-6 min-h-[80px]">
-              {pSub.map((p) => (
-                <PessoaAvatar
-                  key={p.id}
-                  pessoa={p}
-                  podeEditar={podeEditar}
-                  onClick={() => onEditar(p)}
-                  arrastando={arrastando}
-                  setArrastando={setArrastando}
-                />
-              ))}
-              {pSub.length === 0 && podeReceber && (
-                <p className="text-xs text-brand-muted italic">solta aqui</p>
-              )}
-            </div>
-            {podeEditar && (
+            <LinhasContainer
+              pessoas={pSub}
+              areaId={area.id}
+              subsecaoId={sub.id}
+              {...common}
+            />
+            {common.podeEditar && (
               <div className="mt-4 flex justify-center">
-                <button onClick={() => onAdicionar(sub.id)} className="text-xs text-brand-muted hover:text-brand">
+                <button onClick={() => common.onAdicionar(area.id, sub.id)} className="text-xs text-brand-muted hover:text-brand">
                   + adicionar em {sub.nome}
                 </button>
               </div>
@@ -479,21 +403,12 @@ function AreaCard({
         );
       })}
 
-      {/* CARTEIRA EMBUTIDA (só quando mostrarCarteira=true) */}
       {mostrarCarteira && pessoasCarteira.length > 0 && (
         <div className="mt-8 border-t border-red-500/20 pt-6">
-          <h3 className="mb-4 flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-widest text-brand-muted">
-            📋 Carteira de Clientes
-          </h3>
+          <h3 className="mb-4 flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-widest text-brand-muted">📋 Carteira de Clientes</h3>
           <div className="grid gap-3 grid-cols-1 md:grid-cols-2">
             {pessoasCarteira.map((p) => (
-              <CarteiraCard
-                key={p.id}
-                pessoa={p}
-                clientes={carteiras.filter((c) => c.pessoa_id === p.id)}
-                podeEditar={podeEditar}
-                onChanged={onChangedCarteira}
-              />
+              <CarteiraCard key={p.id} pessoa={p} clientes={carteiras.filter((c) => c.pessoa_id === p.id)} podeEditar={common.podeEditar} onChanged={onChangedCarteira} />
             ))}
           </div>
         </div>
@@ -501,11 +416,9 @@ function AreaCard({
 
       {mostrarCarteira && pessoasCarteira.length === 0 && (
         <div className="mt-8 border-t border-red-500/20 pt-6">
-          <h3 className="mb-3 flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-widest text-brand-muted">
-            📋 Carteira de Clientes
-          </h3>
+          <h3 className="mb-3 flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-widest text-brand-muted">📋 Carteira de Clientes</h3>
           <p className="text-center text-[11px] text-brand-muted">
-            Nenhuma pessoa com carteira marcada. Clica em alguém e marca <strong>"Tem carteira"</strong>.
+            Nenhuma pessoa com carteira. Clica em alguém e marca <strong>"Tem carteira"</strong>.
           </p>
         </div>
       )}
@@ -514,9 +427,203 @@ function AreaCard({
 }
 
 // ============================================================
-// AVATAR (só draggable + data-pessoa-id no wrapper. NÃO tem
-// drop handler próprio — o container é quem detecta se soltou
-// em cima de alguém via elementFromPoint)
+// CONTAINER DE LINHAS — igual ao organograma antigo
+// ============================================================
+function LinhasContainer({
+  pessoas, areaId, subsecaoId,
+  podeEditar, onEditar, arrastando, setArrastando,
+  moverPessoa, moverPessoaNovaLinha,
+}: {
+  pessoas: OrgPessoa[];
+  areaId: string;
+  subsecaoId: string | null;
+  podeEditar: boolean;
+  onEditar: (p: OrgPessoa) => void;
+  arrastando: string | null;
+  setArrastando: (id: string | null) => void;
+  moverPessoa: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; linha: number; colunaAlvo: number }) => Promise<void>;
+  moverPessoaNovaLinha: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; insertLinha: number }) => Promise<void>;
+}) {
+  // Agrupa por linha
+  const linhas: Record<number, OrgPessoa[]> = {};
+  pessoas.forEach((p) => {
+    if (!linhas[p.linha]) linhas[p.linha] = [];
+    linhas[p.linha].push(p);
+  });
+  Object.keys(linhas).forEach((k) => linhas[Number(k)].sort((a, b) => a.coluna - b.coluna));
+  const linhaKeys = Object.keys(linhas).map((k) => Number(k)).sort((a, b) => a - b);
+
+  const podeReceber = !!arrastando;
+
+  return (
+    <div>
+      {/* Gap ANTES da primeira linha */}
+      <RowGap
+        insertLinha={linhaKeys[0] ?? 0}
+        areaId={areaId} subsecaoId={subsecaoId}
+        arrastando={arrastando}
+        moverPessoaNovaLinha={moverPessoaNovaLinha}
+        setArrastando={setArrastando}
+      />
+
+      {linhaKeys.map((linhaNum, idx) => (
+        <div key={linhaNum}>
+          <Row
+            pessoas={linhas[linhaNum]}
+            linha={linhaNum}
+            areaId={areaId} subsecaoId={subsecaoId}
+            podeEditar={podeEditar}
+            onEditar={onEditar}
+            arrastando={arrastando}
+            setArrastando={setArrastando}
+            moverPessoa={moverPessoa}
+          />
+          <RowGap
+            insertLinha={linhaNum + 1}
+            areaId={areaId} subsecaoId={subsecaoId}
+            arrastando={arrastando}
+            moverPessoaNovaLinha={moverPessoaNovaLinha}
+            setArrastando={setArrastando}
+          />
+        </div>
+      ))}
+
+      {/* Se não tem nenhuma linha, mostra dropzone gigante */}
+      {linhaKeys.length === 0 && podeReceber && (
+        <div
+          onDragOver={(e) => { e.preventDefault(); }}
+          onDrop={async (e) => {
+            e.preventDefault();
+            if (arrastando) {
+              await moverPessoaNovaLinha(arrastando, { area_id: areaId, subsecao_id: subsecaoId, insertLinha: 0 });
+              setArrastando(null);
+            }
+          }}
+          className="min-h-[80px] rounded-lg border-2 border-dashed border-emerald-400/60 bg-emerald-500/10 flex items-center justify-center text-xs text-emerald-200 italic"
+        >
+          solta aqui pra criar a primeira linha
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// LINHA (row) — aceita drop e calcula posição pelo X do mouse
+// ============================================================
+function Row({
+  pessoas, linha, areaId, subsecaoId,
+  podeEditar, onEditar,
+  arrastando, setArrastando, moverPessoa,
+}: {
+  pessoas: OrgPessoa[];
+  linha: number;
+  areaId: string;
+  subsecaoId: string | null;
+  podeEditar: boolean;
+  onEditar: (p: OrgPessoa) => void;
+  arrastando: string | null;
+  setArrastando: (id: string | null) => void;
+  moverPessoa: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; linha: number; colunaAlvo: number }) => Promise<void>;
+}) {
+  const [hover, setHover] = useState(false);
+  const podeReceber = !!arrastando;
+
+  return (
+    <div
+      onDragOver={(e) => {
+        if (!podeReceber) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        setHover(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setHover(false);
+      }}
+      onDrop={async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setHover(false);
+        if (!arrastando) return;
+
+        // Calcula em qual coluna soltar (mesmo algoritmo do org antigo)
+        const mouseX = e.clientX;
+        const cards = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[data-pessoa-card]"));
+        let colAlvo = cards.length;
+        for (let i = 0; i < cards.length; i++) {
+          const rect = cards[i].getBoundingClientRect();
+          if (mouseX < rect.left + rect.width / 2) { colAlvo = i; break; }
+        }
+        await moverPessoa(arrastando, { area_id: areaId, subsecao_id: subsecaoId, linha, colunaAlvo: colAlvo });
+        setArrastando(null);
+      }}
+      className={`flex flex-wrap justify-center gap-6 rounded-xl px-3 py-4 transition ${
+        podeReceber ? (hover ? "bg-emerald-500/15 outline outline-2 outline-emerald-400" : "outline outline-1 outline-white/5") : ""
+      }`}
+    >
+      {pessoas.map((p) => (
+        <PessoaAvatar
+          key={p.id}
+          pessoa={p}
+          podeEditar={podeEditar}
+          onClick={() => onEditar(p)}
+          arrastando={arrastando}
+          setArrastando={setArrastando}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ============================================================
+// ROW GAP — espaço entre linhas. Solta aqui cria nova linha.
+// ============================================================
+function RowGap({
+  insertLinha, areaId, subsecaoId,
+  arrastando, moverPessoaNovaLinha, setArrastando,
+}: {
+  insertLinha: number;
+  areaId: string;
+  subsecaoId: string | null;
+  arrastando: string | null;
+  moverPessoaNovaLinha: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; insertLinha: number }) => Promise<void>;
+  setArrastando: (id: string | null) => void;
+}) {
+  const [ativo, setAtivo] = useState(false);
+  const podeReceber = !!arrastando;
+
+  return (
+    <div
+      onDragOver={(e) => {
+        if (!podeReceber) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = "move";
+        setAtivo(true);
+      }}
+      onDragLeave={() => setAtivo(false)}
+      onDrop={async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setAtivo(false);
+        if (arrastando) {
+          await moverPessoaNovaLinha(arrastando, { area_id: areaId, subsecao_id: subsecaoId, insertLinha });
+          setArrastando(null);
+        }
+      }}
+      className={`transition-all ${
+        podeReceber
+          ? ativo
+            ? "h-12 bg-emerald-500/25 border-y-2 border-dashed border-emerald-400 rounded-lg my-1"
+            : "h-4 hover:h-8 border-y border-dashed border-white/10 rounded-lg my-1"
+          : "h-2"
+      }`}
+    />
+  );
+}
+
+// ============================================================
+// AVATAR
 // ============================================================
 function PessoaAvatar({
   pessoa, podeEditar, onClick, arrastando, setArrastando,
@@ -531,27 +638,23 @@ function PessoaAvatar({
   const size = pessoa.destaque ? "h-24 w-24" : "h-16 w-16";
   const textSize = pessoa.destaque ? "text-2xl" : "text-lg";
   const eu = arrastando === pessoa.id;
-  const alguemArrastando = arrastando && arrastando !== pessoa.id;
 
   return (
     <div
-      data-pessoa-id={pessoa.id}
+      data-pessoa-card
       draggable={podeEditar}
       onDragStart={(e) => {
         setArrastando(pessoa.id);
         e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", pessoa.id);
+        try { e.dataTransfer.setData("text/plain", pessoa.id); } catch {}
       }}
       onDragEnd={() => setArrastando(null)}
       onClick={podeEditar ? onClick : undefined}
-      className={`relative flex flex-col items-center gap-2 transition rounded-xl p-2 ${
+      className={`flex flex-col items-center gap-2 transition p-2 ${
         podeEditar ? "cursor-grab active:cursor-grabbing hover:opacity-80" : "cursor-default"
-      } ${eu ? "opacity-40 scale-95" : ""} ${
-        alguemArrastando ? "hover:bg-emerald-500/20 hover:ring-2 hover:ring-emerald-400 hover:scale-105" : ""
-      }`}
-      title={podeEditar ? "Arrasta em cima de outra pessoa pra ficar antes dela · Clica pra editar" : ""}
+      } ${eu ? "opacity-40 scale-95" : ""}`}
+      title={podeEditar ? "Arrasta pra mover · Clica pra editar" : ""}
     >
-      {/* Camada visual — mas pointer-events NONE pra não interferir no drop target */}
       <div className={`${size} rounded-full overflow-hidden bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center border-2 border-red-500/40 pointer-events-none`}>
         {pessoa.foto_url ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -570,7 +673,7 @@ function PessoaAvatar({
 }
 
 // ============================================================
-// CARTEIRA CARD
+// CARTEIRA CARD (igual V7)
 // ============================================================
 function CarteiraCard({ pessoa, clientes, podeEditar, onChanged }: {
   pessoa: OrgPessoa; clientes: Carteira[]; podeEditar: boolean; onChanged: () => void;
@@ -583,9 +686,7 @@ function CarteiraCard({ pessoa, clientes, podeEditar, onChanged }: {
   async function adicionar() {
     const nome = novoNome.trim();
     if (!nome) return;
-    await supabase.from("ruston_org_carteiras").insert({
-      pessoa_id: pessoa.id, cliente_nome: nome, ordem: clientes.length,
-    });
+    await supabase.from("ruston_org_carteiras").insert({ pessoa_id: pessoa.id, cliente_nome: nome, ordem: clientes.length });
     setNovoNome(""); setAdicionando(false); onChanged();
   }
 
@@ -619,10 +720,8 @@ function CarteiraCard({ pessoa, clientes, podeEditar, onChanged }: {
       {adicionando && (
         <div className="mt-3 space-y-2">
           <input
-            className="input text-xs"
-            placeholder="Nome do cliente"
-            value={novoNome}
-            onChange={(e) => setNovoNome(e.target.value)}
+            className="input text-xs" placeholder="Nome do cliente"
+            value={novoNome} onChange={(e) => setNovoNome(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") adicionar();
               if (e.key === "Escape") { setAdicionando(false); setNovoNome(""); }
@@ -724,7 +823,7 @@ function ClienteRow({ carteira, podeEditar, onChanged }: {
 }
 
 // ============================================================
-// MODAL DE EDIÇÃO / CRIAÇÃO
+// MODAL DE EDIÇÃO
 // ============================================================
 function ModalPessoa({ pessoa, areas, subsecoes, onFechar, onSalvo }: {
   pessoa: OrgPessoa; areas: Area[]; subsecoes: Subsecao[]; onFechar: () => void; onSalvo: () => void;
@@ -765,15 +864,16 @@ function ModalPessoa({ pessoa, areas, subsecoes, onFechar, onSalvo }: {
     if (pessoa.id) {
       await supabase.from("ruston_org_pessoas").update(payload).eq("id", pessoa.id);
     } else {
+      // Nova pessoa: linha 0, coluna final da linha 0 (ou nova linha se lotou)
       const { data: doGrupo } = await supabase
         .from("ruston_org_pessoas")
-        .select("ordem")
+        .select("linha, coluna")
         .eq("area_id", form.area_id)
         .eq("ativo", true);
-      const maxOrdem = (doGrupo ?? []).reduce((m: number, x: any) => Math.max(m, x.ordem ?? 0), -1);
-      payload.ordem = maxOrdem + 10;
-      payload.linha = 1;
-      payload.coluna = 0;
+      const linha0 = (doGrupo ?? []).filter((p: any) => (p.linha ?? 0) === 0);
+      payload.linha = 0;
+      payload.coluna = linha0.length;
+      payload.ordem = linha0.length;
       await supabase.from("ruston_org_pessoas").insert(payload);
     }
     setSaving(false); onSalvo();
@@ -843,7 +943,7 @@ function ModalPessoa({ pessoa, areas, subsecoes, onFechar, onSalvo }: {
 
         <div className="mb-2 flex items-center gap-2">
           <input type="checkbox" id="destaque" checked={form.destaque} onChange={(e) => setForm({ ...form, destaque: e.target.checked })} />
-          <label htmlFor="destaque" className="text-sm">⭐ Foto grande (Gerente / Coordenador — fica no topo)</label>
+          <label htmlFor="destaque" className="text-sm">⭐ Foto grande (Gerente / Coordenador)</label>
         </div>
 
         <div className="mb-4 flex items-center gap-2">
