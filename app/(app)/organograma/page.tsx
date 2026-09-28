@@ -14,8 +14,18 @@ type OrgPessoa = {
   nome: string; cargo: string | null; foto_url: string | null;
   destaque: boolean; linha: number; coluna: number; ordem: number;
   ativo: boolean; tem_carteira: boolean;
+  ruston_pessoa_id: string | null; // NOVO — link pro cadastro real de pessoa
 };
 type Carteira = { id: string; pessoa_id: string; cliente_nome: string; tags: string[]; ordem: number; ativo: boolean };
+// NOVOS — cadastro real
+type PessoaCadastro = { id: string; nome: string; ativo: boolean };
+type ClienteAuto = {
+  id: string; nome: string; account_id: string | null;
+  mrr: number | null;
+  churn_realizado: boolean; subiu_no_sistema: boolean;
+  data_vencimento_contrato: string | null;
+  ativo: boolean;
+};
 
 // ============================================================
 // PÁGINA
@@ -27,6 +37,8 @@ export default function OrganogramaPage() {
   const [subsecoes, setSubsecoes] = useState<Subsecao[]>([]);
   const [pessoas, setPessoas] = useState<OrgPessoa[]>([]);
   const [carteiras, setCarteiras] = useState<Carteira[]>([]);
+  const [pessoasCadastro, setPessoasCadastro] = useState<PessoaCadastro[]>([]);
+  const [clientesAuto, setClientesAuto] = useState<ClienteAuto[]>([]);
   const [loading, setLoading] = useState(true);
   const [abaAtiva, setAbaAtiva] = useState<string>("todos");
   const [editando, setEditando] = useState<OrgPessoa | null>(null);
@@ -35,16 +47,29 @@ export default function OrganogramaPage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: a }, { data: s }, { data: p }, { data: c }] = await Promise.all([
+    const [{ data: a }, { data: s }, { data: p }, { data: c }, { data: pc }, { data: cli }] = await Promise.all([
       supabase.from("ruston_org_areas").select("*").eq("ativo", true).order("ordem"),
       supabase.from("ruston_org_subsecoes").select("*").eq("ativo", true).order("ordem"),
       supabase.from("ruston_org_pessoas").select("*").eq("ativo", true).order("linha").order("coluna"),
       supabase.from("ruston_org_carteiras").select("*").eq("ativo", true).order("ordem"),
+      // NOVO: cadastro real de pessoas (pra vincular)
+      supabase.from("ruston_pessoas").select("id,nome,ativo").eq("ativo", true).order("nome"),
+      // NOVO: clientes ativos (que não são churn finalizado)
+      supabase.from("ruston_clientes")
+        .select("id,nome,account_id,mrr,churn_realizado,subiu_no_sistema,data_vencimento_contrato,ativo")
+        .eq("ativo", true),
     ]);
     setAreas((a as Area[]) ?? []);
     setSubsecoes((s as Subsecao[]) ?? []);
     setPessoas((p as OrgPessoa[]) ?? []);
     setCarteiras((c as Carteira[]) ?? []);
+    setPessoasCadastro((pc as PessoaCadastro[]) ?? []);
+    // Filtra: se churn foi realizado E subiu no sistema → tira do organograma
+    setClientesAuto(
+      ((cli as ClienteAuto[]) ?? []).filter(
+        (x) => !(x.churn_realizado === true && x.subiu_no_sistema === true)
+      )
+    );
     setLoading(false);
   }
 
@@ -294,13 +319,13 @@ export default function OrganogramaPage() {
       ) : (
         areas.filter((a) => a.id === abaAtiva).map((squad) => (
           <div key={squad.id} className="max-w-5xl mx-auto">
-            <AreaCard area={squad} pessoas={pessoas.filter((p) => p.area_id === squad.id)} carteiras={carteiras} mostrarCarteira={true} onChangedCarteira={load} {...commonProps} />
+            <AreaCard area={squad} pessoas={pessoas.filter((p) => p.area_id === squad.id)} carteiras={carteiras} clientesAuto={clientesAuto} mostrarCarteira={true} onChangedCarteira={load} {...commonProps} />
           </div>
         ))
       )}
 
       {editando && (
-        <ModalPessoa pessoa={editando} areas={areas} subsecoes={subsecoes} onFechar={() => setEditando(null)} onSalvo={() => { setEditando(null); load(); }} />
+        <ModalPessoa pessoa={editando} areas={areas} subsecoes={subsecoes} pessoasCadastro={pessoasCadastro} onFechar={() => setEditando(null)} onSalvo={() => { setEditando(null); load(); }} />
       )}
       {novaPessoa && (
         <ModalPessoa
@@ -309,8 +334,9 @@ export default function OrganogramaPage() {
             nome: "", cargo: "", foto_url: null, destaque: false,
             linha: 0, coluna: 0, ordem: 0,
             ativo: true, tem_carteira: false,
+            ruston_pessoa_id: null,
           }}
-          areas={areas} subsecoes={subsecoes}
+          areas={areas} subsecoes={subsecoes} pessoasCadastro={pessoasCadastro}
           onFechar={() => setNovaPessoa(null)}
           onSalvo={() => { setNovaPessoa(null); load(); }}
         />
@@ -351,11 +377,12 @@ type CommonProps = {
 };
 
 function AreaCard({
-  area, pessoas, carteiras, mostrarCarteira, onChangedCarteira, ...common
+  area, pessoas, carteiras, clientesAuto, mostrarCarteira, onChangedCarteira, ...common
 }: {
   area: Area;
   pessoas: OrgPessoa[];
   carteiras: Carteira[];
+  clientesAuto?: ClienteAuto[];
   mostrarCarteira: boolean;
   onChangedCarteira: () => void;
 } & CommonProps) {
@@ -408,7 +435,14 @@ function AreaCard({
           <h3 className="mb-4 flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-widest text-brand-muted">📋 Carteira de Clientes</h3>
           <div className="grid gap-3 grid-cols-1 md:grid-cols-2">
             {pessoasCarteira.map((p) => (
-              <CarteiraCard key={p.id} pessoa={p} clientes={carteiras.filter((c) => c.pessoa_id === p.id)} podeEditar={common.podeEditar} onChanged={onChangedCarteira} />
+              <CarteiraCard
+                key={p.id}
+                pessoa={p}
+                clientes={carteiras.filter((c) => c.pessoa_id === p.id)}
+                clientesAuto={(clientesAuto ?? []).filter((c) => p.ruston_pessoa_id && c.account_id === p.ruston_pessoa_id)}
+                podeEditar={common.podeEditar}
+                onChanged={onChangedCarteira}
+              />
             ))}
           </div>
         </div>
@@ -673,15 +707,25 @@ function PessoaAvatar({
 }
 
 // ============================================================
-// CARTEIRA CARD (igual V7)
+// CARTEIRA CARD — V9
+// Se pessoa está vinculada (ruston_pessoa_id != null), mostra os
+// clientes AUTOMÁTICOS da tabela ruston_clientes (que somem sozinhos
+// quando o churn é finalizado). Senão, cai no modo antigo (manual).
 // ============================================================
-function CarteiraCard({ pessoa, clientes, podeEditar, onChanged }: {
-  pessoa: OrgPessoa; clientes: Carteira[]; podeEditar: boolean; onChanged: () => void;
+function CarteiraCard({ pessoa, clientes, clientesAuto, podeEditar, onChanged }: {
+  pessoa: OrgPessoa;
+  clientes: Carteira[];
+  clientesAuto: ClienteAuto[];
+  podeEditar: boolean;
+  onChanged: () => void;
 }) {
   const supabase = createClient();
   const [adicionando, setAdicionando] = useState(false);
   const [novoNome, setNovoNome] = useState("");
   const iniciais = pessoa.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
+
+  const modoAuto = !!pessoa.ruston_pessoa_id;
+  const totalClientes = modoAuto ? clientesAuto.length : clientes.length;
 
   async function adicionar() {
     const nome = novoNome.trim();
@@ -702,38 +746,99 @@ function CarteiraCard({ pessoa, clientes, podeEditar, onChanged }: {
           )}
         </div>
         <p className="text-sm font-bold uppercase tracking-wide text-white">
-          {pessoa.nome} <span className="text-red-300">| {clientes.length}</span>
+          {pessoa.nome} <span className="text-red-300">| {totalClientes}</span>
         </p>
-      </div>
-      <div className="mb-3 border-t border-red-500/30" />
-      <div className="space-y-2">
-        {clientes.map((c) => <ClienteRow key={c.id} carteira={c} podeEditar={podeEditar} onChanged={onChanged} />)}
-        {clientes.length === 0 && !adicionando && (
-          <p className="text-center text-[11px] text-brand-muted italic py-4">Sem clientes</p>
+        {modoAuto && (
+          <span className="text-[9px] text-emerald-300/70 uppercase tracking-widest">🔄 sincronizado</span>
         )}
       </div>
-      {podeEditar && !adicionando && (
-        <button onClick={() => setAdicionando(true)} className="mt-3 w-full rounded-lg border border-dashed border-white/20 py-2 text-xs text-brand-muted hover:border-brand hover:text-brand">
-          + Adicionar cliente
-        </button>
-      )}
-      {adicionando && (
-        <div className="mt-3 space-y-2">
-          <input
-            className="input text-xs" placeholder="Nome do cliente"
-            value={novoNome} onChange={(e) => setNovoNome(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") adicionar();
-              if (e.key === "Escape") { setAdicionando(false); setNovoNome(""); }
-            }}
-            autoFocus
-          />
-          <div className="flex gap-2">
-            <button className="btn text-xs flex-1" onClick={adicionar}>Adicionar</button>
-            <button className="btn-ghost text-xs" onClick={() => { setAdicionando(false); setNovoNome(""); }}>Cancelar</button>
-          </div>
+      <div className="mb-3 border-t border-red-500/30" />
+
+      {/* MODO AUTOMÁTICO — clientes vêm da ruston_clientes */}
+      {modoAuto && (
+        <div className="space-y-2">
+          {clientesAuto
+            .slice()
+            .sort((a, b) => a.nome.localeCompare(b.nome))
+            .map((c) => <ClienteAutoRow key={c.id} cliente={c} />)}
+          {clientesAuto.length === 0 && (
+            <p className="text-center text-[11px] text-brand-muted italic py-4">Nenhum cliente ativo pra esse GP</p>
+          )}
         </div>
       )}
+
+      {/* MODO MANUAL (antigo) — só quando não tem vínculo */}
+      {!modoAuto && (
+        <>
+          <div className="space-y-2">
+            {clientes.map((c) => <ClienteRow key={c.id} carteira={c} podeEditar={podeEditar} onChanged={onChanged} />)}
+            {clientes.length === 0 && !adicionando && (
+              <p className="text-center text-[11px] text-brand-muted italic py-4">
+                Sem clientes.<br />
+                <span className="text-[10px] text-brand-muted/70">Dica: vincula essa pessoa a alguém do cadastro no modal, aí a lista vem automática.</span>
+              </p>
+            )}
+          </div>
+          {podeEditar && !adicionando && (
+            <button onClick={() => setAdicionando(true)} className="mt-3 w-full rounded-lg border border-dashed border-white/20 py-2 text-xs text-brand-muted hover:border-brand hover:text-brand">
+              + Adicionar cliente (manual)
+            </button>
+          )}
+          {adicionando && (
+            <div className="mt-3 space-y-2">
+              <input className="input text-xs" placeholder="Nome do cliente"
+                value={novoNome} onChange={(e) => setNovoNome(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") adicionar();
+                  if (e.key === "Escape") { setAdicionando(false); setNovoNome(""); }
+                }}
+                autoFocus />
+              <div className="flex gap-2">
+                <button className="btn text-xs flex-1" onClick={adicionar}>Adicionar</button>
+                <button className="btn-ghost text-xs" onClick={() => { setAdicionando(false); setNovoNome(""); }}>Cancelar</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// LINHA DE CLIENTE AUTOMÁTICO — mostra MRR, tags de risco
+// ============================================================
+function ClienteAutoRow({ cliente }: { cliente: ClienteAuto }) {
+  const tags: { texto: string; cor: string }[] = [];
+  if (cliente.churn_realizado && !cliente.subiu_no_sistema) {
+    tags.push({ texto: "CHURN", cor: "border-red-500/40 bg-red-500/10 text-red-300" });
+  }
+  if (cliente.data_vencimento_contrato) {
+    const dias = Math.floor((new Date(cliente.data_vencimento_contrato).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    if (dias >= 0 && dias <= 30) tags.push({ texto: `VENCE ${dias}D`, cor: "border-amber-500/40 bg-amber-500/10 text-amber-300" });
+    if (dias < 0) tags.push({ texto: "VENCIDO", cor: "border-red-500/40 bg-red-500/10 text-red-300" });
+  }
+  const mrr = cliente.mrr ? cliente.mrr.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }) : null;
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold uppercase text-white truncate">{cliente.nome}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-1">
+            {mrr && (
+              <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[8px] font-bold text-emerald-300">
+                {mrr}
+              </span>
+            )}
+            {tags.map((t, i) => (
+              <span key={i} className={`rounded border ${t.cor} px-1.5 py-0.5 text-[8px] font-bold`}>
+                {t.texto}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -825,8 +930,10 @@ function ClienteRow({ carteira, podeEditar, onChanged }: {
 // ============================================================
 // MODAL DE EDIÇÃO
 // ============================================================
-function ModalPessoa({ pessoa, areas, subsecoes, onFechar, onSalvo }: {
-  pessoa: OrgPessoa; areas: Area[]; subsecoes: Subsecao[]; onFechar: () => void; onSalvo: () => void;
+function ModalPessoa({ pessoa, areas, subsecoes, pessoasCadastro, onFechar, onSalvo }: {
+  pessoa: OrgPessoa; areas: Area[]; subsecoes: Subsecao[];
+  pessoasCadastro: PessoaCadastro[];
+  onFechar: () => void; onSalvo: () => void;
 }) {
   const supabase = createClient();
   const [form, setForm] = useState({
@@ -834,6 +941,7 @@ function ModalPessoa({ pessoa, areas, subsecoes, onFechar, onSalvo }: {
     area_id: pessoa.area_id, subsecao_id: pessoa.subsecao_id ?? "",
     destaque: pessoa.destaque,
     tem_carteira: pessoa.tem_carteira, foto_url: pessoa.foto_url,
+    ruston_pessoa_id: pessoa.ruston_pessoa_id ?? "",
   });
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -860,6 +968,7 @@ function ModalPessoa({ pessoa, areas, subsecoes, onFechar, onSalvo }: {
       area_id: form.area_id, subsecao_id: form.subsecao_id || null,
       destaque: form.destaque,
       tem_carteira: form.tem_carteira, foto_url: form.foto_url,
+      ruston_pessoa_id: form.ruston_pessoa_id || null,
     };
     if (pessoa.id) {
       await supabase.from("ruston_org_pessoas").update(payload).eq("id", pessoa.id);
@@ -950,6 +1059,28 @@ function ModalPessoa({ pessoa, areas, subsecoes, onFechar, onSalvo }: {
           <input type="checkbox" id="carteira" checked={form.tem_carteira} onChange={(e) => setForm({ ...form, tem_carteira: e.target.checked })} />
           <label htmlFor="carteira" className="text-sm">📋 Tem carteira de clientes</label>
         </div>
+
+        {/* NOVO: Vínculo com o cadastro real. Quando setado, a carteira
+             puxa clientes ativos automaticamente da tabela ruston_clientes */}
+        {form.tem_carteira && (
+          <div className="mb-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+            <label className="label text-emerald-200">🔗 Vincular ao cadastro (recomendado)</label>
+            <p className="mb-2 text-[11px] text-brand-muted">
+              Selecione a pessoa correspondente no cadastro pra <strong>carteira atualizar sozinha</strong>.
+              Cliente novo com esse GP aparece automático; churn finalizado some.
+            </p>
+            <select
+              className="input"
+              value={form.ruston_pessoa_id}
+              onChange={(e) => setForm({ ...form, ruston_pessoa_id: e.target.value })}
+            >
+              <option value="">— não vincular (usar carteira manual) —</option>
+              {pessoasCadastro.map((p) => (
+                <option key={p.id} value={p.id}>{p.nome}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="flex justify-between gap-2">
           {pessoa.id && <button className="text-xs text-red-300 hover:text-red-400" onClick={remover}>Remover</button>}
