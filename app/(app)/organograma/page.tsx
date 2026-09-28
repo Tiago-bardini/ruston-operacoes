@@ -26,6 +26,13 @@ type ClienteAuto = {
   data_vencimento_contrato: string | null;
   ativo: boolean;
 };
+// FCA mais recente por cliente (Safe/Care/Danger)
+type FcaStatus = {
+  cliente_id: string;
+  bandeira: "verde" | "amarelo" | "vermelho" | "sem_dado";
+  nota_final: number | null;
+  data_referencia: string;
+};
 
 // ============================================================
 // PÁGINA
@@ -39,6 +46,7 @@ export default function OrganogramaPage() {
   const [carteiras, setCarteiras] = useState<Carteira[]>([]);
   const [pessoasCadastro, setPessoasCadastro] = useState<PessoaCadastro[]>([]);
   const [clientesAuto, setClientesAuto] = useState<ClienteAuto[]>([]);
+  const [fcaStatus, setFcaStatus] = useState<Map<string, FcaStatus>>(new Map());
   const [loading, setLoading] = useState(true);
   const [abaAtiva, setAbaAtiva] = useState<string>("todos");
   const [editando, setEditando] = useState<OrgPessoa | null>(null);
@@ -70,6 +78,17 @@ export default function OrganogramaPage() {
         (x) => !(x.churn_realizado === true && x.subiu_no_sistema === true)
       )
     );
+    // NOVO: busca o FCA mais recente por cliente (Safe/Care/Danger)
+    const { data: fcas } = await supabase
+      .from("ruston_fca_view")
+      .select("cliente_id,bandeira,nota_final,data_referencia")
+      .order("data_referencia", { ascending: false });
+    const map = new Map<string, FcaStatus>();
+    ((fcas as FcaStatus[]) ?? []).forEach((f) => {
+      // Como a lista vem ordem desc, só guarda o primeiro (mais recente) de cada cliente
+      if (!map.has(f.cliente_id)) map.set(f.cliente_id, f);
+    });
+    setFcaStatus(map);
     setLoading(false);
   }
 
@@ -319,7 +338,7 @@ export default function OrganogramaPage() {
       ) : (
         areas.filter((a) => a.id === abaAtiva).map((squad) => (
           <div key={squad.id} className="max-w-5xl mx-auto">
-            <AreaCard area={squad} pessoas={pessoas.filter((p) => p.area_id === squad.id)} carteiras={carteiras} clientesAuto={clientesAuto} mostrarCarteira={true} onChangedCarteira={load} {...commonProps} />
+            <AreaCard area={squad} pessoas={pessoas.filter((p) => p.area_id === squad.id)} carteiras={carteiras} clientesAuto={clientesAuto} fcaStatus={fcaStatus} mostrarCarteira={true} onChangedCarteira={load} {...commonProps} />
           </div>
         ))
       )}
@@ -377,12 +396,13 @@ type CommonProps = {
 };
 
 function AreaCard({
-  area, pessoas, carteiras, clientesAuto, mostrarCarteira, onChangedCarteira, ...common
+  area, pessoas, carteiras, clientesAuto, fcaStatus, mostrarCarteira, onChangedCarteira, ...common
 }: {
   area: Area;
   pessoas: OrgPessoa[];
   carteiras: Carteira[];
   clientesAuto?: ClienteAuto[];
+  fcaStatus?: Map<string, FcaStatus>;
   mostrarCarteira: boolean;
   onChangedCarteira: () => void;
 } & CommonProps) {
@@ -440,6 +460,7 @@ function AreaCard({
                 pessoa={p}
                 clientes={carteiras.filter((c) => c.pessoa_id === p.id)}
                 clientesAuto={(clientesAuto ?? []).filter((c) => p.ruston_pessoa_id && c.account_id === p.ruston_pessoa_id)}
+                fcaStatus={fcaStatus}
                 podeEditar={common.podeEditar}
                 onChanged={onChangedCarteira}
               />
@@ -712,10 +733,11 @@ function PessoaAvatar({
 // clientes AUTOMÁTICOS da tabela ruston_clientes (que somem sozinhos
 // quando o churn é finalizado). Senão, cai no modo antigo (manual).
 // ============================================================
-function CarteiraCard({ pessoa, clientes, clientesAuto, podeEditar, onChanged }: {
+function CarteiraCard({ pessoa, clientes, clientesAuto, fcaStatus, podeEditar, onChanged }: {
   pessoa: OrgPessoa;
   clientes: Carteira[];
   clientesAuto: ClienteAuto[];
+  fcaStatus?: Map<string, FcaStatus>;
   podeEditar: boolean;
   onChanged: () => void;
 }) {
@@ -760,7 +782,7 @@ function CarteiraCard({ pessoa, clientes, clientesAuto, podeEditar, onChanged }:
           {clientesAuto
             .slice()
             .sort((a, b) => a.nome.localeCompare(b.nome))
-            .map((c) => <ClienteAutoRow key={c.id} cliente={c} />)}
+            .map((c) => <ClienteAutoRow key={c.id} cliente={c} fca={fcaStatus?.get(c.id)} />)}
           {clientesAuto.length === 0 && (
             <p className="text-center text-[11px] text-brand-muted italic py-4">Nenhum cliente ativo pra esse GP</p>
           )}
@@ -806,9 +828,9 @@ function CarteiraCard({ pessoa, clientes, clientesAuto, podeEditar, onChanged }:
 }
 
 // ============================================================
-// LINHA DE CLIENTE AUTOMÁTICO — mostra MRR, tags de risco
+// LINHA DE CLIENTE AUTOMÁTICO — bolinha FCA + nome + MRR + tags
 // ============================================================
-function ClienteAutoRow({ cliente }: { cliente: ClienteAuto }) {
+function ClienteAutoRow({ cliente, fca }: { cliente: ClienteAuto; fca?: FcaStatus }) {
   const tags: { texto: string; cor: string }[] = [];
   if (cliente.churn_realizado && !cliente.subiu_no_sistema) {
     tags.push({ texto: "CHURN", cor: "border-red-500/40 bg-red-500/10 text-red-300" });
@@ -820,12 +842,33 @@ function ClienteAutoRow({ cliente }: { cliente: ClienteAuto }) {
   }
   const mrr = cliente.mrr ? cliente.mrr.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }) : null;
 
+  // Bolinha do FCA — Safe/Care/Danger
+  const bandeira = fca?.bandeira ?? "sem_dado";
+  const bolinhaClasses: Record<string, string> = {
+    verde: "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]",   // Safe
+    amarelo: "bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.7)]",   // Care
+    vermelho: "bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.7)]",     // Danger
+    sem_dado: "bg-white/20",
+  };
+  const bolinhaLabel: Record<string, string> = {
+    verde: "Safe",
+    amarelo: "Care",
+    vermelho: "Danger",
+    sem_dado: "Sem FCA",
+  };
+
   return (
     <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold uppercase text-white truncate">{cliente.nome}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-1">
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-block h-3 w-3 rounded-full flex-shrink-0 ${bolinhaClasses[bandeira]}`}
+              title={`${bolinhaLabel[bandeira]}${fca?.nota_final != null ? ` · Nota ${fca.nota_final.toFixed(2)}` : ""}${fca ? ` · Última: ${fca.data_referencia}` : ""}`}
+            />
+            <p className="text-xs font-semibold uppercase text-white truncate">{cliente.nome}</p>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-1 ml-5">
             {mrr && (
               <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[8px] font-bold text-emerald-300">
                 {mrr}
