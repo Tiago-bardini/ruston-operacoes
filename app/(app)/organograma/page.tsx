@@ -14,10 +14,9 @@ type OrgPessoa = {
   nome: string; cargo: string | null; foto_url: string | null;
   destaque: boolean; linha: number; coluna: number; ordem: number;
   ativo: boolean; tem_carteira: boolean;
-  ruston_pessoa_id: string | null; // NOVO — link pro cadastro real de pessoa
+  ruston_pessoa_id: string | null;
 };
 type Carteira = { id: string; pessoa_id: string; cliente_nome: string; tags: string[]; ordem: number; ativo: boolean };
-// NOVOS — cadastro real
 type PessoaCadastro = { id: string; nome: string; ativo: boolean };
 type ClienteAuto = {
   id: string; nome: string; account_id: string | null;
@@ -26,13 +25,21 @@ type ClienteAuto = {
   data_vencimento_contrato: string | null;
   ativo: boolean;
 };
-// FCA mais recente por cliente (Safe/Care/Danger)
 type FcaStatus = {
   cliente_id: string;
   bandeira: "verde" | "amarelo" | "vermelho" | "sem_dado";
   nota_final: number | null;
   data_referencia: string;
 };
+
+// ============================================================
+// Helper — formata MRR compacto (R$ 12.4k / R$ 1.2M)
+// ============================================================
+function formatMrrCompact(v: number): string {
+  if (v >= 1_000_000) return `R$ ${(v / 1_000_000).toFixed(1).replace(".", ",")}M`;
+  if (v >= 1_000) return `R$ ${Math.round(v / 100) / 10}k`;
+  return `R$ ${Math.round(v)}`;
+}
 
 // ============================================================
 // PÁGINA
@@ -60,9 +67,7 @@ export default function OrganogramaPage() {
       supabase.from("ruston_org_subsecoes").select("*").eq("ativo", true).order("ordem"),
       supabase.from("ruston_org_pessoas").select("*").eq("ativo", true).order("linha").order("coluna"),
       supabase.from("ruston_org_carteiras").select("*").eq("ativo", true).order("ordem"),
-      // NOVO: cadastro real de pessoas (pra vincular)
       supabase.from("ruston_pessoas").select("id,nome,ativo").eq("ativo", true).order("nome"),
-      // NOVO: clientes ativos (que não são churn finalizado)
       supabase.from("ruston_clientes")
         .select("id,nome,account_id,mrr,churn_realizado,subiu_no_sistema,data_vencimento_contrato,ativo")
         .eq("ativo", true),
@@ -72,20 +77,17 @@ export default function OrganogramaPage() {
     setPessoas((p as OrgPessoa[]) ?? []);
     setCarteiras((c as Carteira[]) ?? []);
     setPessoasCadastro((pc as PessoaCadastro[]) ?? []);
-    // Filtra: se churn foi realizado E subiu no sistema → tira do organograma
     setClientesAuto(
       ((cli as ClienteAuto[]) ?? []).filter(
         (x) => !(x.churn_realizado === true && x.subiu_no_sistema === true)
       )
     );
-    // NOVO: busca o FCA mais recente por cliente (Safe/Care/Danger)
     const { data: fcas } = await supabase
       .from("ruston_fca_view")
       .select("cliente_id,bandeira,nota_final,data_referencia")
       .order("data_referencia", { ascending: false });
     const map = new Map<string, FcaStatus>();
     ((fcas as FcaStatus[]) ?? []).forEach((f) => {
-      // Como a lista vem ordem desc, só guarda o primeiro (mais recente) de cada cliente
       if (!map.has(f.cliente_id)) map.set(f.cliente_id, f);
     });
     setFcaStatus(map);
@@ -94,10 +96,19 @@ export default function OrganogramaPage() {
 
   useEffect(() => { if (!loadingPerfil) load(); /* eslint-disable-next-line */ }, [loadingPerfil]);
 
-  // ------------------------------------------------------------
-  // Move pessoa pra (area, subsecao, linha, colunaAlvo)
-  // Reindexa colunas da linha destino e da linha origem
-  // ------------------------------------------------------------
+  // ============================================================
+  // MRR POR PESSOA — soma dos MRRs de clientes ativos daquela pessoa
+  // chave = ruston_pessoa_id (pessoa do cadastro)
+  // ============================================================
+  const mrrPorPessoa = useMemo(() => {
+    const map = new Map<string, number>();
+    clientesAuto.forEach((c) => {
+      if (!c.account_id || !c.mrr) return;
+      map.set(c.account_id, (map.get(c.account_id) ?? 0) + c.mrr);
+    });
+    return map;
+  }, [clientesAuto]);
+
   async function moverPessoa(
     pessoaId: string,
     destino: { area_id: string; subsecao_id: string | null; linha: number; colunaAlvo: number }
@@ -110,7 +121,6 @@ export default function OrganogramaPage() {
       (pessoa.subsecao_id ?? null) === (destino.subsecao_id ?? null) &&
       pessoa.linha === destino.linha;
 
-    // Pessoas na linha destino (sem a arrastada)
     const linhaDestino = pessoas
       .filter((p) =>
         p.area_id === destino.area_id &&
@@ -120,7 +130,6 @@ export default function OrganogramaPage() {
       )
       .sort((a, b) => a.coluna - b.coluna);
 
-    // Insere a arrastada na posição colunaAlvo
     const idx = Math.max(0, Math.min(destino.colunaAlvo, linhaDestino.length));
     const novaLinhaOrdem = [
       ...linhaDestino.slice(0, idx),
@@ -128,10 +137,8 @@ export default function OrganogramaPage() {
       ...linhaDestino.slice(idx),
     ];
 
-    // Novas colunas 0, 1, 2...
     const atualizacoesDestino = novaLinhaOrdem.map((p, i) => ({ id: p.id, coluna: i }));
 
-    // Se mudou de linha/container, precisa também reindexar a linha origem
     let atualizacoesOrigem: { id: string; coluna: number }[] = [];
     if (!mesmaLinha) {
       const linhaOrigem = pessoas
@@ -145,7 +152,6 @@ export default function OrganogramaPage() {
       atualizacoesOrigem = linhaOrigem.map((p, i) => ({ id: p.id, coluna: i }));
     }
 
-    // Optimistic update
     setPessoas((prev) =>
       prev.map((p) => {
         if (p.id === pessoaId) {
@@ -158,7 +164,6 @@ export default function OrganogramaPage() {
       })
     );
 
-    // Persiste a pessoa arrastada
     const colunaArrastada = atualizacoesDestino.find((x) => x.id === pessoaId)!.coluna;
     await supabase.from("ruston_org_pessoas")
       .update({
@@ -169,22 +174,16 @@ export default function OrganogramaPage() {
       })
       .eq("id", pessoaId);
 
-    // Persiste as outras da linha destino
     for (const x of atualizacoesDestino) {
       if (x.id === pessoaId) continue;
       await supabase.from("ruston_org_pessoas").update({ coluna: x.coluna }).eq("id", x.id);
     }
-    // Persiste as outras da linha origem
     for (const x of atualizacoesOrigem) {
       await supabase.from("ruston_org_pessoas").update({ coluna: x.coluna }).eq("id", x.id);
     }
     load();
   }
 
-  // ------------------------------------------------------------
-  // Inserir em nova linha (dropou entre linhas). Empurra todas as
-  // linhas >= insertLinha um índice pra frente.
-  // ------------------------------------------------------------
   async function moverPessoaNovaLinha(
     pessoaId: string,
     destino: { area_id: string; subsecao_id: string | null; insertLinha: number }
@@ -192,7 +191,6 @@ export default function OrganogramaPage() {
     const pessoa = pessoas.find((p) => p.id === pessoaId);
     if (!pessoa) return;
 
-    // Empurra linhas >= insertLinha
     const paraEmpurrar = pessoas.filter((p) =>
       p.area_id === destino.area_id &&
       (p.subsecao_id ?? null) === (destino.subsecao_id ?? null) &&
@@ -200,7 +198,6 @@ export default function OrganogramaPage() {
       p.id !== pessoaId
     );
 
-    // Reindexa linha origem se veio de outro container/linha
     const mesmaLinha =
       pessoa.area_id === destino.area_id &&
       (pessoa.subsecao_id ?? null) === (destino.subsecao_id ?? null) &&
@@ -219,7 +216,6 @@ export default function OrganogramaPage() {
       atualizacoesOrigem = linhaOrigem.map((p, i) => ({ id: p.id, coluna: i }));
     }
 
-    // Optimistic
     setPessoas((prev) =>
       prev.map((p) => {
         if (p.id === pessoaId) {
@@ -234,7 +230,6 @@ export default function OrganogramaPage() {
       })
     );
 
-    // Persiste arrastada
     await supabase.from("ruston_org_pessoas")
       .update({
         area_id: destino.area_id,
@@ -243,11 +238,9 @@ export default function OrganogramaPage() {
         coluna: 0,
       })
       .eq("id", pessoaId);
-    // Persiste empurradas
     for (const p of paraEmpurrar) {
       await supabase.from("ruston_org_pessoas").update({ linha: p.linha + 1 }).eq("id", p.id);
     }
-    // Persiste origem
     for (const x of atualizacoesOrigem) {
       await supabase.from("ruston_org_pessoas").update({ coluna: x.coluna }).eq("id", x.id);
     }
@@ -277,6 +270,7 @@ export default function OrganogramaPage() {
     moverPessoa,
     moverPessoaNovaLinha,
     subsecoes,
+    mrrPorPessoa,
   };
 
   return (
@@ -290,7 +284,6 @@ export default function OrganogramaPage() {
         </div>
       </div>
 
-      {/* ABAS */}
       <div className="mb-6 flex flex-wrap gap-2 border-b border-white/5 pb-4">
         <TabButton label="Todos" count={contagens.todos} ativo={abaAtiva === "todos"} onClick={() => setAbaAtiva("todos")} />
         {squads.map((s) => (
@@ -364,9 +357,6 @@ export default function OrganogramaPage() {
   );
 }
 
-// ============================================================
-// TAB BUTTON simples (sem drop)
-// ============================================================
 function TabButton({ label, count, ativo, onClick }: { label: string; count: number; ativo: boolean; onClick: () => void }) {
   return (
     <button
@@ -381,9 +371,6 @@ function TabButton({ label, count, ativo, onClick }: { label: string; count: num
   );
 }
 
-// ============================================================
-// AREA CARD — cada subseção (e o topo) vira uma coluna com LINHAS
-// ============================================================
 type CommonProps = {
   podeEditar: boolean;
   onEditar: (p: OrgPessoa) => void;
@@ -393,6 +380,7 @@ type CommonProps = {
   moverPessoa: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; linha: number; colunaAlvo: number }) => Promise<void>;
   moverPessoaNovaLinha: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; insertLinha: number }) => Promise<void>;
   subsecoes: Subsecao[];
+  mrrPorPessoa: Map<string, number>;
 };
 
 function AreaCard({
@@ -410,9 +398,24 @@ function AreaCard({
   const pessoasTopo = pessoas.filter((p) => !p.subsecao_id);
   const pessoasCarteira = mostrarCarteira ? pessoas.filter((p) => p.tem_carteira) : [];
 
+  // MRR total do squad = soma do MRR de todas pessoas vinculadas desse card
+  const mrrTotalArea = useMemo(() => {
+    let total = 0;
+    pessoas.forEach((p) => {
+      if (p.ruston_pessoa_id) total += common.mrrPorPessoa.get(p.ruston_pessoa_id) ?? 0;
+    });
+    return total;
+  }, [pessoas, common.mrrPorPessoa]);
+
   return (
     <div className="rounded-2xl border-2 border-red-500/60 bg-white/[0.02] p-6">
-      <h2 className="mb-6 text-center text-sm font-bold uppercase tracking-widest text-white">{area.nome}</h2>
+      <h2 className="mb-1 text-center text-sm font-bold uppercase tracking-widest text-white">{area.nome}</h2>
+      {mrrTotalArea > 0 && (
+        <p className="mb-5 text-center text-[11px] text-emerald-300 font-bold">
+          MRR total · {formatMrrCompact(mrrTotalArea)}
+        </p>
+      )}
+      {mrrTotalArea === 0 && <div className="mb-5" />}
 
       <LinhasContainer
         pessoas={pessoasTopo}
@@ -427,7 +430,6 @@ function AreaCard({
         </div>
       )}
 
-      {/* Subseções */}
       {subsecoesArea.map((sub) => {
         const pSub = pessoas.filter((p) => p.subsecao_id === sub.id);
         return (
@@ -481,13 +483,10 @@ function AreaCard({
   );
 }
 
-// ============================================================
-// CONTAINER DE LINHAS — igual ao organograma antigo
-// ============================================================
 function LinhasContainer({
   pessoas, areaId, subsecaoId,
   podeEditar, onEditar, arrastando, setArrastando,
-  moverPessoa, moverPessoaNovaLinha,
+  moverPessoa, moverPessoaNovaLinha, mrrPorPessoa,
 }: {
   pessoas: OrgPessoa[];
   areaId: string;
@@ -498,8 +497,8 @@ function LinhasContainer({
   setArrastando: (id: string | null) => void;
   moverPessoa: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; linha: number; colunaAlvo: number }) => Promise<void>;
   moverPessoaNovaLinha: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; insertLinha: number }) => Promise<void>;
+  mrrPorPessoa: Map<string, number>;
 }) {
-  // Agrupa por linha
   const linhas: Record<number, OrgPessoa[]> = {};
   pessoas.forEach((p) => {
     if (!linhas[p.linha]) linhas[p.linha] = [];
@@ -512,7 +511,6 @@ function LinhasContainer({
 
   return (
     <div>
-      {/* Gap ANTES da primeira linha */}
       <RowGap
         insertLinha={linhaKeys[0] ?? 0}
         areaId={areaId} subsecaoId={subsecaoId}
@@ -521,7 +519,7 @@ function LinhasContainer({
         setArrastando={setArrastando}
       />
 
-      {linhaKeys.map((linhaNum, idx) => (
+      {linhaKeys.map((linhaNum) => (
         <div key={linhaNum}>
           <Row
             pessoas={linhas[linhaNum]}
@@ -532,6 +530,7 @@ function LinhasContainer({
             arrastando={arrastando}
             setArrastando={setArrastando}
             moverPessoa={moverPessoa}
+            mrrPorPessoa={mrrPorPessoa}
           />
           <RowGap
             insertLinha={linhaNum + 1}
@@ -543,7 +542,6 @@ function LinhasContainer({
         </div>
       ))}
 
-      {/* Se não tem nenhuma linha, mostra dropzone gigante */}
       {linhaKeys.length === 0 && podeReceber && (
         <div
           onDragOver={(e) => { e.preventDefault(); }}
@@ -563,13 +561,11 @@ function LinhasContainer({
   );
 }
 
-// ============================================================
-// LINHA (row) — aceita drop e calcula posição pelo X do mouse
-// ============================================================
 function Row({
   pessoas, linha, areaId, subsecaoId,
   podeEditar, onEditar,
   arrastando, setArrastando, moverPessoa,
+  mrrPorPessoa,
 }: {
   pessoas: OrgPessoa[];
   linha: number;
@@ -580,6 +576,7 @@ function Row({
   arrastando: string | null;
   setArrastando: (id: string | null) => void;
   moverPessoa: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; linha: number; colunaAlvo: number }) => Promise<void>;
+  mrrPorPessoa: Map<string, number>;
 }) {
   const [hover, setHover] = useState(false);
   const podeReceber = !!arrastando;
@@ -601,7 +598,6 @@ function Row({
         setHover(false);
         if (!arrastando) return;
 
-        // Calcula em qual coluna soltar (mesmo algoritmo do org antigo)
         const mouseX = e.clientX;
         const cards = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[data-pessoa-card]"));
         let colAlvo = cards.length;
@@ -624,15 +620,13 @@ function Row({
           onClick={() => onEditar(p)}
           arrastando={arrastando}
           setArrastando={setArrastando}
+          mrrPorPessoa={mrrPorPessoa}
         />
       ))}
     </div>
   );
 }
 
-// ============================================================
-// ROW GAP — espaço entre linhas. Solta aqui cria nova linha.
-// ============================================================
 function RowGap({
   insertLinha, areaId, subsecaoId,
   arrastando, moverPessoaNovaLinha, setArrastando,
@@ -678,21 +672,25 @@ function RowGap({
 }
 
 // ============================================================
-// AVATAR
+// AVATAR — MRR embaixo do nome/cargo
 // ============================================================
 function PessoaAvatar({
-  pessoa, podeEditar, onClick, arrastando, setArrastando,
+  pessoa, podeEditar, onClick, arrastando, setArrastando, mrrPorPessoa,
 }: {
   pessoa: OrgPessoa;
   podeEditar: boolean;
   onClick: () => void;
   arrastando: string | null;
   setArrastando: (id: string | null) => void;
+  mrrPorPessoa: Map<string, number>;
 }) {
   const iniciais = pessoa.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
   const size = pessoa.destaque ? "h-24 w-24" : "h-16 w-16";
   const textSize = pessoa.destaque ? "text-2xl" : "text-lg";
   const eu = arrastando === pessoa.id;
+
+  // MRR total da carteira dessa pessoa
+  const mrr = pessoa.ruston_pessoa_id ? mrrPorPessoa.get(pessoa.ruston_pessoa_id) ?? 0 : 0;
 
   return (
     <div
@@ -721,17 +719,22 @@ function PessoaAvatar({
       <div className="text-center pointer-events-none">
         <p className={`font-bold text-white uppercase ${pessoa.destaque ? "text-sm" : "text-xs"}`}>{pessoa.nome}</p>
         {pessoa.cargo && <p className="mt-0.5 text-[10px] text-red-300 whitespace-pre-line max-w-[140px]">{pessoa.cargo}</p>}
-        {pessoa.tem_carteira && <p className="mt-0.5 text-[9px] text-amber-300">📋</p>}
+        {mrr > 0 && (
+          <p
+            className="mt-1 text-[10px] font-bold text-emerald-300"
+            title={`MRR total da carteira: ${mrr.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })}`}
+          >
+            💰 {formatMrrCompact(mrr)}
+          </p>
+        )}
+        {pessoa.tem_carteira && mrr === 0 && <p className="mt-0.5 text-[9px] text-amber-300">📋</p>}
       </div>
     </div>
   );
 }
 
 // ============================================================
-// CARTEIRA CARD — V9
-// Se pessoa está vinculada (ruston_pessoa_id != null), mostra os
-// clientes AUTOMÁTICOS da tabela ruston_clientes (que somem sozinhos
-// quando o churn é finalizado). Senão, cai no modo antigo (manual).
+// CARTEIRA CARD
 // ============================================================
 function CarteiraCard({ pessoa, clientes, clientesAuto, fcaStatus, podeEditar, onChanged }: {
   pessoa: OrgPessoa;
@@ -748,6 +751,11 @@ function CarteiraCard({ pessoa, clientes, clientesAuto, fcaStatus, podeEditar, o
 
   const modoAuto = !!pessoa.ruston_pessoa_id;
   const totalClientes = modoAuto ? clientesAuto.length : clientes.length;
+
+  // MRR total da pessoa (só modo auto)
+  const mrrTotal = modoAuto
+    ? clientesAuto.reduce((soma, c) => soma + (c.mrr ?? 0), 0)
+    : 0;
 
   async function adicionar() {
     const nome = novoNome.trim();
@@ -770,13 +778,17 @@ function CarteiraCard({ pessoa, clientes, clientesAuto, fcaStatus, podeEditar, o
         <p className="text-sm font-bold uppercase tracking-wide text-white">
           {pessoa.nome} <span className="text-red-300">| {totalClientes}</span>
         </p>
+        {modoAuto && mrrTotal > 0 && (
+          <p className="text-[11px] font-bold text-emerald-300">
+            💰 MRR {mrrTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })}
+          </p>
+        )}
         {modoAuto && (
           <span className="text-[9px] text-emerald-300/70 uppercase tracking-widest">🔄 sincronizado</span>
         )}
       </div>
       <div className="mb-3 border-t border-red-500/30" />
 
-      {/* MODO AUTOMÁTICO — clientes vêm da ruston_clientes */}
       {modoAuto && (
         <div className="space-y-2">
           {clientesAuto
@@ -789,7 +801,6 @@ function CarteiraCard({ pessoa, clientes, clientesAuto, fcaStatus, podeEditar, o
         </div>
       )}
 
-      {/* MODO MANUAL (antigo) — só quando não tem vínculo */}
       {!modoAuto && (
         <>
           <div className="space-y-2">
@@ -827,9 +838,6 @@ function CarteiraCard({ pessoa, clientes, clientesAuto, fcaStatus, podeEditar, o
   );
 }
 
-// ============================================================
-// LINHA DE CLIENTE AUTOMÁTICO — bolinha FCA + nome + MRR + tags
-// ============================================================
 function ClienteAutoRow({ cliente, fca }: { cliente: ClienteAuto; fca?: FcaStatus }) {
   const tags: { texto: string; cor: string }[] = [];
   if (cliente.churn_realizado && !cliente.subiu_no_sistema) {
@@ -842,19 +850,15 @@ function ClienteAutoRow({ cliente, fca }: { cliente: ClienteAuto; fca?: FcaStatu
   }
   const mrr = cliente.mrr ? cliente.mrr.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }) : null;
 
-  // Bolinha do FCA — Safe/Care/Danger
   const bandeira = fca?.bandeira ?? "sem_dado";
   const bolinhaClasses: Record<string, string> = {
-    verde: "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]",   // Safe
-    amarelo: "bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.7)]",   // Care
-    vermelho: "bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.7)]",     // Danger
+    verde: "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]",
+    amarelo: "bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.7)]",
+    vermelho: "bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.7)]",
     sem_dado: "bg-white/20",
   };
   const bolinhaLabel: Record<string, string> = {
-    verde: "Safe",
-    amarelo: "Care",
-    vermelho: "Danger",
-    sem_dado: "Sem FCA",
+    verde: "Safe", amarelo: "Care", vermelho: "Danger", sem_dado: "Sem FCA",
   };
 
   return (
@@ -970,9 +974,6 @@ function ClienteRow({ carteira, podeEditar, onChanged }: {
   );
 }
 
-// ============================================================
-// MODAL DE EDIÇÃO
-// ============================================================
 function ModalPessoa({ pessoa, areas, subsecoes, pessoasCadastro, onFechar, onSalvo }: {
   pessoa: OrgPessoa; areas: Area[]; subsecoes: Subsecao[];
   pessoasCadastro: PessoaCadastro[];
@@ -1016,7 +1017,6 @@ function ModalPessoa({ pessoa, areas, subsecoes, pessoasCadastro, onFechar, onSa
     if (pessoa.id) {
       await supabase.from("ruston_org_pessoas").update(payload).eq("id", pessoa.id);
     } else {
-      // Nova pessoa: linha 0, coluna final da linha 0 (ou nova linha se lotou)
       const { data: doGrupo } = await supabase
         .from("ruston_org_pessoas")
         .select("linha, coluna")
@@ -1103,8 +1103,6 @@ function ModalPessoa({ pessoa, areas, subsecoes, pessoasCadastro, onFechar, onSa
           <label htmlFor="carteira" className="text-sm">📋 Tem carteira de clientes</label>
         </div>
 
-        {/* NOVO: Vínculo com o cadastro real. Quando setado, a carteira
-             puxa clientes ativos automaticamente da tabela ruston_clientes */}
         {form.tem_carteira && (
           <div className="mb-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
             <label className="label text-emerald-200">🔗 Vincular ao cadastro (recomendado)</label>
