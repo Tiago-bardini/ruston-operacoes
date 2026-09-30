@@ -466,6 +466,8 @@ export interface Cliente {
   created_at: string;
   updated_at: string;
   updated_by: string | null;
+  plano_acao_monetizacao: string | null;
+  plano_acao_atualizado_em: string | null;
 }
 
 export interface ClienteView extends Cliente {
