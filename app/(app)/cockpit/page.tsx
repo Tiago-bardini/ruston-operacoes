@@ -26,6 +26,13 @@ const CARGOS_OPERACIONAIS: Cargo[] = ["coordenador", "gestor_projetos", "gestor_
 const MES_ATUAL = new Date().getMonth() + 1;
 const ANO_ATUAL = new Date().getFullYear();
 
+// Squads que NÃO devem aparecer em rankings do Cockpit (ex: ISSAA / ISSAS / ISAAS)
+// Match tolerante à grafia — qualquer squad começando com "ISS" ou "ISA" é excluído.
+function isSquadExcluidoDoRanking(nome: string): boolean {
+  const prefixo = nome.slice(0, 3).toLowerCase();
+  return prefixo === "iss" || prefixo === "isa";
+}
+
 export default function CockpitPage() {
   const supabase = createClient();
   const [clientes, setClientes] = useState<ClienteView[]>([]);
@@ -214,7 +221,9 @@ export default function CockpitPage() {
   const fcasRascunho = fcasFiltrados.filter((f) => f.status !== "validado");
 
   const rankingSquads = useMemo(() => {
-    return squads.map((s) => {
+    return squads
+      .filter((s) => !isSquadExcluidoDoRanking(s.nome))   // exclui ISSAA/ISSAS/ISAAS
+      .map((s) => {
       const pessoasSquad = pessoas.filter((p) => p.squad_id === s.id && p.nivel_senioridade && p.nivel_v && p.ativo);
       let batidas = 0;
       let avaliadas = 0;
@@ -240,11 +249,20 @@ export default function CockpitPage() {
     }).sort((a, b) => (b.batidas - a.batidas) || (b.pct - a.pct));
   }, [squads, pessoas, okrMetricas, okrMetasRegua, okrRealizados]);
 
+  // IDs dos squads excluídos (ISSAA/ISSAS/ISAAS) pra tirar suas pessoas dos rankings
+  const squadIdsExcluidos = useMemo(
+    () => new Set(squads.filter((s) => isSquadExcluidoDoRanking(s.nome)).map((s) => s.id)),
+    [squads]
+  );
+
   const top3PorCargo = useMemo(() => {
     const cargosComMetricas = Array.from(new Set(okrMetricas.map((m) => m.cargo)));
     return cargosComMetricas.map((cargo) => {
       const metricasCargo = okrMetricas.filter((m) => m.cargo === cargo);
-      const pessoasCargo = pessoas.filter((p) => p.cargo === cargo && p.nivel_senioridade && p.nivel_v && p.ativo);
+      const pessoasCargo = pessoas.filter((p) =>
+        p.cargo === cargo && p.nivel_senioridade && p.nivel_v && p.ativo
+        && !(p.squad_id && squadIdsExcluidos.has(p.squad_id))   // exclui pessoas de squad ISSAA/etc
+      );
       const rank = pessoasCargo.map((p) => {
         let batidas = 0;
         let preenchidas = 0;
@@ -264,7 +282,7 @@ export default function CockpitPage() {
       .slice(0, 3);
       return { cargo, top: rank };
     }).filter((c) => c.top.length > 0);
-  }, [okrMetricas, okrMetasRegua, okrRealizados, pessoas]);
+  }, [okrMetricas, okrMetasRegua, okrRealizados, pessoas, squadIdsExcluidos]);
 
   const timelineDados = useMemo(() => {
     const hoje = new Date(ano, mes - 1, 1);
