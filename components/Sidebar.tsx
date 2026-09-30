@@ -17,6 +17,7 @@ const NAV_ACTIVE: NavItem[] = [
   { href: "/cockpit", label: "Cockpit", icon: "★" },
   { href: "/clientes", label: "Clientes", icon: "◎" },
   { href: "/entregas", label: "Entregas", icon: "✎" },
+  { href: "/monetizacao", label: "Monetização", icon: "💰" },
   { href: "/pessoas", label: "Pessoas", icon: "◆" },
   { href: "/squads", label: "Squads", icon: "◇" },
   { href: "/organograma", label: "Organograma", icon: "👥" },
