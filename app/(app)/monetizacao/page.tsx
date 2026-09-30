@@ -81,7 +81,7 @@ export default function MonetizacaoPage() {
     `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`
   );
   const [editando, setEditando] = useState<Oportunidade | null>(null);
-  const [novaPara, setNovaPara] = useState<{ cliente_id: string; cliente_nome: string } | null>(null);
+  const [novaPara, setNovaPara] = useState<{ cliente_id: string; cliente_nome: string; estagio?: Estagio } | null>(null);
   const [criandoNova, setCriandoNova] = useState<boolean>(false);
   const [arrastando, setArrastando] = useState<string | null>(null);
   const [modalMetas, setModalMetas] = useState(false);
@@ -140,8 +140,10 @@ export default function MonetizacaoPage() {
         .filter((o) => o.estagio !== "ganho" && o.estagio !== "perdido")
         .map((o) => o.cliente_id)
     );
+    // Regra: cliente sem MRR ativo (== 0 ou null) E sem oportunidade aberta
+    // Aceita clientes de qualquer etapa desde que MRR = 0 (só pontual ou vazio)
     return clientesFiltrados.filter(
-      (c) => c.etapa === "estruturacao_estrategica" && !idsComOp.has(c.id)
+      (c) => (!c.mrr || Number(c.mrr) === 0) && !idsComOp.has(c.id)
     );
   }, [clientesFiltrados, ops]);
 
@@ -351,6 +353,7 @@ export default function MonetizacaoPage() {
           onEditar={(o) => setEditando(o)}
           onRemover={remover}
           onNovaOpDoCliente={(c) => setNovaPara({ cliente_id: c.id, cliente_nome: c.nome })}
+          onNovaOpDoClienteComEstagio={(c, estagio) => setNovaPara({ cliente_id: c.id, cliente_nome: c.nome, estagio })}
           onEditarPlano={(c) => setEditandoPlano(c)}
         />
       )}
@@ -469,7 +472,7 @@ function MetaProgressCard({ mp, filtroMes }: { mp: any; filtroMes: string }) {
 // ============================================================
 // KANBAN (agora com coluna "A Monetizar" antes de Ideia)
 // ============================================================
-function Kanban({ ops, clientesAMonetizar, arrastando, setArrastando, moverEstagio, podeEditar, onEditar, onRemover, onNovaOpDoCliente, onEditarPlano }: {
+function Kanban({ ops, clientesAMonetizar, arrastando, setArrastando, moverEstagio, podeEditar, onEditar, onRemover, onNovaOpDoCliente, onNovaOpDoClienteComEstagio, onEditarPlano }: {
   ops: Oportunidade[];
   clientesAMonetizar: ClienteView[];
   arrastando: string | null;
@@ -479,26 +482,41 @@ function Kanban({ ops, clientesAMonetizar, arrastando, setArrastando, moverEstag
   onEditar: (op: Oportunidade) => void;
   onRemover: (op: Oportunidade) => void;
   onNovaOpDoCliente: (c: ClienteView) => void;
+  onNovaOpDoClienteComEstagio: (c: ClienteView, estagio: Estagio) => void;
   onEditarPlano: (c: ClienteView) => void;
 }) {
+  // Estado interno: cliente sendo arrastado (diferente de oportunidade)
+  const [arrastandoCliente, setArrastandoCliente] = useState<ClienteView | null>(null);
+
   return (
-    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6" onDragEnd={() => setArrastando(null)}>
-      {/* NOVA COLUNA — clientes de Estruturação Estratégica sem op */}
+    <div
+      className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6"
+      onDragEnd={() => { setArrastando(null); setArrastandoCliente(null); }}
+    >
+      {/* NOVA COLUNA — clientes sem MRR, sem oportunidade */}
       <div className="rounded-xl border-2 p-3 min-h-[300px] border-purple-500/40 bg-purple-500/5">
         <div className="mb-3">
           <p className="text-sm font-bold text-purple-300">🎯 A Monetizar · {clientesAMonetizar.length}</p>
-          <p className="text-[10px] text-brand-muted">Clientes em Estruturação Estratégica sem oportunidade</p>
+          <p className="text-[10px] text-brand-muted">Clientes sem MRR ativo · arrasta pra uma coluna pra criar oportunidade</p>
         </div>
         <div className="space-y-2">
           {clientesAMonetizar.map((c) => {
             const semPlano = !c.plano_acao_monetizacao || c.plano_acao_monetizacao.trim() === "";
+            const eu = arrastandoCliente?.id === c.id;
             return (
-              <div key={c.id} className={`rounded-lg border p-2 bg-brand-panel/60 ${
-                semPlano ? "border-red-500/40" : "border-white/10"
-              }`}>
+              <div
+                key={c.id}
+                draggable={podeEditar}
+                onDragStart={() => { setArrastandoCliente(c); setArrastando(null); }}
+                onDragEnd={() => setArrastandoCliente(null)}
+                className={`rounded-lg border p-2 bg-brand-panel/60 transition ${
+                  semPlano ? "border-red-500/40" : "border-white/10"
+                } ${podeEditar ? "cursor-grab active:cursor-grabbing hover:border-purple-400" : ""} ${eu ? "opacity-40 scale-95" : ""}`}
+                title={podeEditar ? "Arrasta pra uma coluna do pipeline pra criar oportunidade" : ""}
+              >
                 <p className="text-xs font-semibold text-white leading-tight">{c.nome}</p>
                 <p className="text-[10px] text-brand-muted mt-0.5">
-                  MRR {formatBRL(c.mrr ?? 0)} · GP: {c.account_nome ?? "—"}
+                  {c.etapa === "estruturacao_estrategica" ? "Estruturação Estratégica" : c.etapa} · GP: {c.account_nome ?? "—"}
                 </p>
                 {c.plano_acao_monetizacao && (
                   <p className="mt-1 text-[10px] text-amber-200 italic line-clamp-2" title={c.plano_acao_monetizacao}>
@@ -526,7 +544,7 @@ function Kanban({ ops, clientesAMonetizar, arrastando, setArrastando, moverEstag
           })}
           {clientesAMonetizar.length === 0 && (
             <p className="text-center text-[10px] text-brand-muted italic py-4">
-              🎉 Todos os EE já têm oportunidade ou plano
+              🎉 Todos os clientes sem MRR já têm oportunidade
             </p>
           )}
         </div>
@@ -539,10 +557,16 @@ function Kanban({ ops, clientesAMonetizar, arrastando, setArrastando, moverEstag
         return (
           <div
             key={est.key}
-            onDragOver={(e) => { if (arrastando) e.preventDefault(); }}
+            onDragOver={(e) => { if (arrastando || arrastandoCliente) e.preventDefault(); }}
             onDrop={async (e) => {
               e.preventDefault();
-              if (arrastando) await moverEstagio(arrastando, est.key);
+              if (arrastando) {
+                await moverEstagio(arrastando, est.key);
+              } else if (arrastandoCliente) {
+                // Cliente arrastado pra uma coluna → abre modal com estágio pré-selecionado
+                onNovaOpDoClienteComEstagio(arrastandoCliente, est.key);
+                setArrastandoCliente(null);
+              }
             }}
             className={`rounded-xl border-2 p-3 min-h-[300px] ${est.corBg}`}
           >
@@ -669,7 +693,7 @@ function PorCliente({ clientes, ops, podeEditar, onNovaOp, onEditar, onRemover, 
         const opsCli = opsPorCliente.get(c.id) ?? [];
         const abertas = opsCli.filter((o) => o.estagio !== "ganho" && o.estagio !== "perdido");
         const semOp = abertas.length === 0;
-        const ehEE = c.etapa === "estruturacao_estrategica";
+        const ehEE = !c.mrr || Number(c.mrr) === 0;   // sem MRR ativo
         return (
           <div key={c.id} className={`card ${semOp && ehEE ? "border-red-500/30" : ""}`}>
             <div className="mb-2 flex items-start justify-between">
@@ -733,7 +757,7 @@ function PorCliente({ clientes, ops, podeEditar, onNovaOp, onEditar, onRemover, 
 // ============================================================
 function ModalOp({ op, clienteInicial, clientes, pessoas, emailUsuario, onFechar, onSalvo }: {
   op: Oportunidade | null;
-  clienteInicial: { cliente_id: string; cliente_nome: string } | null;
+  clienteInicial: { cliente_id: string; cliente_nome: string; estagio?: Estagio } | null;
   clientes: ClienteView[];
   pessoas: Pessoa[];
   emailUsuario: string | null;
@@ -772,8 +796,17 @@ function ModalOp({ op, clienteInicial, clientes, pessoas, emailUsuario, onFechar
     if (op) {
       await supabase.from("ruston_monetizacao_oportunidades").update(payload).eq("id", op.id);
     } else {
-      payload.estagio = "ideia";
+      // Se veio de drag & drop do cliente, usa o estágio da coluna alvo
+      payload.estagio = clienteInicial?.estagio ?? "ideia";
       payload.criado_por_email = emailUsuario;
+      // Se o estágio for ganho/perdido, seta as datas apropriadas
+      if (payload.estagio === "ganho") {
+        payload.data_ganho = new Date().toISOString().slice(0, 10);
+        payload.probabilidade = 100;
+      } else if (payload.estagio === "perdido") {
+        payload.data_perda = new Date().toISOString().slice(0, 10);
+        payload.probabilidade = 0;
+      }
       await supabase.from("ruston_monetizacao_oportunidades").insert(payload);
     }
     setSaving(false);
@@ -784,7 +817,14 @@ function ModalOp({ op, clienteInicial, clientes, pessoas, emailUsuario, onFechar
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onFechar}>
       <div className="w-full max-w-lg rounded-lg border border-white/10 bg-brand-panel p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-start justify-between">
-          <h3 className="text-lg font-semibold">{op ? "Editar oportunidade" : "Nova oportunidade"}</h3>
+          <div>
+            <h3 className="text-lg font-semibold">{op ? "Editar oportunidade" : "Nova oportunidade"}</h3>
+            {clienteInicial?.estagio && (
+              <p className="text-[11px] text-purple-300">
+                Vai ser criada em: {ESTAGIOS.find((e) => e.key === clienteInicial.estagio)?.label}
+              </p>
+            )}
+          </div>
           <button onClick={onFechar} className="text-brand-muted hover:text-white text-xl">✕</button>
         </div>
 
