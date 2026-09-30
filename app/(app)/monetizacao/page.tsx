@@ -66,8 +66,10 @@ export default function MonetizacaoPage() {
   const [loading, setLoading] = useState(true);
   const [filtroSquad, setFiltroSquad] = useState<string>("");
   const [filtroGP, setFiltroGP] = useState<string>("");
+  const [filtroMes, setFiltroMes] = useState<string>("");   // "" = todos meses | "AAAA-MM"
   const [editando, setEditando] = useState<Oportunidade | null>(null);
   const [novaPara, setNovaPara] = useState<{ cliente_id: string; cliente_nome: string } | null>(null);
+  const [criandoNova, setCriandoNova] = useState<boolean>(false);
   const [arrastando, setArrastando] = useState<string | null>(null);
 
   async function load() {
@@ -93,9 +95,15 @@ export default function MonetizacaoPage() {
       if (isCoordenador && !isGerente && squadId && o.cliente_squad_id !== squadId) return false;
       if (filtroSquad && o.cliente_squad_id !== filtroSquad) return false;
       if (filtroGP && o.cliente_account_id !== filtroGP) return false;
+      if (filtroMes) {
+        // Filtra por mês de criação. Ganho/Perdido usa data_ganho / data_perda se existir.
+        const dataRef = o.data_ganho ?? o.data_perda ?? o.created_at;
+        const ym = dataRef ? dataRef.slice(0, 7) : "";
+        if (ym !== filtroMes) return false;
+      }
       return true;
     });
-  }, [ops, isCoordenador, isGerente, squadId, filtroSquad, filtroGP]);
+  }, [ops, isCoordenador, isGerente, squadId, filtroSquad, filtroGP, filtroMes]);
 
   const clientesFiltrados = useMemo(() => {
     return clientes.filter((c) => {
@@ -248,8 +256,24 @@ export default function MonetizacaoPage() {
             <option key={p.id} value={p.id}>{p.nome}</option>
           ))}
         </select>
+        {/* NOVO: filtro por mês */}
+        <select className="input max-w-[180px]" value={filtroMes} onChange={(e) => setFiltroMes(e.target.value)}>
+          <option value="">Todos os meses</option>
+          {(() => {
+            // Últimos 12 meses
+            const arr: { value: string; label: string }[] = [];
+            const hoje = new Date();
+            for (let i = 0; i < 12; i++) {
+              const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+              const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+              const label = `${MESES_LABEL[d.getMonth()]}/${d.getFullYear()}`;
+              arr.push({ value, label });
+            }
+            return arr.map((o) => <option key={o.value} value={o.value}>{o.label}</option>);
+          })()}
+        </select>
         {podeEditar && (
-          <button className="btn ml-auto" onClick={() => setEditando(null as any)}>
+          <button className="btn ml-auto" onClick={() => setCriandoNova(true)}>
             + Nova oportunidade
           </button>
         )}
@@ -280,15 +304,15 @@ export default function MonetizacaoPage() {
       )}
 
       {/* Modal criar/editar */}
-      {(editando !== null || novaPara) && (
+      {(editando !== null || novaPara || criandoNova) && (
         <ModalOp
           op={editando}
           clienteInicial={novaPara}
           clientes={clientesFiltrados}
           pessoas={pessoas}
           emailUsuario={email}
-          onFechar={() => { setEditando(null); setNovaPara(null); }}
-          onSalvo={() => { setEditando(null); setNovaPara(null); load(); }}
+          onFechar={() => { setEditando(null); setNovaPara(null); setCriandoNova(false); }}
+          onSalvo={() => { setEditando(null); setNovaPara(null); setCriandoNova(false); load(); }}
         />
       )}
     </div>
