@@ -11,22 +11,15 @@ import {
 } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
-interface OkrMetricaLite {
-  id: string;
-  cargo: string;
-  nome: string;
-  unidade: string;
-}
-interface OkrMetaLite {
-  metrica_id: string;
-  nivel: string;
-  versao_v: string;
-  valor_meta: number | null;
-}
-interface OkrRealizadoLite {
-  pessoa_id: string;
-  metrica_id: string;
-  valor_realizado: number | null;
+interface OkrMetricaLite { id: string; cargo: string; nome: string; unidade: string; }
+interface OkrMetaLite { metrica_id: string; nivel: string; versao_v: string; valor_meta: number | null; }
+interface OkrRealizadoLite { pessoa_id: string; metrica_id: string; valor_realizado: number | null; }
+interface MonetMeta { squad_id: string; ano: number; mes: number; valor_meta: number; }
+interface MonetOp {
+  id: string; cliente_squad_id: string | null; estagio: string;
+  valor_mrr_estimado: number; valor_onetime_estimado: number;
+  data_ganho: string | null; data_prevista_fechamento: string | null;
+  ativo: boolean;
 }
 
 const CARGOS_OPERACIONAIS: Cargo[] = ["coordenador", "gestor_projetos", "gestor_trafego", "designer"];
@@ -45,10 +38,12 @@ export default function CockpitPage() {
   const [okrMetricas, setOkrMetricas] = useState<OkrMetricaLite[]>([]);
   const [okrMetasRegua, setOkrMetasRegua] = useState<OkrMetaLite[]>([]);
   const [okrRealizados, setOkrRealizados] = useState<OkrRealizadoLite[]>([]);
+  const [monetMetas, setMonetMetas] = useState<MonetMeta[]>([]);
+  const [monetOps, setMonetOps] = useState<MonetOp[]>([]);
   const [loading, setLoading] = useState(true);
   const [mes, setMes] = useState(MES_ATUAL);
   const [ano, setAno] = useState(ANO_ATUAL);
-  const [squadFiltro, setSquadFiltro] = useState<string>("");  // "" = Ruston (consolidado)
+  const [squadFiltro, setSquadFiltro] = useState<string>("");
   const { isGerente, squadId: perfilSquadId } = useUsuarioPerfil();
 
   async function load() {
@@ -57,6 +52,7 @@ export default function CockpitPage() {
       { data: cs }, { data: ps }, { data: sq },
       { data: me }, { data: ms }, { data: fc }, { data: hc },
       { data: okm }, { data: okr }, { data: okra },
+      { data: mm }, { data: mo },
     ] = await Promise.all([
       supabase.from("ruston_clientes_view").select("*").eq("ativo", true),
       supabase.from("ruston_pessoas").select("*").eq("ativo", true),
@@ -68,6 +64,8 @@ export default function CockpitPage() {
       supabase.from("ruston_okr_metricas").select("id,cargo,nome,unidade").eq("ativo", true),
       supabase.from("ruston_okr_metas").select("metrica_id,nivel,versao_v,valor_meta").eq("ano", ano).eq("mes", mes),
       supabase.from("ruston_okr_realizado_investidor").select("pessoa_id,metrica_id,valor_realizado").eq("ano", ano).eq("mes", mes),
+      supabase.from("ruston_monetizacao_metas").select("squad_id,ano,mes,valor_meta").eq("ano", ano).eq("mes", mes),
+      supabase.from("ruston_monetizacao_view").select("id,cliente_squad_id,estagio,valor_mrr_estimado,valor_onetime_estimado,data_ganho,data_prevista_fechamento,ativo").eq("ativo", true),
     ]);
     setClientes((cs as ClienteView[]) ?? []);
     setPessoas((ps as Pessoa[]) ?? []);
@@ -79,12 +77,13 @@ export default function CockpitPage() {
     setOkrMetricas((okm as OkrMetricaLite[]) ?? []);
     setOkrMetasRegua((okr as OkrMetaLite[]) ?? []);
     setOkrRealizados((okra as OkrRealizadoLite[]) ?? []);
+    setMonetMetas((mm as MonetMeta[]) ?? []);
+    setMonetOps((mo as MonetOp[]) ?? []);
     setLoading(false);
   }
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [ano, mes]);
 
-  // ============ Filtragem por squad ============
   const clientesFiltrados = useMemo(() => {
     if (!squadFiltro) return clientes;
     return clientes.filter((c) => c.squad_id === squadFiltro);
@@ -100,60 +99,41 @@ export default function CockpitPage() {
     return fcas.filter((f) => f.cliente_squad_id === squadFiltro);
   }, [fcas, squadFiltro]);
 
-  // ============ KPIs derivados ============
-
-  const mrrTotal = useMemo(
-    () => clientesFiltrados.reduce((s, c) => s + (Number(c.mrr) || 0), 0),
-    [clientesFiltrados]
-  );
-
+  const mrrTotal = useMemo(() => clientesFiltrados.reduce((s, c) => s + (Number(c.mrr) || 0), 0), [clientesFiltrados]);
   const clientesAtivos = clientesFiltrados.length;
-
   const ticketMedio = clientesAtivos > 0 ? mrrTotal / clientesAtivos : 0;
-
   const ltvMedio = useMemo(() => {
     const comLT = clientesFiltrados.filter((c) => c.lt_meses != null);
     if (comLT.length === 0) return 0;
     return comLT.reduce((s, c) => s + (c.lt_meses ?? 0) * (Number(c.mrr) || 0), 0) / comLT.length;
   }, [clientes]);
-
   const ltMedio = useMemo(() => {
     const comLT = clientesFiltrados.filter((c) => c.lt_meses != null);
     if (comLT.length === 0) return null;
     return comLT.reduce((s, c) => s + (c.lt_meses ?? 0), 0) / comLT.length;
   }, [clientes]);
-
-  const custoOperacional = useMemo(() => {
-    return pessoasFiltradas.filter((p) => p.ativo).reduce((s, p) => s + (Number(p.salario) || 0), 0);
-  }, [pessoasFiltradas]);
-
+  const custoOperacional = useMemo(() => pessoasFiltradas.filter((p) => p.ativo).reduce((s, p) => s + (Number(p.salario) || 0), 0), [pessoasFiltradas]);
   const margemEstimada = mrrTotal - custoOperacional;
   const margemPct = mrrTotal > 0 ? (margemEstimada / mrrTotal) * 100 : 0;
 
-  // FCA médio (só clientes com FCA no mês)
   const fcaMedio = useMemo(() => {
     const comNota = fcasFiltrados.filter((f) => f.nota_final != null);
     if (comNota.length === 0) return null;
     return comNota.reduce((s, f) => s + (f.nota_final ?? 0), 0) / comNota.length;
   }, [fcasFiltrados]);
 
-  // % Metas Empresa batidas
   const metasEmpresaBatidas = useMemo(() => {
     const preenchidas = metasEmpresa.filter((m) => m.valor_realizado != null);
     if (preenchidas.length === 0) return { pct: 0, batidas: 0, total: metasEmpresa.length };
     const batidas = preenchidas.filter((m) => {
       const menorMelhor = m.metrica === "churn";
-      return menorMelhor
-        ? (m.valor_realizado ?? 0) <= m.valor_meta
-        : (m.valor_realizado ?? 0) >= m.valor_meta;
+      return menorMelhor ? (m.valor_realizado ?? 0) <= m.valor_meta : (m.valor_realizado ?? 0) >= m.valor_meta;
     }).length;
     return { pct: Math.round((batidas / metasEmpresa.length) * 100), batidas, total: metasEmpresa.length };
   }, [metasEmpresa]);
 
-  // Churn % — pega da meta_empresa se preenchido
   const churnAtual = metasEmpresa.find((m) => m.metrica === "churn")?.valor_realizado ?? null;
 
-  // Bandeira FCA — contagem
   const fcaContagem = useMemo(() => {
     const verde = fcasFiltrados.filter((f) => f.bandeira === "verde").length;
     const amarelo = fcasFiltrados.filter((f) => f.bandeira === "amarelo").length;
@@ -161,14 +141,66 @@ export default function CockpitPage() {
     return { verde, amarelo, vermelho };
   }, [fcasFiltrados]);
 
-  // ============ Alertas críticos ============
+  // ============ MONETIZAÇÃO — Meta vs Realizado ============
+  const filtroMesStr = `${ano}-${String(mes).padStart(2, "0")}`;
+  const monetProgresso = useMemo(() => {
+    const squadsVisiveis = squadFiltro
+      ? squads.filter((s) => s.id === squadFiltro)
+      : squads;
+
+    const metasDoMes = monetMetas.filter(
+      (m) => squadsVisiveis.find((s) => s.id === m.squad_id)
+    );
+    const metaTotal = metasDoMes.reduce((s, m) => s + Number(m.valor_meta), 0);
+
+    // Realizado = ganhos cuja data_prevista OU data_ganho está no mês (mesma lógica da página de monetização)
+    const ganhas = monetOps.filter((o) => {
+      if (o.estagio !== "ganho") return false;
+      const dataRef = o.data_prevista_fechamento ?? o.data_ganho;
+      if (!dataRef) return false;
+      if (dataRef.slice(0, 7) !== filtroMesStr) return false;
+      if (!squadsVisiveis.find((s) => s.id === o.cliente_squad_id)) return false;
+      return true;
+    });
+    const realizado = ganhas.reduce(
+      (s, o) => s + Number(o.valor_mrr_estimado ?? 0) + Number(o.valor_onetime_estimado ?? 0), 0
+    );
+
+    // Pipeline aberto (ideia/apresentado/negociação) — potencial esse mês
+    const abertas = monetOps.filter((o) => {
+      if (["ganho", "perdido"].includes(o.estagio)) return false;
+      const dataRef = o.data_prevista_fechamento;
+      if (!dataRef) return false;
+      if (dataRef.slice(0, 7) !== filtroMesStr) return false;
+      if (!squadsVisiveis.find((s) => s.id === o.cliente_squad_id)) return false;
+      return true;
+    });
+    const pipelineAberto = abertas.reduce(
+      (s, o) => s + Number(o.valor_mrr_estimado ?? 0) + Number(o.valor_onetime_estimado ?? 0), 0
+    );
+
+    const hj = new Date();
+    const ehMesAtual = hj.getFullYear() === ano && hj.getMonth() + 1 === mes;
+    const ehFuturo = ano > hj.getFullYear() || (ano === hj.getFullYear() && mes > hj.getMonth() + 1);
+    const diasNoMes = new Date(ano, mes, 0).getDate();
+    const diaDoMes = ehMesAtual ? hj.getDate() : diasNoMes;
+    const fracaoEsperada = ehFuturo ? 0 : Math.min(1, diaDoMes / diasNoMes);
+    const esperadoAteHoje = metaTotal * fracaoEsperada;
+    const pctTotal = metaTotal > 0 ? Math.round((realizado / metaTotal) * 100) : 0;
+
+    const status: "ok" | "atencao" | "critico" | "sem_meta" =
+      metaTotal === 0 ? "sem_meta"
+      : realizado >= esperadoAteHoje ? "ok"
+      : realizado >= esperadoAteHoje * 0.7 ? "atencao"
+      : "critico";
+
+    return { metaTotal, realizado, esperadoAteHoje, pipelineAberto, pctTotal, status };
+  }, [monetMetas, monetOps, squads, squadFiltro, ano, mes, filtroMesStr]);
 
   const contratosVencidos = clientesFiltrados.filter((c) => statusVencimento(c.data_vencimento_contrato) === "vencido");
   const contratosCriticos = clientesFiltrados.filter((c) => statusVencimento(c.data_vencimento_contrato) === "critico");
   const contratosAtencao = clientesFiltrados.filter((c) => statusVencimento(c.data_vencimento_contrato) === "atencao");
-
   const fcaVermelhos = fcasFiltrados.filter((f) => f.bandeira === "vermelho");
-
   const gapHeadcount = useMemo(() => {
     return squads.flatMap((s) => {
       return CARGOS_OPERACIONAIS.map((c) => {
@@ -179,19 +211,11 @@ export default function CockpitPage() {
       }).filter((g) => g.gap < 0);
     });
   }, [squads, pessoas, headcount]);
-
   const fcasRascunho = fcasFiltrados.filter((f) => f.status !== "validado");
 
-  // ============ Ranking squads ============
-
-  // Ranking Squads — DERIVADO do desempenho dos investidores do squad.
-  // Não usa mais `ruston_metas_squad` (aquela aba precisaria preencher realizado à mão).
-  // Fórmula: soma de "batidas" de todos os investidores do squad / soma de "avaliadas"
   const rankingSquads = useMemo(() => {
     return squads.map((s) => {
-      const pessoasSquad = pessoas.filter(
-        (p) => p.squad_id === s.id && p.nivel_senioridade && p.nivel_v && p.ativo
-      );
+      const pessoasSquad = pessoas.filter((p) => p.squad_id === s.id && p.nivel_senioridade && p.nivel_v && p.ativo);
       let batidas = 0;
       let avaliadas = 0;
       let investidoresComDado = 0;
@@ -200,86 +224,56 @@ export default function CockpitPage() {
         let batidasPessoa = 0;
         let avaliadasPessoa = 0;
         metricasCargo.forEach((m) => {
-          const meta = okrMetasRegua.find(
-            (r) => r.metrica_id === m.id && r.nivel === p.nivel_senioridade && r.versao_v === p.nivel_v
-          );
+          const meta = okrMetasRegua.find((r) => r.metrica_id === m.id && r.nivel === p.nivel_senioridade && r.versao_v === p.nivel_v);
           const real = okrRealizados.find((r) => r.metrica_id === m.id && r.pessoa_id === p.id);
           if (!meta?.valor_meta || real?.valor_realizado == null) return;
           avaliadasPessoa++;
           const menor = m.nome.toLowerCase().includes("churn") || m.nome.toLowerCase().includes("refação");
-          if (menor ? real.valor_realizado <= meta.valor_meta : real.valor_realizado >= meta.valor_meta) {
-            batidasPessoa++;
-          }
+          if (menor ? real.valor_realizado <= meta.valor_meta : real.valor_realizado >= meta.valor_meta) batidasPessoa++;
         });
         if (avaliadasPessoa > 0) investidoresComDado++;
         batidas += batidasPessoa;
         avaliadas += avaliadasPessoa;
       });
       const pct = avaliadas > 0 ? Math.round((batidas / avaliadas) * 100) : 0;
-      return {
-        squad: s,
-        batidas,
-        avaliadas,
-        total: avaliadas, // pra manter compat com o rendering antigo (usa r.total)
-        pct,
-        investidoresComDado,
-        totalInvestidores: pessoasSquad.length,
-      };
+      return { squad: s, batidas, avaliadas, total: avaliadas, pct, investidoresComDado, totalInvestidores: pessoasSquad.length };
     }).sort((a, b) => (b.batidas - a.batidas) || (b.pct - a.pct));
   }, [squads, pessoas, okrMetricas, okrMetasRegua, okrRealizados]);
-
-  // ============ Top 3 investidores por cargo ============
 
   const top3PorCargo = useMemo(() => {
     const cargosComMetricas = Array.from(new Set(okrMetricas.map((m) => m.cargo)));
     return cargosComMetricas.map((cargo) => {
       const metricasCargo = okrMetricas.filter((m) => m.cargo === cargo);
-      const pessoasCargo = pessoas.filter(
-        (p) => p.cargo === cargo && p.nivel_senioridade && p.nivel_v && p.ativo
-      );
+      const pessoasCargo = pessoas.filter((p) => p.cargo === cargo && p.nivel_senioridade && p.nivel_v && p.ativo);
       const rank = pessoasCargo.map((p) => {
         let batidas = 0;
         let preenchidas = 0;
         metricasCargo.forEach((m) => {
-          const meta = okrMetasRegua.find(
-            (r) => r.metrica_id === m.id && r.nivel === p.nivel_senioridade && r.versao_v === p.nivel_v
-          );
+          const meta = okrMetasRegua.find((r) => r.metrica_id === m.id && r.nivel === p.nivel_senioridade && r.versao_v === p.nivel_v);
           const real = okrRealizados.find((r) => r.metrica_id === m.id && r.pessoa_id === p.id);
-          // Só conta como "avaliada" se tem régua E realizado preenchidos
           if (!meta?.valor_meta || real?.valor_realizado == null) return;
           preenchidas++;
           const menor = m.nome.toLowerCase().includes("churn") || m.nome.toLowerCase().includes("refação");
-          if (menor ? real.valor_realizado <= meta.valor_meta : real.valor_realizado >= meta.valor_meta) {
-            batidas++;
-          }
+          if (menor ? real.valor_realizado <= meta.valor_meta : real.valor_realizado >= meta.valor_meta) batidas++;
         });
         const total = metricasCargo.length;
-        // Percentual sobre AVALIADAS (opção 3 - performance real de quem foi medido)
         const pct = preenchidas > 0 ? Math.round((batidas / preenchidas) * 100) : 0;
         return { pessoa: p, batidas, preenchidas, total, pct };
       })
-      // Ordena: mais batidas absolutas primeiro; empate → maior %; empate → mais avaliadas
       .sort((a, b) => (b.batidas - a.batidas) || (b.pct - a.pct) || (b.preenchidas - a.preenchidas))
       .slice(0, 3);
       return { cargo, top: rank };
     }).filter((c) => c.top.length > 0);
   }, [okrMetricas, okrMetasRegua, okrRealizados, pessoas]);
 
-  // ============ Timeline (últimos 6 meses de MRR — usa clientes atuais como aproximação) ============
-
   const timelineDados = useMemo(() => {
-    // Simplificação: mostra MRR total do mês vs mrr - churn simulado
     const hoje = new Date(ano, mes - 1, 1);
     return Array.from({ length: 6 }, (_, i) => {
       const d = new Date(hoje);
       d.setMonth(d.getMonth() - (5 - i));
       return {
         label: `${MESES_LABEL[d.getMonth()].slice(0, 3)}/${String(d.getFullYear()).slice(-2)}`,
-        mes: d.getMonth() + 1,
-        ano: d.getFullYear(),
-        // Aproximação: usa MRR atual (não temos histórico). Sistema evolui quando o user
-        // preencher metas mensais e realizados nos meses passados.
-        valor: mrrTotal,
+        mes: d.getMonth() + 1, ano: d.getFullYear(), valor: mrrTotal,
       };
     });
   }, [ano, mes, mrrTotal]);
@@ -300,11 +294,7 @@ export default function CockpitPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <select
-            className="input max-w-[180px]"
-            value={squadFiltro}
-            onChange={(e) => setSquadFiltro(e.target.value)}
-          >
+          <select className="input max-w-[180px]" value={squadFiltro} onChange={(e) => setSquadFiltro(e.target.value)}>
             <option value="">Ruston (todos)</option>
             {squads.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
           </select>
@@ -321,7 +311,6 @@ export default function CockpitPage() {
 
       {!loading && (
         <>
-          {/* ============ ALERTA GLOBAL ============ */}
           {totalAlertas > 0 && (
             <div className="mb-6 card border border-amber-500/40 bg-amber-500/5">
               <p className="text-[10px] uppercase tracking-wide text-amber-300">Atenção</p>
@@ -331,44 +320,30 @@ export default function CockpitPage() {
             </div>
           )}
 
-          {/* ============ KPIs PRINCIPAIS ============ */}
           <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <KPI label="MRR total" valor={formatBRL(mrrTotal)} cor="text-brand" sublabel={`${clientesAtivos} clientes ativos`} />
             <KPI label="Ticket médio" valor={formatBRL(ticketMedio)} sublabel="MRR ÷ clientes" />
-            <KPI
-              label="Churn"
-              valor={churnAtual != null ? `${churnAtual}%` : "—"}
-              cor={churnAtual != null && churnAtual <= 5 ? "text-emerald-300" : "text-red-300"}
-              sublabel="meta ≤ 5%"
-            />
-            <KPI
-              label="FCA médio"
-              valor={fcaMedio != null ? fcaMedio.toFixed(2) : "—"}
-              cor={
-                fcaMedio == null ? "text-brand-muted" :
-                fcaMedio >= 8 ? "text-emerald-300" :
-                fcaMedio >= 6 ? "text-amber-300" :
-                "text-red-300"
-              }
-              sublabel={`${fcaContagem.verde}🟢 ${fcaContagem.amarelo}🟡 ${fcaContagem.vermelho}🔴`}
-            />
-            <KPI
-              label="Metas empresa"
-              valor={`${metasEmpresaBatidas.pct}%`}
+            <KPI label="Churn" valor={churnAtual != null ? `${churnAtual}%` : "—"}
+              cor={churnAtual != null && churnAtual <= 5 ? "text-emerald-300" : "text-red-300"} sublabel="meta ≤ 5%" />
+            <KPI label="FCA médio" valor={fcaMedio != null ? fcaMedio.toFixed(2) : "—"}
+              cor={fcaMedio == null ? "text-brand-muted" : fcaMedio >= 8 ? "text-emerald-300" : fcaMedio >= 6 ? "text-amber-300" : "text-red-300"}
+              sublabel={`${fcaContagem.verde}🟢 ${fcaContagem.amarelo}🟡 ${fcaContagem.vermelho}🔴`} />
+            <KPI label="Metas empresa" valor={`${metasEmpresaBatidas.pct}%`}
               cor={metasEmpresaBatidas.pct >= 70 ? "text-emerald-300" : "text-amber-300"}
-              sublabel={`${metasEmpresaBatidas.batidas}/${metasEmpresaBatidas.total} batidas`}
-            />
-            <KPI
-              label="Margem estimada"
-              valor={formatBRL(margemEstimada)}
+              sublabel={`${metasEmpresaBatidas.batidas}/${metasEmpresaBatidas.total} batidas`} />
+            <KPI label="Margem estimada" valor={formatBRL(margemEstimada)}
               cor={margemEstimada > 0 ? "text-emerald-300" : "text-red-300"}
-              sublabel={`${margemPct.toFixed(0)}% · custo ${formatBRL(custoOperacional)}`}
-            />
+              sublabel={`${margemPct.toFixed(0)}% · custo ${formatBRL(custoOperacional)}`} />
           </div>
 
-          {/* ============ 2 COLUNAS: RANKING SQUADS + LTV ============ */}
+          {/* ============ MONETIZAÇÃO — Meta vs Realizado ============ */}
+          <div className="mb-6">
+            <a href="/monetizacao" className="block hover:brightness-125 transition">
+              <MonetCard mp={monetProgresso} mesLabel={MESES_LABEL[mes - 1]} />
+            </a>
+          </div>
+
           <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
-            {/* Ranking rápido de squads */}
             <div className="card xl:col-span-2">
               <p className="mb-3 text-sm font-semibold">🏆 Ranking Squads · {MESES_LABEL[mes - 1]}</p>
               {rankingSquads.length === 0 && <p className="text-xs text-brand-muted">Sem squads.</p>}
@@ -378,10 +353,8 @@ export default function CockpitPage() {
                     <span className="w-8 text-center text-lg font-bold">
                       {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}º`}
                     </span>
-                    <div
-                      className="flex h-8 w-8 items-center justify-center rounded-lg font-bold text-white text-xs"
-                      style={{ backgroundColor: r.squad.cor || "#1a1a1a" }}
-                    >
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg font-bold text-white text-xs"
+                         style={{ backgroundColor: r.squad.cor || "#1a1a1a" }}>
                       {r.squad.nome.charAt(0)}
                     </div>
                     <div className="flex-1">
@@ -394,14 +367,8 @@ export default function CockpitPage() {
                       {r.batidas} batida{r.batidas !== 1 ? "s" : ""} · {r.avaliadas} avaliada{r.avaliadas !== 1 ? "s" : ""}
                     </span>
                     <div className="w-32 h-2 rounded-full bg-white/5 overflow-hidden">
-                      <div
-                        className={`h-full ${
-                          r.avaliadas === 0 ? "bg-white/10" :
-                          r.pct >= 80 ? "bg-emerald-500" :
-                          r.pct >= 50 ? "bg-amber-500" : "bg-red-500"
-                        }`}
-                        style={{ width: r.avaliadas === 0 ? "0%" : `${r.pct}%` }}
-                      />
+                      <div className={`h-full ${r.avaliadas === 0 ? "bg-white/10" : r.pct >= 80 ? "bg-emerald-500" : r.pct >= 50 ? "bg-amber-500" : "bg-red-500"}`}
+                           style={{ width: r.avaliadas === 0 ? "0%" : `${r.pct}%` }} />
                     </div>
                     <span className={`w-12 text-right text-sm font-semibold ${r.avaliadas === 0 ? "text-brand-muted" : ""}`}>
                       {r.avaliadas === 0 ? "—" : `${r.pct}%`}
@@ -411,15 +378,12 @@ export default function CockpitPage() {
               </div>
             </div>
 
-            {/* Card LTV + info extra */}
             <div className="card">
               <p className="mb-3 text-sm font-semibold">📊 Métricas da carteira</p>
               <div className="space-y-3">
                 <div>
                   <p className="text-[10px] uppercase tracking-wide text-brand-muted">LT médio da unidade</p>
-                  <p className="text-xl font-bold">
-                    {ltMedio != null ? `${ltMedio.toFixed(1)} meses` : "—"}
-                  </p>
+                  <p className="text-xl font-bold">{ltMedio != null ? `${ltMedio.toFixed(1)} meses` : "—"}</p>
                   <p className="text-[10px] text-brand-muted">tempo médio de contrato ativo</p>
                 </div>
                 <div>
@@ -442,7 +406,6 @@ export default function CockpitPage() {
             </div>
           </div>
 
-          {/* ============ TOP 3 INVESTIDORES POR CADEIRA ============ */}
           {top3PorCargo.length > 0 && (
             <div className="mb-6">
               <p className="mb-3 text-sm font-semibold">🏆 Top 3 investidores por cadeira</p>
@@ -455,9 +418,7 @@ export default function CockpitPage() {
                     <div className="space-y-2">
                       {top.map((r, i) => (
                         <div key={r.pessoa.id} className="flex items-center gap-2">
-                          <span className="w-8 text-center text-lg">
-                            {i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"}
-                          </span>
+                          <span className="w-8 text-center text-lg">{i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"}</span>
                           <div className="flex-1 min-w-0">
                             <p className="truncate text-sm font-medium">{r.pessoa.nome}</p>
                             <p className="text-[10px] text-brand-muted">
@@ -468,15 +429,12 @@ export default function CockpitPage() {
                             <p className={`text-lg font-bold ${
                               r.preenchidas === 0 ? "text-brand-muted" :
                               r.pct >= 80 ? "text-emerald-300" :
-                              r.pct >= 50 ? "text-amber-300" :
-                              "text-red-300"
+                              r.pct >= 50 ? "text-amber-300" : "text-red-300"
                             }`}>{r.preenchidas === 0 ? "—" : `${r.pct}%`}</p>
                             <p className="text-[9px] text-brand-muted leading-tight">
                               {r.batidas} batida{r.batidas !== 1 ? "s" : ""} · {r.preenchidas} avaliada{r.preenchidas !== 1 ? "s" : ""}
                             </p>
-                            <p className="text-[9px] text-brand-muted leading-tight">
-                              {r.total} no cargo
-                            </p>
+                            <p className="text-[9px] text-brand-muted leading-tight">{r.total} no cargo</p>
                           </div>
                         </div>
                       ))}
@@ -487,70 +445,20 @@ export default function CockpitPage() {
             </div>
           )}
 
-          {/* ============ CENTRAL DE ALERTAS ============ */}
           {totalAlertas > 0 && (
             <div className="mb-6">
               <p className="mb-3 text-sm font-semibold">⚠️ Central de alertas</p>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {contratosVencidos.length > 0 && (
-                  <AlertCard
-                    titulo="Contratos vencidos"
-                    n={contratosVencidos.length}
-                    lista={contratosVencidos.map((c) => c.nome)}
-                    cor="red"
-                    href="/clientes"
-                  />
-                )}
-                {contratosCriticos.length > 0 && (
-                  <AlertCard
-                    titulo="Vencem em ≤30 dias"
-                    n={contratosCriticos.length}
-                    lista={contratosCriticos.map((c) => c.nome)}
-                    cor="orange"
-                    href="/clientes"
-                  />
-                )}
-                {contratosAtencao.length > 0 && (
-                  <AlertCard
-                    titulo="Vencem em ≤60 dias"
-                    n={contratosAtencao.length}
-                    lista={contratosAtencao.map((c) => c.nome)}
-                    cor="amber"
-                    href="/clientes"
-                  />
-                )}
-                {fcaVermelhos.length > 0 && (
-                  <AlertCard
-                    titulo="FCA vermelho"
-                    n={fcaVermelhos.length}
-                    lista={fcaVermelhos.map((f) => f.cliente_nome)}
-                    cor="red"
-                    href="/fca"
-                  />
-                )}
-                {gapHeadcount.length > 0 && (
-                  <AlertCard
-                    titulo="Vagas em aberto"
-                    n={gapHeadcount.reduce((s, g) => s - g.gap, 0)}
-                    lista={gapHeadcount.map((g) => `${g.squad.nome} · ${g.cargo} (${-g.gap})`)}
-                    cor="amber"
-                    href="/headcount"
-                  />
-                )}
-                {fcasRascunho.length > 0 && (
-                  <AlertCard
-                    titulo="FCAs sem validação"
-                    n={fcasRascunho.length}
-                    lista={fcasRascunho.map((f) => f.cliente_nome)}
-                    cor="amber"
-                    href="/fca"
-                  />
-                )}
+                {contratosVencidos.length > 0 && <AlertCard titulo="Contratos vencidos" n={contratosVencidos.length} lista={contratosVencidos.map((c) => c.nome)} cor="red" href="/clientes" />}
+                {contratosCriticos.length > 0 && <AlertCard titulo="Vencem em ≤30 dias" n={contratosCriticos.length} lista={contratosCriticos.map((c) => c.nome)} cor="orange" href="/clientes" />}
+                {contratosAtencao.length > 0 && <AlertCard titulo="Vencem em ≤60 dias" n={contratosAtencao.length} lista={contratosAtencao.map((c) => c.nome)} cor="amber" href="/clientes" />}
+                {fcaVermelhos.length > 0 && <AlertCard titulo="FCA vermelho" n={fcaVermelhos.length} lista={fcaVermelhos.map((f) => f.cliente_nome)} cor="red" href="/fca" />}
+                {gapHeadcount.length > 0 && <AlertCard titulo="Vagas em aberto" n={gapHeadcount.reduce((s, g) => s - g.gap, 0)} lista={gapHeadcount.map((g) => `${g.squad.nome} · ${g.cargo} (${-g.gap})`)} cor="amber" href="/headcount" />}
+                {fcasRascunho.length > 0 && <AlertCard titulo="FCAs sem validação" n={fcasRascunho.length} lista={fcasRascunho.map((f) => f.cliente_nome)} cor="amber" href="/fca" />}
               </div>
             </div>
           )}
 
-          {/* ============ TIMELINE ============ */}
           <div className="card">
             <p className="mb-3 text-sm font-semibold">📈 Evolução MRR — últimos 6 meses</p>
             <p className="mb-4 text-[10px] text-brand-muted">
@@ -561,11 +469,7 @@ export default function CockpitPage() {
               {timelineDados.map((d) => (
                 <div key={d.label} className="flex flex-1 flex-col items-center gap-2">
                   <div className="w-full flex-1 flex items-end">
-                    <div
-                      className="w-full bg-brand/60 rounded-t"
-                      style={{ height: `${100}%` }}
-                      title={formatBRL(d.valor)}
-                    />
+                    <div className="w-full bg-brand/60 rounded-t" style={{ height: `${100}%` }} title={formatBRL(d.valor)} />
                   </div>
                   <p className="text-[10px] text-brand-muted">{d.label}</p>
                 </div>
@@ -578,11 +482,83 @@ export default function CockpitPage() {
   );
 }
 
+/* ============================== MONET CARD ============================== */
+
+function MonetCard({ mp, mesLabel }: {
+  mp: { metaTotal: number; realizado: number; esperadoAteHoje: number; pipelineAberto: number; pctTotal: number; status: string };
+  mesLabel: string;
+}) {
+  if (mp.status === "sem_meta") {
+    return (
+      <div className="card border-white/10 bg-white/[0.03]">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold">💰 Monetização</p>
+            <p className="text-xs text-brand-muted mt-1">
+              Sem meta cadastrada pra {mesLabel}. Clica pra abrir a página e cadastrar.
+            </p>
+          </div>
+          <span className="text-xs opacity-50">→</span>
+        </div>
+      </div>
+    );
+  }
+  const cor =
+    mp.status === "ok"      ? "border-emerald-500/40 bg-emerald-500/5" :
+    mp.status === "atencao" ? "border-amber-500/40 bg-amber-500/5" :
+                              "border-red-500/40 bg-red-500/5";
+  const corBar =
+    mp.status === "ok"      ? "bg-emerald-500" :
+    mp.status === "atencao" ? "bg-amber-500" :
+                              "bg-red-500";
+  const corTexto =
+    mp.status === "ok"      ? "text-emerald-300" :
+    mp.status === "atencao" ? "text-amber-300" :
+                              "text-red-300";
+
+  const falta = Math.max(0, mp.esperadoAteHoje - mp.realizado);
+  const potencialFinal = mp.realizado + mp.pipelineAberto;
+  const cobrePipe = potencialFinal >= mp.metaTotal;
+
+  return (
+    <div className={`card ${cor}`}>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-sm font-semibold">💰 Monetização · {mesLabel}</p>
+        <span className="text-xs opacity-50">→</span>
+      </div>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex-1 min-w-[280px]">
+          <div className="flex items-baseline gap-2">
+            <p className="text-2xl font-bold text-white">{formatBRL(mp.realizado)}</p>
+            <p className="text-sm text-brand-muted">/ {formatBRL(mp.metaTotal)}</p>
+            <p className={`text-sm font-bold ${corTexto}`}>· {mp.pctTotal}%</p>
+          </div>
+          <div className="mt-2 h-3 w-full overflow-hidden rounded-full bg-white/5">
+            <div className={`h-full ${corBar}`} style={{ width: `${Math.min(100, mp.pctTotal)}%` }} />
+          </div>
+          <p className="mt-1 text-[10px] text-brand-muted">
+            Esperado até hoje: {formatBRL(mp.esperadoAteHoje)}
+            {mp.status === "critico" && ` · faltam ${formatBRL(falta)} pra estar em dia`}
+            {mp.status === "atencao" && ` · atrás por ${formatBRL(falta)}`}
+            {mp.status === "ok" && ` · em dia ✅`}
+          </p>
+        </div>
+        <div className="min-w-[220px]">
+          <p className="text-[10px] uppercase tracking-widest text-brand-muted">Pipeline aberto (mês)</p>
+          <p className="mt-1 text-xl font-bold text-sky-300">{formatBRL(mp.pipelineAberto)}</p>
+          <p className="text-[10px] text-brand-muted">
+            potencial + realizado: <strong className={cobrePipe ? "text-emerald-300" : "text-amber-300"}>{formatBRL(potencialFinal)}</strong>
+            {cobrePipe ? " → cobre a meta 🎯" : ` (${Math.round((potencialFinal / (mp.metaTotal || 1)) * 100)}% da meta)`}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ============================== KPI CARD ============================== */
 
-function KPI({ label, valor, cor, sublabel }: {
-  label: string; valor: string; cor?: string; sublabel?: string;
-}) {
+function KPI({ label, valor, cor, sublabel }: { label: string; valor: string; cor?: string; sublabel?: string }) {
   return (
     <div className="card p-3">
       <p className="text-[10px] uppercase tracking-wide text-brand-muted">{label}</p>
