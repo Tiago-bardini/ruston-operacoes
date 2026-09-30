@@ -117,7 +117,12 @@ export default function MonetizacaoPage() {
       if (isCoordenador && !isGerente && squadId && o.cliente_squad_id !== squadId) return false;
       if (filtroSquad && o.cliente_squad_id !== filtroSquad) return false;
       if (filtroGP && o.cliente_account_id !== filtroGP) return false;
-      const dataRef = o.data_ganho ?? o.data_perda ?? o.created_at;
+      // Filtro por MÊS DE FECHAMENTO:
+      // 1) Se tem data_prevista_fechamento, usa ela (permite ver oportunidades futuras)
+      // 2) Se é ganho, usa data_ganho
+      // 3) Se é perdido, usa data_perda
+      // 4) Fallback: data de criação
+      const dataRef = o.data_prevista_fechamento ?? o.data_ganho ?? o.data_perda ?? o.created_at;
       const ym = dataRef ? dataRef.slice(0, 7) : "";
       if (ym !== filtroMes) return false;
       return true;
@@ -322,16 +327,21 @@ export default function MonetizacaoPage() {
             <option key={p.id} value={p.id}>{p.nome}</option>
           ))}
         </select>
-        <select className="input max-w-[180px]" value={filtroMes} onChange={(e) => setFiltroMes(e.target.value)}>
+        <select className="input max-w-[220px]" value={filtroMes} onChange={(e) => setFiltroMes(e.target.value)}>
           {(() => {
-            const arr: { value: string; label: string }[] = [];
-            for (let i = 0; i < 12; i++) {
-              const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+            // 6 meses passados + mês atual + 12 meses futuros (permite planejar previsão)
+            const arr: { value: string; label: string; isFuturo: boolean; isAtual: boolean }[] = [];
+            for (let i = -6; i <= 12; i++) {
+              const d = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1);
               const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
               const label = `${MESES_LABEL[d.getMonth()]}/${d.getFullYear()}`;
-              arr.push({ value, label });
+              arr.push({ value, label, isFuturo: i > 0, isAtual: i === 0 });
             }
-            return arr.map((o) => <option key={o.value} value={o.value}>{o.label}</option>);
+            return arr.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.isAtual ? "▸ " : o.isFuturo ? "→ " : ""}{o.label}
+              </option>
+            ));
           })()}
         </select>
         {podeEditar && (
