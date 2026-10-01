@@ -6,9 +6,6 @@ import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 import type { ClienteView, Pessoa, Squad } from "@/lib/types";
 import { formatBRL, MESES_LABEL } from "@/lib/types";
 
-// ============================================================
-// TIPOS
-// ============================================================
 type Estagio = "ideia" | "apresentado" | "negociacao" | "ganho" | "perdido";
 
 const ESTAGIOS: { key: Estagio; label: string; cor: string; corBg: string }[] = [
@@ -60,9 +57,21 @@ type MetaSquad = {
 
 type Aba = "pipeline" | "por_cliente";
 
-// ============================================================
-// PÁGINA
-// ============================================================
+// Pré-preenchimento de modal (usado pra duplicar OU pra criar com cliente/estagio)
+type PreencherNovaOp = {
+  cliente_id: string;
+  cliente_nome: string;
+  estagio?: Estagio;
+  titulo?: string;
+  descricao?: string | null;
+  valor_mrr?: number;
+  valor_ot?: number;
+  probabilidade?: number;
+  responsavel_id?: string | null;
+  data_prevista?: string | null;
+  observacoes?: string | null;
+};
+
 export default function MonetizacaoPage() {
   const supabase = createClient();
   const { loading: loadingPerfil, isGerente, isCoordenador, squadId, email } = useUsuarioPerfil();
@@ -81,7 +90,7 @@ export default function MonetizacaoPage() {
     `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`
   );
   const [editando, setEditando] = useState<Oportunidade | null>(null);
-  const [novaPara, setNovaPara] = useState<{ cliente_id: string; cliente_nome: string; estagio?: Estagio } | null>(null);
+  const [novaPara, setNovaPara] = useState<PreencherNovaOp | null>(null);
   const [criandoNova, setCriandoNova] = useState<boolean>(false);
   const [arrastando, setArrastando] = useState<string | null>(null);
   const [modalMetas, setModalMetas] = useState(false);
@@ -111,17 +120,11 @@ export default function MonetizacaoPage() {
     return [a, m];
   }, [filtroMes]);
 
-  // Oportunidades filtradas (por squad/gp/mes)
   const opsFiltradas = useMemo(() => {
     return ops.filter((o) => {
       if (isCoordenador && !isGerente && squadId && o.cliente_squad_id !== squadId) return false;
       if (filtroSquad && o.cliente_squad_id !== filtroSquad) return false;
       if (filtroGP && o.cliente_account_id !== filtroGP) return false;
-      // Filtro por MÊS DE FECHAMENTO:
-      // 1) Se tem data_prevista_fechamento, usa ela (permite ver oportunidades futuras)
-      // 2) Se é ganho, usa data_ganho
-      // 3) Se é perdido, usa data_perda
-      // 4) Fallback: data de criação
       const dataRef = o.data_prevista_fechamento ?? o.data_ganho ?? o.data_perda ?? o.created_at;
       const ym = dataRef ? dataRef.slice(0, 7) : "";
       if (ym !== filtroMes) return false;
@@ -138,112 +141,71 @@ export default function MonetizacaoPage() {
     });
   }, [clientes, isCoordenador, isGerente, squadId, filtroSquad, filtroGP]);
 
-  // Clientes de Estruturação Estratégica SEM oportunidade aberta
   const clientesAMonetizar = useMemo(() => {
-    const idsComOp = new Set(
-      ops
-        .filter((o) => o.estagio !== "ganho" && o.estagio !== "perdido")
-        .map((o) => o.cliente_id)
-    );
-    // Regra: cliente sem MRR ativo (== 0 ou null) E sem oportunidade aberta
-    // Aceita clientes de qualquer etapa desde que MRR = 0 (só pontual ou vazio)
-    return clientesFiltrados.filter(
-      (c) => (!c.mrr || Number(c.mrr) === 0) && !idsComOp.has(c.id)
-    );
+    const idsComOp = new Set(ops.filter((o) => o.estagio !== "ganho" && o.estagio !== "perdido").map((o) => o.cliente_id));
+    return clientesFiltrados.filter((c) => (!c.mrr || Number(c.mrr) === 0) && !idsComOp.has(c.id));
   }, [clientesFiltrados, ops]);
 
-  // ------------------------------------------------------------
-  // Meta vs Realizado
-  // ------------------------------------------------------------
   const metaEProgresso = useMemo(() => {
-    // Soma valor_meta de todos os squads visíveis pro usuário
     const squadsVisiveis = squads.filter((sq) => {
       if (isCoordenador && !isGerente && squadId && sq.id !== squadId) return false;
       if (filtroSquad && sq.id !== filtroSquad) return false;
       return true;
     });
-
-    const metasDoMes = metas.filter(
-      (m) => m.ano === anoFiltro && m.mes === mesFiltro && squadsVisiveis.find((s) => s.id === m.squad_id)
-    );
+    const metasDoMes = metas.filter((m) => m.ano === anoFiltro && m.mes === mesFiltro && squadsVisiveis.find((s) => s.id === m.squad_id));
     const metaTotal = metasDoMes.reduce((s, m) => s + Number(m.valor_meta), 0);
-
-    // Realizado no mês = soma dos ganhos (mrr + onetime) cujo data_ganho está no mês
     const ganhas = ops.filter((o) => {
-      if (o.estagio !== "ganho" || !o.data_ganho) return false;
-      const ym = o.data_ganho.slice(0, 7);
-      if (ym !== filtroMes) return false;
+      if (o.estagio !== "ganho") return false;
+      const dataRef = o.data_prevista_fechamento ?? o.data_ganho;
+      if (!dataRef) return false;
+      if (dataRef.slice(0, 7) !== filtroMes) return false;
       if (!squadsVisiveis.find((s) => s.id === o.cliente_squad_id)) return false;
       return true;
     });
-    const realizado = ganhas.reduce(
-      (s, o) => s + Number(o.valor_mrr_estimado ?? 0) + Number(o.valor_onetime_estimado ?? 0),
-      0
-    );
-
-    // Progresso esperado até hoje (baseado em fração linear do mês)
+    const realizado = ganhas.reduce((s, o) => s + Number(o.valor_mrr_estimado ?? 0) + Number(o.valor_onetime_estimado ?? 0), 0);
     const hj = new Date();
-    const ehMesAtual =
-      hj.getFullYear() === anoFiltro && hj.getMonth() + 1 === mesFiltro;
+    const ehMesAtual = hj.getFullYear() === anoFiltro && hj.getMonth() + 1 === mesFiltro;
+    const ehFuturo = anoFiltro > hj.getFullYear() || (anoFiltro === hj.getFullYear() && mesFiltro > hj.getMonth() + 1);
     const diasNoMes = new Date(anoFiltro, mesFiltro, 0).getDate();
     const diaDoMes = ehMesAtual ? hj.getDate() : diasNoMes;
-    const fracaoEsperada = Math.min(1, diaDoMes / diasNoMes);
+    const fracaoEsperada = ehFuturo ? 0 : Math.min(1, diaDoMes / diasNoMes);
     const esperadoAteHoje = metaTotal * fracaoEsperada;
-
-    const semanaAtual = Math.ceil(diaDoMes / 7);           // 1..4/5
+    const semanaAtual = ehMesAtual ? Math.ceil(diaDoMes / 7) : 4;
     const metaSemanal = metaTotal / 4;
-    const realizadoSemanaAtual = ganhas
-      .filter((o) => {
-        const d = new Date(o.data_ganho!);
-        const semana = Math.ceil(d.getDate() / 7);
-        return semana === semanaAtual;
-      })
-      .reduce((s, o) => s + Number(o.valor_mrr_estimado ?? 0) + Number(o.valor_onetime_estimado ?? 0), 0);
-
+    const realizadoSemanaAtual = ganhas.filter((o) => {
+      const dataRef = o.data_prevista_fechamento ?? o.data_ganho;
+      if (!dataRef) return false;
+      const d = new Date(dataRef);
+      return Math.ceil(d.getDate() / 7) === semanaAtual;
+    }).reduce((s, o) => s + Number(o.valor_mrr_estimado ?? 0) + Number(o.valor_onetime_estimado ?? 0), 0);
     const pctTotal = metaTotal > 0 ? Math.round((realizado / metaTotal) * 100) : 0;
     const pctSemana = metaSemanal > 0 ? Math.round((realizadoSemanaAtual / metaSemanal) * 100) : 0;
-
-    // Alerta: se realizado < esperado até hoje
     const status: "ok" | "atencao" | "critico" | "sem_meta" =
-      metaTotal === 0 ? "sem_meta"
-      : realizado >= esperadoAteHoje ? "ok"
-      : realizado >= esperadoAteHoje * 0.7 ? "atencao"
-      : "critico";
-
-    return {
-      metaTotal, realizado, esperadoAteHoje,
-      semanaAtual, metaSemanal, realizadoSemanaAtual,
-      pctTotal, pctSemana, status,
-      totalMetas: metasDoMes.length, squadsVisiveis: squadsVisiveis.length,
-    };
+      metaTotal === 0 ? "sem_meta" :
+      realizado >= esperadoAteHoje ? "ok" :
+      realizado >= esperadoAteHoje * 0.7 ? "atencao" : "critico";
+    return { metaTotal, realizado, esperadoAteHoje, semanaAtual, metaSemanal, realizadoSemanaAtual, pctTotal, pctSemana, status, totalMetas: metasDoMes.length, squadsVisiveis: squadsVisiveis.length };
   }, [metas, ops, squads, isCoordenador, isGerente, squadId, filtroSquad, anoFiltro, mesFiltro, filtroMes]);
 
-  // ------------------------------------------------------------
-  // Move oportunidade entre estágios (drag & drop)
-  // ------------------------------------------------------------
   async function moverEstagio(opId: string, novoEstagio: Estagio) {
     const op = ops.find((o) => o.id === opId);
     if (!op) return;
     if (op.estagio === novoEstagio) return;
-
     let aplicarMrr = false;
     if (novoEstagio === "ganho" && op.valor_mrr_estimado > 0 && !op.aplicado_no_mrr) {
       const cli = clientes.find((c) => c.id === op.cliente_id);
       aplicarMrr = confirm(
         `Somar R$ ${op.valor_mrr_estimado.toLocaleString("pt-BR", { minimumFractionDigits: 2 })} no MRR de "${op.cliente_nome}"?\n\n` +
-        `MRR atual: ${formatBRL(cli?.mrr ?? 0)}\n` +
-        `MRR novo: ${formatBRL((cli?.mrr ?? 0) + op.valor_mrr_estimado)}\n\n` +
-        `OK = soma no MRR do cliente\nCancelar = só marca como Ganho (não mexe no MRR)`
+        `MRR atual: ${formatBRL(cli?.mrr ?? 0)}\nMRR novo: ${formatBRL((cli?.mrr ?? 0) + op.valor_mrr_estimado)}\n\n` +
+        `OK = soma no MRR do cliente\nCancelar = só marca como Ganho`
       );
     }
-
     let motivoPerda = op.motivo_perda;
     if (novoEstagio === "perdido") {
       const motivo = prompt("Motivo da perda (obrigatório):", motivoPerda ?? "");
       if (motivo === null) { setArrastando(null); return; }
       motivoPerda = motivo.trim() || "Não informado";
     }
-
     const payload: any = {
       estagio: novoEstagio,
       motivo_perda: novoEstagio === "perdido" ? motivoPerda : null,
@@ -252,15 +214,11 @@ export default function MonetizacaoPage() {
       probabilidade: novoEstagio === "ganho" ? 100 : novoEstagio === "perdido" ? 0 : op.probabilidade,
       aplicado_no_mrr: aplicarMrr ? true : op.aplicado_no_mrr,
     };
-
     await supabase.from("ruston_monetizacao_oportunidades").update(payload).eq("id", opId);
-
     if (aplicarMrr) {
       const cli = clientes.find((c) => c.id === op.cliente_id);
       const novoMrr = (cli?.mrr ?? 0) + op.valor_mrr_estimado;
-      await supabase.from("ruston_clientes")
-        .update({ mrr: novoMrr, fee: novoMrr })
-        .eq("id", op.cliente_id);
+      await supabase.from("ruston_clientes").update({ mrr: novoMrr, fee: novoMrr }).eq("id", op.cliente_id);
     }
     setArrastando(null);
     load();
@@ -270,6 +228,27 @@ export default function MonetizacaoPage() {
     if (!confirm(`Excluir a oportunidade "${op.titulo}" do cliente ${op.cliente_nome}?`)) return;
     await supabase.from("ruston_monetizacao_oportunidades").update({ ativo: false }).eq("id", op.id);
     load();
+  }
+
+  // ------------------------------------------------------------
+  // NOVO: duplicar oportunidade — fecha o modal atual e abre
+  // um novo "Nova oportunidade" pré-preenchido com os valores dela
+  // ------------------------------------------------------------
+  function duplicarOp(op: Oportunidade) {
+    setEditando(null);
+    setNovaPara({
+      cliente_id: op.cliente_id,
+      cliente_nome: op.cliente_nome,
+      titulo: op.titulo + " (cópia)",
+      descricao: op.descricao,
+      valor_mrr: op.valor_mrr_estimado,
+      valor_ot: op.valor_onetime_estimado,
+      probabilidade: op.probabilidade,
+      responsavel_id: op.responsavel_id,
+      data_prevista: op.data_prevista_fechamento,
+      observacoes: op.observacoes,
+      // Não copia estágio → cria sempre em Ideia
+    });
   }
 
   if (loadingPerfil || loading) {
@@ -292,28 +271,17 @@ export default function MonetizacaoPage() {
         )}
       </div>
 
-      {/* Barra de Meta vs Realizado */}
       <MetaProgressCard mp={metaEProgresso} filtroMes={filtroMes} />
 
-      {/* Abas */}
       <div className="mb-4 mt-4 inline-flex rounded-lg border border-white/10 bg-brand-panel/50 p-1">
-        {[
-          { v: "pipeline",    label: "Pipeline (Kanban)" },
-          { v: "por_cliente", label: "Por cliente" },
-        ].map((it) => (
-          <button
-            key={it.v}
-            onClick={() => setAba(it.v as Aba)}
-            className={`rounded-md px-4 py-1.5 text-xs font-medium transition ${
-              aba === it.v ? "bg-brand text-white" : "text-brand-muted hover:text-gray-200"
-            }`}
-          >
+        {[{ v: "pipeline", label: "Pipeline (Kanban)" }, { v: "por_cliente", label: "Por cliente" }].map((it) => (
+          <button key={it.v} onClick={() => setAba(it.v as Aba)}
+            className={`rounded-md px-4 py-1.5 text-xs font-medium transition ${aba === it.v ? "bg-brand text-white" : "text-brand-muted hover:text-gray-200"}`}>
             {it.label}
           </button>
         ))}
       </div>
 
-      {/* Filtros */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         {isGerente && (
           <select className="input max-w-[180px]" value={filtroSquad} onChange={(e) => setFiltroSquad(e.target.value)}>
@@ -329,7 +297,6 @@ export default function MonetizacaoPage() {
         </select>
         <select className="input max-w-[220px]" value={filtroMes} onChange={(e) => setFiltroMes(e.target.value)}>
           {(() => {
-            // 6 meses passados + mês atual + 12 meses futuros (permite planejar previsão)
             const arr: { value: string; label: string; isFuturo: boolean; isAtual: boolean }[] = [];
             for (let i = -6; i <= 12; i++) {
               const d = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1);
@@ -338,20 +305,15 @@ export default function MonetizacaoPage() {
               arr.push({ value, label, isFuturo: i > 0, isAtual: i === 0 });
             }
             return arr.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.isAtual ? "▸ " : o.isFuturo ? "→ " : ""}{o.label}
-              </option>
+              <option key={o.value} value={o.value}>{o.isAtual ? "▸ " : o.isFuturo ? "→ " : ""}{o.label}</option>
             ));
           })()}
         </select>
         {podeEditar && (
-          <button className="btn ml-auto" onClick={() => setCriandoNova(true)}>
-            + Nova oportunidade
-          </button>
+          <button className="btn ml-auto" onClick={() => setCriandoNova(true)}>+ Nova oportunidade</button>
         )}
       </div>
 
-      {/* Conteúdo das abas */}
       {aba === "pipeline" && (
         <Kanban
           ops={opsFiltradas}
@@ -380,7 +342,6 @@ export default function MonetizacaoPage() {
         />
       )}
 
-      {/* Modal criar/editar oportunidade */}
       {(editando !== null || novaPara || criandoNova) && (
         <ModalOp
           op={editando}
@@ -388,56 +349,34 @@ export default function MonetizacaoPage() {
           clientes={clientesFiltrados}
           pessoas={pessoas}
           emailUsuario={email}
+          onDuplicar={duplicarOp}
           onFechar={() => { setEditando(null); setNovaPara(null); setCriandoNova(false); }}
           onSalvo={() => { setEditando(null); setNovaPara(null); setCriandoNova(false); load(); }}
         />
       )}
 
-      {/* Modal editar metas mensais (só gerente) */}
       {modalMetas && (
-        <ModalMetas
-          squads={squads}
-          metas={metas}
-          anoFiltro={anoFiltro}
-          mesFiltro={mesFiltro}
-          onFechar={() => setModalMetas(false)}
-          onSalvo={() => { setModalMetas(false); load(); }}
-        />
+        <ModalMetas squads={squads} metas={metas} anoFiltro={anoFiltro} mesFiltro={mesFiltro}
+          onFechar={() => setModalMetas(false)} onSalvo={() => { setModalMetas(false); load(); }} />
       )}
 
-      {/* Modal editar plano de ação */}
       {editandoPlano && (
-        <ModalPlano
-          cliente={editandoPlano}
-          onFechar={() => setEditandoPlano(null)}
-          onSalvo={() => { setEditandoPlano(null); load(); }}
-        />
+        <ModalPlano cliente={editandoPlano} onFechar={() => setEditandoPlano(null)} onSalvo={() => { setEditandoPlano(null); load(); }} />
       )}
     </div>
   );
 }
 
-// ============================================================
-// META vs REALIZADO — barra + alerta semanal
-// ============================================================
 function MetaProgressCard({ mp, filtroMes }: { mp: any; filtroMes: string }) {
   if (mp.status === "sem_meta") {
     return (
       <div className="card border-white/10 bg-white/5">
-        <p className="text-xs text-brand-muted">
-          🎯 Nenhuma meta cadastrada pra {filtroMes.replace("-", "/")}. Clica em "Editar metas mensais" pra definir.
-        </p>
+        <p className="text-xs text-brand-muted">🎯 Nenhuma meta cadastrada pra {filtroMes.replace("-", "/")}. Clica em "Editar metas mensais" pra definir.</p>
       </div>
     );
   }
-  const corBg =
-    mp.status === "ok"      ? "border-emerald-500/40 bg-emerald-500/5" :
-    mp.status === "atencao" ? "border-amber-500/40 bg-amber-500/5" :
-                              "border-red-500/40 bg-red-500/5";
-  const corBar =
-    mp.status === "ok"      ? "bg-emerald-500" :
-    mp.status === "atencao" ? "bg-amber-500" :
-                              "bg-red-500";
+  const corBg = mp.status === "ok" ? "border-emerald-500/40 bg-emerald-500/5" : mp.status === "atencao" ? "border-amber-500/40 bg-amber-500/5" : "border-red-500/40 bg-red-500/5";
+  const corBar = mp.status === "ok" ? "bg-emerald-500" : mp.status === "atencao" ? "bg-amber-500" : "bg-red-500";
   return (
     <div className={`card ${corBg}`}>
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -446,10 +385,7 @@ function MetaProgressCard({ mp, filtroMes }: { mp: any; filtroMes: string }) {
           <div className="mt-1 flex items-baseline gap-2">
             <p className="text-2xl font-bold text-white">{formatBRL(mp.realizado)}</p>
             <p className="text-sm text-brand-muted">/ {formatBRL(mp.metaTotal)}</p>
-            <p className={`text-sm font-bold ${
-              mp.status === "ok" ? "text-emerald-300" :
-              mp.status === "atencao" ? "text-amber-300" : "text-red-300"
-            }`}>· {mp.pctTotal}%</p>
+            <p className={`text-sm font-bold ${mp.status === "ok" ? "text-emerald-300" : mp.status === "atencao" ? "text-amber-300" : "text-red-300"}`}>· {mp.pctTotal}%</p>
           </div>
           <div className="mt-2 h-3 w-full overflow-hidden rounded-full bg-white/5">
             <div className={`h-full ${corBar}`} style={{ width: `${Math.min(100, mp.pctTotal)}%` }} />
@@ -467,8 +403,7 @@ function MetaProgressCard({ mp, filtroMes }: { mp: any; filtroMes: string }) {
             <p className="text-xs text-brand-muted">/ {formatBRL(mp.metaSemanal)}</p>
           </div>
           <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/5">
-            <div className={mp.pctSemana >= 100 ? "h-full bg-emerald-500" : "h-full bg-amber-500"}
-                 style={{ width: `${Math.min(100, mp.pctSemana)}%` }} />
+            <div className={mp.pctSemana >= 100 ? "h-full bg-emerald-500" : "h-full bg-amber-500"} style={{ width: `${Math.min(100, mp.pctSemana)}%` }} />
           </div>
           <p className="mt-1 text-[10px] text-brand-muted">
             {mp.pctSemana >= 100 ? "✅ Meta semanal batida" : `⚠ Faltam ${formatBRL(Math.max(0, mp.metaSemanal - mp.realizadoSemanaAtual))} pra bater a semana`}
@@ -479,31 +414,17 @@ function MetaProgressCard({ mp, filtroMes }: { mp: any; filtroMes: string }) {
   );
 }
 
-// ============================================================
-// KANBAN (agora com coluna "A Monetizar" antes de Ideia)
-// ============================================================
 function Kanban({ ops, clientesAMonetizar, arrastando, setArrastando, moverEstagio, podeEditar, onEditar, onRemover, onNovaOpDoCliente, onNovaOpDoClienteComEstagio, onEditarPlano }: {
-  ops: Oportunidade[];
-  clientesAMonetizar: ClienteView[];
-  arrastando: string | null;
-  setArrastando: (id: string | null) => void;
-  moverEstagio: (opId: string, novoEstagio: Estagio) => Promise<void>;
-  podeEditar: boolean;
-  onEditar: (op: Oportunidade) => void;
-  onRemover: (op: Oportunidade) => void;
-  onNovaOpDoCliente: (c: ClienteView) => void;
-  onNovaOpDoClienteComEstagio: (c: ClienteView, estagio: Estagio) => void;
+  ops: Oportunidade[]; clientesAMonetizar: ClienteView[]; arrastando: string | null; setArrastando: (id: string | null) => void;
+  moverEstagio: (opId: string, novoEstagio: Estagio) => Promise<void>; podeEditar: boolean;
+  onEditar: (op: Oportunidade) => void; onRemover: (op: Oportunidade) => void;
+  onNovaOpDoCliente: (c: ClienteView) => void; onNovaOpDoClienteComEstagio: (c: ClienteView, estagio: Estagio) => void;
   onEditarPlano: (c: ClienteView) => void;
 }) {
-  // Estado interno: cliente sendo arrastado (diferente de oportunidade)
   const [arrastandoCliente, setArrastandoCliente] = useState<ClienteView | null>(null);
-
   return (
-    <div
-      className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6"
-      onDragEnd={() => { setArrastando(null); setArrastandoCliente(null); }}
-    >
-      {/* NOVA COLUNA — clientes sem MRR, sem oportunidade */}
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6"
+      onDragEnd={() => { setArrastando(null); setArrastandoCliente(null); }}>
       <div className="rounded-xl border-2 p-3 min-h-[300px] border-purple-500/40 bg-purple-500/5">
         <div className="mb-3">
           <p className="text-sm font-bold text-purple-300">🎯 A Monetizar · {clientesAMonetizar.length}</p>
@@ -514,49 +435,27 @@ function Kanban({ ops, clientesAMonetizar, arrastando, setArrastando, moverEstag
             const semPlano = !c.plano_acao_monetizacao || c.plano_acao_monetizacao.trim() === "";
             const eu = arrastandoCliente?.id === c.id;
             return (
-              <div
-                key={c.id}
-                draggable={podeEditar}
+              <div key={c.id} draggable={podeEditar}
                 onDragStart={() => { setArrastandoCliente(c); setArrastando(null); }}
                 onDragEnd={() => setArrastandoCliente(null)}
-                className={`rounded-lg border p-2 bg-brand-panel/60 transition ${
-                  semPlano ? "border-red-500/40" : "border-white/10"
-                } ${podeEditar ? "cursor-grab active:cursor-grabbing hover:border-purple-400" : ""} ${eu ? "opacity-40 scale-95" : ""}`}
-                title={podeEditar ? "Arrasta pra uma coluna do pipeline pra criar oportunidade" : ""}
-              >
+                className={`rounded-lg border p-2 bg-brand-panel/60 transition ${semPlano ? "border-red-500/40" : "border-white/10"} ${podeEditar ? "cursor-grab active:cursor-grabbing hover:border-purple-400" : ""} ${eu ? "opacity-40 scale-95" : ""}`}>
                 <p className="text-xs font-semibold text-white leading-tight">{c.nome}</p>
                 <p className="text-[10px] text-brand-muted mt-0.5">
                   {c.etapa === "estruturacao_estrategica" ? "Estruturação Estratégica" : c.etapa} · GP: {c.account_nome ?? "—"}
                 </p>
                 {c.plano_acao_monetizacao && (
-                  <p className="mt-1 text-[10px] text-amber-200 italic line-clamp-2" title={c.plano_acao_monetizacao}>
-                    📝 {c.plano_acao_monetizacao}
-                  </p>
+                  <p className="mt-1 text-[10px] text-amber-200 italic line-clamp-2">📝 {c.plano_acao_monetizacao}</p>
                 )}
                 {podeEditar && (
                   <div className="mt-2 flex gap-1">
-                    <button
-                      onClick={() => onNovaOpDoCliente(c)}
-                      className="flex-1 text-[10px] rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 py-1 border border-emerald-500/30"
-                    >+ Op</button>
-                    <button
-                      onClick={() => onEditarPlano(c)}
-                      className={`flex-1 text-[10px] rounded py-1 border ${
-                        semPlano
-                          ? "bg-red-500/20 text-red-300 hover:bg-red-500/30 border-red-500/30"
-                          : "bg-white/5 text-brand-muted hover:bg-white/10 border-white/10"
-                      }`}
-                    >📝 {semPlano ? "Sem plano" : "Plano"}</button>
+                    <button onClick={() => onNovaOpDoCliente(c)} className="flex-1 text-[10px] rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 py-1 border border-emerald-500/30">+ Op</button>
+                    <button onClick={() => onEditarPlano(c)} className={`flex-1 text-[10px] rounded py-1 border ${semPlano ? "bg-red-500/20 text-red-300 hover:bg-red-500/30 border-red-500/30" : "bg-white/5 text-brand-muted hover:bg-white/10 border-white/10"}`}>📝 {semPlano ? "Sem plano" : "Plano"}</button>
                   </div>
                 )}
               </div>
             );
           })}
-          {clientesAMonetizar.length === 0 && (
-            <p className="text-center text-[10px] text-brand-muted italic py-4">
-              🎉 Todos os clientes sem MRR já têm oportunidade
-            </p>
-          )}
+          {clientesAMonetizar.length === 0 && <p className="text-center text-[10px] text-brand-muted italic py-4">🎉 Todos os clientes sem MRR já têm oportunidade</p>}
         </div>
       </div>
 
@@ -565,21 +464,14 @@ function Kanban({ ops, clientesAMonetizar, arrastando, setArrastando, moverEstag
         const totalMrr = opsEst.reduce((s, o) => s + o.valor_mrr_estimado, 0);
         const totalOt = opsEst.reduce((s, o) => s + o.valor_onetime_estimado, 0);
         return (
-          <div
-            key={est.key}
+          <div key={est.key}
             onDragOver={(e) => { if (arrastando || arrastandoCliente) e.preventDefault(); }}
             onDrop={async (e) => {
               e.preventDefault();
-              if (arrastando) {
-                await moverEstagio(arrastando, est.key);
-              } else if (arrastandoCliente) {
-                // Cliente arrastado pra uma coluna → abre modal com estágio pré-selecionado
-                onNovaOpDoClienteComEstagio(arrastandoCliente, est.key);
-                setArrastandoCliente(null);
-              }
+              if (arrastando) await moverEstagio(arrastando, est.key);
+              else if (arrastandoCliente) { onNovaOpDoClienteComEstagio(arrastandoCliente, est.key); setArrastandoCliente(null); }
             }}
-            className={`rounded-xl border-2 p-3 min-h-[300px] ${est.corBg}`}
-          >
+            className={`rounded-xl border-2 p-3 min-h-[300px] ${est.corBg}`}>
             <div className="mb-3">
               <p className={`text-sm font-bold ${est.cor}`}>{est.label} · {opsEst.length}</p>
               <p className="text-[10px] text-brand-muted">
@@ -590,19 +482,13 @@ function Kanban({ ops, clientesAMonetizar, arrastando, setArrastando, moverEstag
             </div>
             <div className="space-y-2">
               {opsEst.map((op) => (
-                <CardOp
-                  key={op.id}
-                  op={op}
-                  podeEditar={podeEditar}
+                <CardOp key={op.id} op={op} podeEditar={podeEditar}
                   onEditar={() => onEditar(op)}
                   onRemover={() => onRemover(op)}
                   setArrastando={setArrastando}
-                  arrastando={arrastando === op.id}
-                />
+                  arrastando={arrastando === op.id} />
               ))}
-              {opsEst.length === 0 && (
-                <p className="text-center text-[10px] text-brand-muted italic py-4">Vazio</p>
-              )}
+              {opsEst.length === 0 && <p className="text-center text-[10px] text-brand-muted italic py-4">Vazio</p>}
             </div>
           </div>
         );
@@ -612,81 +498,45 @@ function Kanban({ ops, clientesAMonetizar, arrastando, setArrastando, moverEstag
 }
 
 function CardOp({ op, podeEditar, onEditar, onRemover, setArrastando, arrastando }: {
-  op: Oportunidade;
-  podeEditar: boolean;
-  onEditar: () => void;
-  onRemover: () => void;
-  setArrastando: (id: string | null) => void;
-  arrastando: boolean;
+  op: Oportunidade; podeEditar: boolean; onEditar: () => void; onRemover: () => void;
+  setArrastando: (id: string | null) => void; arrastando: boolean;
 }) {
   const alertaParado = op.dias_parado > 14 && op.estagio !== "ganho" && op.estagio !== "perdido";
   return (
-    <div
-      draggable={podeEditar}
-      onDragStart={() => setArrastando(op.id)}
-      onDragEnd={() => setArrastando(null)}
-      className={`group rounded-lg border bg-brand-panel/60 p-2 transition ${
-        podeEditar ? "cursor-grab active:cursor-grabbing hover:border-brand" : ""
-      } ${arrastando ? "opacity-40" : ""} ${alertaParado ? "border-red-500/40" : "border-white/10"}`}
-      onClick={podeEditar ? onEditar : undefined}
-    >
+    <div draggable={podeEditar} onDragStart={() => setArrastando(op.id)} onDragEnd={() => setArrastando(null)}
+      className={`group rounded-lg border bg-brand-panel/60 p-2 transition ${podeEditar ? "cursor-grab active:cursor-grabbing hover:border-brand" : ""} ${arrastando ? "opacity-40" : ""} ${alertaParado ? "border-red-500/40" : "border-white/10"}`}
+      onClick={podeEditar ? onEditar : undefined}>
       <div className="flex items-start justify-between gap-1">
         <p className="text-xs font-semibold text-white leading-tight">{op.titulo}</p>
         {podeEditar && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onRemover(); }}
-            className="opacity-0 group-hover:opacity-100 text-[10px] text-red-300 hover:text-red-400"
-          >✕</button>
+          <button onClick={(e) => { e.stopPropagation(); onRemover(); }}
+            className="opacity-0 group-hover:opacity-100 text-[10px] text-red-300 hover:text-red-400">✕</button>
         )}
       </div>
       <p className="text-[10px] text-brand-muted mt-1">{op.cliente_nome}</p>
       <div className="mt-2 flex flex-wrap gap-1">
-        {op.valor_mrr_estimado > 0 && (
-          <span className="rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-300">
-            {formatBRL(op.valor_mrr_estimado)}/mês
-          </span>
-        )}
-        {op.valor_onetime_estimado > 0 && (
-          <span className="rounded border border-purple-500/40 bg-purple-500/10 px-1.5 py-0.5 text-[9px] font-bold text-purple-300">
-            {formatBRL(op.valor_onetime_estimado)} 1x
-          </span>
-        )}
-        <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-brand-muted">
-          {op.probabilidade}%
-        </span>
+        {op.valor_mrr_estimado > 0 && <span className="rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-300">{formatBRL(op.valor_mrr_estimado)}/mês</span>}
+        {op.valor_onetime_estimado > 0 && <span className="rounded border border-purple-500/40 bg-purple-500/10 px-1.5 py-0.5 text-[9px] font-bold text-purple-300">{formatBRL(op.valor_onetime_estimado)} 1x</span>}
+        <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-brand-muted">{op.probabilidade}%</span>
       </div>
       <div className="mt-2 flex items-center justify-between text-[9px] text-brand-muted">
         <span>{op.responsavel_nome ?? op.gp_nome ?? "—"}</span>
-        <span className={alertaParado ? "text-red-300 font-bold" : ""}>
-          {alertaParado ? `⚠ ${op.dias_parado}d parado` : `${op.dias_parado}d`}
-        </span>
+        <span className={alertaParado ? "text-red-300 font-bold" : ""}>{alertaParado ? `⚠ ${op.dias_parado}d parado` : `${op.dias_parado}d`}</span>
       </div>
     </div>
   );
 }
 
-// ============================================================
-// POR CLIENTE
-// ============================================================
 function PorCliente({ clientes, ops, podeEditar, onNovaOp, onEditar, onRemover, onEditarPlano }: {
-  clientes: ClienteView[];
-  ops: Oportunidade[];
-  podeEditar: boolean;
-  onNovaOp: (c: ClienteView) => void;
-  onEditar: (op: Oportunidade) => void;
-  onRemover: (op: Oportunidade) => void;
+  clientes: ClienteView[]; ops: Oportunidade[]; podeEditar: boolean;
+  onNovaOp: (c: ClienteView) => void; onEditar: (op: Oportunidade) => void; onRemover: (op: Oportunidade) => void;
   onEditarPlano: (c: ClienteView) => void;
 }) {
   const opsPorCliente = useMemo(() => {
     const map = new Map<string, Oportunidade[]>();
-    ops.forEach((o) => {
-      const arr = map.get(o.cliente_id) ?? [];
-      arr.push(o);
-      map.set(o.cliente_id, arr);
-    });
+    ops.forEach((o) => { const arr = map.get(o.cliente_id) ?? []; arr.push(o); map.set(o.cliente_id, arr); });
     return map;
   }, [ops]);
-
   const clientesOrdenados = useMemo(() => {
     return [...clientes].sort((a, b) => {
       const ta = (opsPorCliente.get(a.id) ?? []).filter((o) => o.estagio !== "ganho" && o.estagio !== "perdido").length;
@@ -696,14 +546,13 @@ function PorCliente({ clientes, ops, podeEditar, onNovaOp, onEditar, onRemover, 
       return a.nome.localeCompare(b.nome);
     });
   }, [clientes, opsPorCliente]);
-
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
       {clientesOrdenados.map((c) => {
         const opsCli = opsPorCliente.get(c.id) ?? [];
         const abertas = opsCli.filter((o) => o.estagio !== "ganho" && o.estagio !== "perdido");
         const semOp = abertas.length === 0;
-        const ehEE = !c.mrr || Number(c.mrr) === 0;   // sem MRR ativo
+        const ehEE = !c.mrr || Number(c.mrr) === 0;
         return (
           <div key={c.id} className={`card ${semOp && ehEE ? "border-red-500/30" : ""}`}>
             <div className="mb-2 flex items-start justify-between">
@@ -713,16 +562,12 @@ function PorCliente({ clientes, ops, podeEditar, onNovaOp, onEditar, onRemover, 
                   {c.squad_nome ?? "sem squad"} · GP: {c.account_nome ?? "—"} · MRR {formatBRL(c.mrr ?? 0)}
                 </p>
               </div>
-              {podeEditar && (
-                <button onClick={() => onNovaOp(c)} className="btn text-[10px] py-1 px-2">+ Op</button>
-              )}
+              {podeEditar && <button onClick={() => onNovaOp(c)} className="btn text-[10px] py-1 px-2">+ Op</button>}
             </div>
             {semOp && ehEE && (
               <div className="mb-2 rounded bg-red-500/10 border border-red-500/30 p-2">
                 <p className="text-[11px] text-red-300">🚨 Estruturação Estratégica sem oportunidade</p>
-                {c.plano_acao_monetizacao && (
-                  <p className="mt-1 text-[10px] text-amber-200 italic">📝 {c.plano_acao_monetizacao}</p>
-                )}
+                {c.plano_acao_monetizacao && <p className="mt-1 text-[10px] text-amber-200 italic">📝 {c.plano_acao_monetizacao}</p>}
                 {podeEditar && (
                   <button onClick={() => onEditarPlano(c)} className="mt-1 text-[10px] text-brand hover:text-red-400">
                     {c.plano_acao_monetizacao ? "Editar plano" : "+ Registrar plano de ação"}
@@ -741,19 +586,13 @@ function PorCliente({ clientes, ops, podeEditar, onNovaOp, onEditar, onRemover, 
                       <span className={`text-[9px] font-bold ${est.cor}`}>{est.label}</span>
                     </div>
                     <div className="mt-1 flex flex-wrap gap-1">
-                      {o.valor_mrr_estimado > 0 && (
-                        <span className="text-[9px] text-sky-300">{formatBRL(o.valor_mrr_estimado)}/mês</span>
-                      )}
-                      {o.valor_onetime_estimado > 0 && (
-                        <span className="text-[9px] text-purple-300">· {formatBRL(o.valor_onetime_estimado)} 1x</span>
-                      )}
+                      {o.valor_mrr_estimado > 0 && <span className="text-[9px] text-sky-300">{formatBRL(o.valor_mrr_estimado)}/mês</span>}
+                      {o.valor_onetime_estimado > 0 && <span className="text-[9px] text-purple-300">· {formatBRL(o.valor_onetime_estimado)} 1x</span>}
                     </div>
                   </button>
                 );
               })}
-              {opsCli.length === 0 && !semOp && (
-                <p className="text-center text-[10px] text-brand-muted italic py-2">Sem oportunidades</p>
-              )}
+              {opsCli.length === 0 && !semOp && <p className="text-center text-[10px] text-brand-muted italic py-2">Sem oportunidades</p>}
             </div>
           </div>
         );
@@ -763,28 +602,26 @@ function PorCliente({ clientes, ops, podeEditar, onNovaOp, onEditar, onRemover, 
 }
 
 // ============================================================
-// MODAL CRIAR / EDITAR
+// MODAL — agora com botão DUPLICAR
 // ============================================================
-function ModalOp({ op, clienteInicial, clientes, pessoas, emailUsuario, onFechar, onSalvo }: {
+function ModalOp({ op, clienteInicial, clientes, pessoas, emailUsuario, onDuplicar, onFechar, onSalvo }: {
   op: Oportunidade | null;
-  clienteInicial: { cliente_id: string; cliente_nome: string; estagio?: Estagio } | null;
-  clientes: ClienteView[];
-  pessoas: Pessoa[];
-  emailUsuario: string | null;
-  onFechar: () => void;
-  onSalvo: () => void;
+  clienteInicial: PreencherNovaOp | null;
+  clientes: ClienteView[]; pessoas: Pessoa[]; emailUsuario: string | null;
+  onDuplicar: (op: Oportunidade) => void;
+  onFechar: () => void; onSalvo: () => void;
 }) {
   const supabase = createClient();
   const [form, setForm] = useState({
     cliente_id: op?.cliente_id ?? clienteInicial?.cliente_id ?? "",
-    titulo: op?.titulo ?? "",
-    descricao: op?.descricao ?? "",
-    valor_mrr: op ? String(op.valor_mrr_estimado ?? "") : "",
-    valor_ot: op ? String(op.valor_onetime_estimado ?? "") : "",
-    probabilidade: op?.probabilidade ?? 30,
-    responsavel_id: op?.responsavel_id ?? "",
-    data_prevista: op?.data_prevista_fechamento ?? "",
-    observacoes: op?.observacoes ?? "",
+    titulo: op?.titulo ?? clienteInicial?.titulo ?? "",
+    descricao: op?.descricao ?? clienteInicial?.descricao ?? "",
+    valor_mrr: op ? String(op.valor_mrr_estimado ?? "") : (clienteInicial?.valor_mrr != null ? String(clienteInicial.valor_mrr) : ""),
+    valor_ot: op ? String(op.valor_onetime_estimado ?? "") : (clienteInicial?.valor_ot != null ? String(clienteInicial.valor_ot) : ""),
+    probabilidade: op?.probabilidade ?? clienteInicial?.probabilidade ?? 30,
+    responsavel_id: op?.responsavel_id ?? clienteInicial?.responsavel_id ?? "",
+    data_prevista: op?.data_prevista_fechamento ?? clienteInicial?.data_prevista ?? "",
+    observacoes: op?.observacoes ?? clienteInicial?.observacoes ?? "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -796,8 +633,8 @@ function ModalOp({ op, clienteInicial, clientes, pessoas, emailUsuario, onFechar
       cliente_id: form.cliente_id,
       titulo: form.titulo.trim(),
       descricao: form.descricao || null,
-      valor_mrr_estimado: form.valor_mrr ? Number(form.valor_mrr.replace(",", ".")) : 0,
-      valor_onetime_estimado: form.valor_ot ? Number(form.valor_ot.replace(",", ".")) : 0,
+      valor_mrr_estimado: form.valor_mrr ? Number(String(form.valor_mrr).replace(",", ".")) : 0,
+      valor_onetime_estimado: form.valor_ot ? Number(String(form.valor_ot).replace(",", ".")) : 0,
       probabilidade: Number(form.probabilidade),
       responsavel_id: form.responsavel_id || null,
       data_prevista_fechamento: form.data_prevista || null,
@@ -806,17 +643,10 @@ function ModalOp({ op, clienteInicial, clientes, pessoas, emailUsuario, onFechar
     if (op) {
       await supabase.from("ruston_monetizacao_oportunidades").update(payload).eq("id", op.id);
     } else {
-      // Se veio de drag & drop do cliente, usa o estágio da coluna alvo
       payload.estagio = clienteInicial?.estagio ?? "ideia";
       payload.criado_por_email = emailUsuario;
-      // Se o estágio for ganho/perdido, seta as datas apropriadas
-      if (payload.estagio === "ganho") {
-        payload.data_ganho = new Date().toISOString().slice(0, 10);
-        payload.probabilidade = 100;
-      } else if (payload.estagio === "perdido") {
-        payload.data_perda = new Date().toISOString().slice(0, 10);
-        payload.probabilidade = 0;
-      }
+      if (payload.estagio === "ganho") { payload.data_ganho = new Date().toISOString().slice(0, 10); payload.probabilidade = 100; }
+      else if (payload.estagio === "perdido") { payload.data_perda = new Date().toISOString().slice(0, 10); payload.probabilidade = 0; }
       await supabase.from("ruston_monetizacao_oportunidades").insert(payload);
     }
     setSaving(false);
@@ -826,7 +656,7 @@ function ModalOp({ op, clienteInicial, clientes, pessoas, emailUsuario, onFechar
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onFechar}>
       <div className="w-full max-w-lg rounded-lg border border-white/10 bg-brand-panel p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-4 flex items-start justify-between">
+        <div className="mb-4 flex items-start justify-between gap-2">
           <div>
             <h3 className="text-lg font-semibold">{op ? "Editar oportunidade" : "Nova oportunidade"}</h3>
             {clienteInicial?.estagio && (
@@ -834,8 +664,22 @@ function ModalOp({ op, clienteInicial, clientes, pessoas, emailUsuario, onFechar
                 Vai ser criada em: {ESTAGIOS.find((e) => e.key === clienteInicial.estagio)?.label}
               </p>
             )}
+            {!op && clienteInicial?.titulo?.endsWith("(cópia)") && (
+              <p className="text-[11px] text-emerald-300">📋 Duplicando — ajusta os campos e salva</p>
+            )}
           </div>
-          <button onClick={onFechar} className="text-brand-muted hover:text-white text-xl">✕</button>
+          <div className="flex items-center gap-2">
+            {op && (
+              <button
+                onClick={() => onDuplicar(op)}
+                className="btn-ghost text-xs"
+                title="Cria uma nova oportunidade com os mesmos dados"
+              >
+                📋 Duplicar
+              </button>
+            )}
+            <button onClick={onFechar} className="text-brand-muted hover:text-white text-xl">✕</button>
+          </div>
         </div>
 
         <div className="mb-3">
@@ -845,34 +689,24 @@ function ModalOp({ op, clienteInicial, clientes, pessoas, emailUsuario, onFechar
             {clientes.map((c) => (<option key={c.id} value={c.id}>{c.nome}</option>))}
           </select>
         </div>
-
         <div className="mb-3">
           <label className="label">Título * <span className="text-[10px] text-brand-muted">(o que você quer vender)</span></label>
-          <input className="input" value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })}
-            placeholder="Ex: LP Institucional + Meta Ads adicional" />
+          <input className="input" value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} placeholder="Ex: LP Institucional + Meta Ads adicional" />
         </div>
-
         <div className="mb-3">
           <label className="label">Descrição (opcional)</label>
-          <textarea className="input min-h-[60px]" value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })}
-            placeholder="Detalhes, contexto, escopo…" />
+          <textarea className="input min-h-[60px]" value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} placeholder="Detalhes, contexto, escopo…" />
         </div>
-
         <div className="mb-3 grid grid-cols-2 gap-3">
           <div>
             <label className="label">R$ MRR (mensal)</label>
-            <input className="input" type="text" inputMode="decimal" value={form.valor_mrr}
-              onChange={(e) => setForm({ ...form, valor_mrr: e.target.value })}
-              placeholder="ex: 3000,00" />
+            <input className="input" type="text" inputMode="decimal" value={form.valor_mrr} onChange={(e) => setForm({ ...form, valor_mrr: e.target.value })} placeholder="ex: 3000,00" />
           </div>
           <div>
             <label className="label">R$ Pontual (one-time)</label>
-            <input className="input" type="text" inputMode="decimal" value={form.valor_ot}
-              onChange={(e) => setForm({ ...form, valor_ot: e.target.value })}
-              placeholder="ex: 15000,00" />
+            <input className="input" type="text" inputMode="decimal" value={form.valor_ot} onChange={(e) => setForm({ ...form, valor_ot: e.target.value })} placeholder="ex: 15000,00" />
           </div>
         </div>
-
         <div className="mb-3 grid grid-cols-2 gap-3">
           <div>
             <label className="label">Probabilidade (%)</label>
@@ -888,7 +722,6 @@ function ModalOp({ op, clienteInicial, clientes, pessoas, emailUsuario, onFechar
             <input className="input" type="date" value={form.data_prevista} onChange={(e) => setForm({ ...form, data_prevista: e.target.value })} />
           </div>
         </div>
-
         <div className="mb-3">
           <label className="label">Responsável</label>
           <select className="input" value={form.responsavel_id} onChange={(e) => setForm({ ...form, responsavel_id: e.target.value })}>
@@ -896,12 +729,10 @@ function ModalOp({ op, clienteInicial, clientes, pessoas, emailUsuario, onFechar
             {pessoas.map((p) => (<option key={p.id} value={p.id}>{p.nome}</option>))}
           </select>
         </div>
-
         <div className="mb-4">
           <label className="label">Observações</label>
           <textarea className="input min-h-[50px]" value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} />
         </div>
-
         <div className="flex justify-end gap-2">
           <button className="btn-ghost" onClick={onFechar}>Cancelar</button>
           <button className="btn" onClick={salvar} disabled={saving}>{saving ? "..." : "Salvar"}</button>
@@ -911,23 +742,15 @@ function ModalOp({ op, clienteInicial, clientes, pessoas, emailUsuario, onFechar
   );
 }
 
-// ============================================================
-// MODAL METAS MENSAIS
-// ============================================================
 function ModalMetas({ squads, metas, anoFiltro, mesFiltro, onFechar, onSalvo }: {
-  squads: Squad[];
-  metas: MetaSquad[];
-  anoFiltro: number;
-  mesFiltro: number;
-  onFechar: () => void;
-  onSalvo: () => void;
+  squads: Squad[]; metas: MetaSquad[]; anoFiltro: number; mesFiltro: number;
+  onFechar: () => void; onSalvo: () => void;
 }) {
   const supabase = createClient();
   const [ano, setAno] = useState(anoFiltro);
   const [mes, setMes] = useState(mesFiltro);
   const [valores, setValores] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-
   useEffect(() => {
     const map: Record<string, string> = {};
     squads.forEach((s) => {
@@ -936,25 +759,18 @@ function ModalMetas({ squads, metas, anoFiltro, mesFiltro, onFechar, onSalvo }: 
     });
     setValores(map);
   }, [ano, mes, squads, metas]);
-
   async function salvar() {
     setSaving(true);
     for (const s of squads) {
       const v = valores[s.id];
       const valor = v ? Number(v.replace(",", ".")) : 0;
       const existente = metas.find((m) => m.squad_id === s.id && m.ano === ano && m.mes === mes);
-      if (existente) {
-        await supabase.from("ruston_monetizacao_metas").update({ valor_meta: valor }).eq("id", existente.id);
-      } else if (valor > 0) {
-        await supabase.from("ruston_monetizacao_metas").insert({
-          squad_id: s.id, ano, mes, valor_meta: valor,
-        });
-      }
+      if (existente) await supabase.from("ruston_monetizacao_metas").update({ valor_meta: valor }).eq("id", existente.id);
+      else if (valor > 0) await supabase.from("ruston_monetizacao_metas").insert({ squad_id: s.id, ano, mes, valor_meta: valor });
     }
     setSaving(false);
     onSalvo();
   }
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onFechar}>
       <div className="w-full max-w-md rounded-lg border border-white/10 bg-brand-panel p-5" onClick={(e) => e.stopPropagation()}>
@@ -962,7 +778,6 @@ function ModalMetas({ squads, metas, anoFiltro, mesFiltro, onFechar, onSalvo }: 
           <h3 className="text-lg font-semibold">🎯 Metas mensais de monetização</h3>
           <button onClick={onFechar} className="text-brand-muted hover:text-white text-xl">✕</button>
         </div>
-
         <div className="mb-3 flex gap-2">
           <select className="input flex-1" value={mes} onChange={(e) => setMes(Number(e.target.value))}>
             {MESES_LABEL.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
@@ -971,28 +786,17 @@ function ModalMetas({ squads, metas, anoFiltro, mesFiltro, onFechar, onSalvo }: 
             {[2025, 2026, 2027].map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
-
         <div className="mb-4 space-y-2">
           {squads.map((s) => (
             <div key={s.id} className="flex items-center gap-2">
               <span className="w-24 text-sm">{s.nome}</span>
               <span className="text-brand-muted">R$</span>
-              <input
-                className="input flex-1"
-                type="text"
-                inputMode="decimal"
-                value={valores[s.id] ?? ""}
-                onChange={(e) => setValores({ ...valores, [s.id]: e.target.value })}
-                placeholder="0,00"
-              />
+              <input className="input flex-1" type="text" inputMode="decimal" value={valores[s.id] ?? ""}
+                onChange={(e) => setValores({ ...valores, [s.id]: e.target.value })} placeholder="0,00" />
             </div>
           ))}
         </div>
-
-        <p className="mb-3 text-[10px] text-brand-muted">
-          Meta total = MRR ganho + One-time ganho no mês. Deixa zero pra squads sem meta.
-        </p>
-
+        <p className="mb-3 text-[10px] text-brand-muted">Meta total = MRR ganho + One-time ganho no mês. Deixa zero pra squads sem meta.</p>
         <div className="flex justify-end gap-2">
           <button className="btn-ghost" onClick={onFechar}>Cancelar</button>
           <button className="btn" onClick={salvar} disabled={saving}>{saving ? "..." : "Salvar metas"}</button>
@@ -1002,18 +806,12 @@ function ModalMetas({ squads, metas, anoFiltro, mesFiltro, onFechar, onSalvo }: 
   );
 }
 
-// ============================================================
-// MODAL PLANO DE AÇÃO (cliente EE sem monetização)
-// ============================================================
 function ModalPlano({ cliente, onFechar, onSalvo }: {
-  cliente: ClienteView;
-  onFechar: () => void;
-  onSalvo: () => void;
+  cliente: ClienteView; onFechar: () => void; onSalvo: () => void;
 }) {
   const supabase = createClient();
   const [plano, setPlano] = useState((cliente as any).plano_acao_monetizacao ?? "");
   const [saving, setSaving] = useState(false);
-
   async function salvar() {
     setSaving(true);
     await supabase.from("ruston_clientes").update({
@@ -1023,33 +821,23 @@ function ModalPlano({ cliente, onFechar, onSalvo }: {
     setSaving(false);
     onSalvo();
   }
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onFechar}>
       <div className="w-full max-w-lg rounded-lg border border-white/10 bg-brand-panel p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-start justify-between">
           <div>
             <h3 className="text-lg font-semibold">📝 Plano de ação — {cliente.nome}</h3>
-            <p className="text-xs text-brand-muted">
-              Se não conseguimos monetizar esse cliente, qual é o plano pra reverter?
-            </p>
+            <p className="text-xs text-brand-muted">Se não conseguimos monetizar esse cliente, qual é o plano pra reverter?</p>
           </div>
           <button onClick={onFechar} className="text-brand-muted hover:text-white text-xl">✕</button>
         </div>
-
-        <textarea
-          className="input min-h-[140px]"
-          value={plano}
-          onChange={(e) => setPlano(e.target.value)}
-          placeholder="Ex: Cliente muito operacional, sem espaço orçamentário. Agendar reunião com o CEO em Nov pra apresentar cases similares e propor upgrade de plano."
-        />
-
+        <textarea className="input min-h-[140px]" value={plano} onChange={(e) => setPlano(e.target.value)}
+          placeholder="Ex: Cliente muito operacional, sem espaço orçamentário. Agendar reunião com o CEO em Nov pra apresentar cases similares e propor upgrade de plano." />
         {(cliente as any).plano_acao_atualizado_em && (
           <p className="mt-2 text-[10px] text-brand-muted">
             Última atualização: {new Date((cliente as any).plano_acao_atualizado_em).toLocaleDateString("pt-BR")}
           </p>
         )}
-
         <div className="mt-4 flex justify-end gap-2">
           <button className="btn-ghost" onClick={onFechar}>Cancelar</button>
           <button className="btn" onClick={salvar} disabled={saving}>{saving ? "..." : "Salvar plano"}</button>
