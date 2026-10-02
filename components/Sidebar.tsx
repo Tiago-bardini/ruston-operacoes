@@ -23,6 +23,7 @@ const NAV_ACTIVE: NavItem[] = [
   { href: "/organograma", label: "Organograma", icon: "👥" },
   { href: "/metas", label: "Metas", icon: "◈" },
   { href: "/fca", label: "FCA", icon: "▤" },
+  { href: "/ekyte", label: "Ekyte", icon: "📊" },
   { href: "/headcount", label: "Headcount", icon: "☰", soGerenteCoord: true },
   { href: "/forecast", label: "Forecast", icon: "↗", soGerenteCoord: true },
   { href: "/reunioes", label: "Reuniões", icon: "☎" },
@@ -40,11 +41,6 @@ const NAV_SOON: NavSoonItem[] = [
       "Sinais de upsell",
       "Integração Google Meet",
     ],
-  },
-  {
-    label: "Análise Ekyte",
-    icon: "✓",
-    subitems: ["Cruzamento com Ekyte", "Timesheet"],
   },
   {
     label: "Radar WhatsApp",
