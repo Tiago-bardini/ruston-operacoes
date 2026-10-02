@@ -35,6 +35,7 @@ type Task = {
   pessoa_nome: string | null;
   pessoa_id: string | null;
   cliente_id: string | null;
+  pessoa_ativa: boolean | null;
 };
 
 type Pessoa = { id: string; nome: string; cargo: string | null; squad_id: string | null; ativo: boolean };
@@ -95,7 +96,12 @@ export default function EkytePage() {
   async function carregar() {
     const [{ data: ls }, { data: ts }, { data: ps }, { data: sq }, { data: sm }] = await Promise.all([
       supabase.from("ruston_ekyte_sync_log").select("*").order("started_at", { ascending: false }).limit(10),
-      supabase.from("ruston_ekyte_tasks_view").select("*").limit(50000),
+      // View LEVE (sem payload_raw) e FILTRA só pessoas ativas no Ruston
+      // (ignora tasks de quem já saiu da empresa)
+      supabase.from("ruston_ekyte_tasks_dashboard")
+        .select("*")
+        .eq("pessoa_ativa", true)
+        .limit(50000),
       supabase.from("ruston_pessoas").select("id,nome,cargo,squad_id,ativo").eq("ativo", true).order("nome"),
       supabase.from("ruston_squads").select("id,nome").eq("ativo", true).order("nome"),
       supabase.rpc("fn_ekyte_pessoas_sem_match"),
