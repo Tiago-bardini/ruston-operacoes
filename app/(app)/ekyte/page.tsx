@@ -40,22 +40,26 @@ type Task = {
 type Pessoa = { id: string; nome: string; cargo: string | null; squad_id: string | null; ativo: boolean };
 type Squad = { id: string; nome: string };
 
-type Periodo = "semana" | "mes" | "7d" | "30d" | "mes_passado";
+type Periodo = "aberto" | "semana" | "mes" | "7d" | "30d" | "90d" | "mes_passado";
 
 const PERIODO_LABEL: Record<Periodo, string> = {
+  aberto: "Tudo em aberto (recomendado)",
   semana: "Semana atual",
   mes: "Mês atual",
   "7d": "Últimos 7 dias",
   "30d": "Últimos 30 dias",
+  "90d": "Últimos 90 dias",
   mes_passado: "Mês passado",
 };
 
 function limitesPeriodo(p: Periodo): { ini: Date; fim: Date } {
   const now = new Date();
-  const fim = new Date(now);
+  const fim = new Date(now); fim.setHours(23, 59, 59, 999);
   const ini = new Date(now);
-  if (p === "semana") {
-    const dia = now.getDay(); // 0 = dom, 1 = seg
+  if (p === "aberto") {
+    ini.setFullYear(2000); // efetivamente "sem limite"
+  } else if (p === "semana") {
+    const dia = now.getDay();
     const diffPraSegunda = (dia + 6) % 7;
     ini.setDate(now.getDate() - diffPraSegunda);
     ini.setHours(0, 0, 0, 0);
@@ -65,9 +69,11 @@ function limitesPeriodo(p: Periodo): { ini: Date; fim: Date } {
     ini.setDate(now.getDate() - 7); ini.setHours(0, 0, 0, 0);
   } else if (p === "30d") {
     ini.setDate(now.getDate() - 30); ini.setHours(0, 0, 0, 0);
+  } else if (p === "90d") {
+    ini.setDate(now.getDate() - 90); ini.setHours(0, 0, 0, 0);
   } else if (p === "mes_passado") {
     ini.setMonth(now.getMonth() - 1); ini.setDate(1); ini.setHours(0, 0, 0, 0);
-    fim.setDate(0); fim.setHours(23, 59, 59, 999); // último dia do mês passado
+    fim.setDate(0); fim.setHours(23, 59, 59, 999);
   }
   return { ini, fim };
 }
@@ -82,7 +88,7 @@ export default function EkytePage() {
   const [mensagem, setMensagem] = useState<string | null>(null);
   const [tab, setTab] = useState<"resumo" | "ranking" | "squad" | "pessoa" | "vinculos">("resumo");
   const [semMatch, setSemMatch] = useState<{executor_id: string|null; executor: string; executor_email: string|null; qtd_tasks: number}[]>([]);
-  const [periodo, setPeriodo] = useState<Periodo>("mes");
+  const [periodo, setPeriodo] = useState<Periodo>("aberto");
   const [filtroSquad, setFiltroSquad] = useState<string>("");
   const [pessoaSel, setPessoaSel] = useState<string>("");
 
@@ -142,13 +148,25 @@ export default function EkytePage() {
 
   const { ini, fim } = useMemo(() => limitesPeriodo(periodo), [periodo]);
 
-  // Tasks filtradas por período (criadas OU com atividade no período)
+  // Tasks "do período" = qualquer uma com atividade no período:
+  //  - criada no período
+  //  - OU com prazo (current_due_date) no período
+  //  - OU concluída (resolved_date) no período
+  //  - OU em aberto hoje (resolved_date null) para o período "aberto"
   const tasksPeriodo = useMemo(() => {
+    if (periodo === "aberto") {
+      // Tudo que não foi concluído OU foi concluído recentemente (30d)
+      const limite30 = new Date(Date.now() - 30 * 86400000);
+      return tasks.filter((t) => !t.resolved_date || new Date(t.resolved_date) >= limite30);
+    }
     return tasks.filter((t) => {
-      const ref = new Date(t.creation_date ?? t.current_due_date ?? "1970-01-01");
-      return ref >= ini && ref <= fim;
+      const dCria = t.creation_date ? new Date(t.creation_date) : null;
+      const dPrazo = t.current_due_date ? new Date(t.current_due_date) : null;
+      const dConcl = t.resolved_date ? new Date(t.resolved_date) : null;
+      const dentro = (d: Date | null) => d && d >= ini && d <= fim;
+      return dentro(dCria) || dentro(dPrazo) || dentro(dConcl);
     });
-  }, [tasks, ini, fim]);
+  }, [tasks, ini, fim, periodo]);
 
   // Mapa pessoa → squad
   const pessoaSquadMap = useMemo(() => {
