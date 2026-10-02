@@ -95,8 +95,9 @@ export async function POST(req: Request) {
   // Lê body opcional: { createdFrom?: "YYYY-MM-DD", disparado_por_email?: string }
   let body: any = {};
   try { body = await req.json(); } catch {}
-  // Padrão: começa de 90 dias atrás pra pegar as tasks ativas
-  const createdFrom: string = body.createdFrom ?? new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+  // Padrão: desde 2023-01-01 pra garantir que pega TODAS as tasks ainda abertas,
+  // inclusive as criadas há muito tempo que o investidor nunca concluiu.
+  const createdFrom: string = body.createdFrom ?? "2023-01-01";
   const disparadoPorEmail: string | null = body.disparado_por_email ?? null;
 
   // Abre log
