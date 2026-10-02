@@ -97,6 +97,16 @@ export default function OrganogramaPage() {
     return map;
   }, [clientesAuto]);
 
+  // Qtd de clientes ativos por pessoa (independente de MRR)
+  const qtdClientesPorPessoa = useMemo(() => {
+    const map = new Map<string, number>();
+    clientesAuto.forEach((c) => {
+      if (!c.account_id) return;
+      map.set(c.account_id, (map.get(c.account_id) ?? 0) + 1);
+    });
+    return map;
+  }, [clientesAuto]);
+
   async function moverPessoa(
     pessoaId: string,
     destino: { area_id: string; subsecao_id: string | null; linha: number; colunaAlvo: number }
@@ -237,6 +247,7 @@ export default function OrganogramaPage() {
     moverPessoaNovaLinha,
     subsecoes,
     mrrPorPessoa,
+    qtdClientesPorPessoa,
   };
 
   return (
@@ -415,6 +426,7 @@ type CommonProps = {
   moverPessoaNovaLinha: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; insertLinha: number }) => Promise<void>;
   subsecoes: Subsecao[];
   mrrPorPessoa: Map<string, number>;
+  qtdClientesPorPessoa: Map<string, number>;
 };
 
 function AreaCard({ area, pessoas, carteiras, clientesAuto, fcaStatus, mostrarCarteira, onChangedCarteira, ...common }: {
@@ -484,6 +496,7 @@ function LinhasContainer({ pessoas, areaId, subsecaoId, podeEditar, onEditar, ar
   moverPessoa: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; linha: number; colunaAlvo: number }) => Promise<void>;
   moverPessoaNovaLinha: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; insertLinha: number }) => Promise<void>;
   mrrPorPessoa: Map<string, number>;
+  qtdClientesPorPessoa: Map<string, number>;
 }) {
   const linhas: Record<number, OrgPessoa[]> = {};
   pessoas.forEach((p) => { if (!linhas[p.linha]) linhas[p.linha] = []; linhas[p.linha].push(p); });
@@ -511,11 +524,12 @@ function LinhasContainer({ pessoas, areaId, subsecaoId, podeEditar, onEditar, ar
   );
 }
 
-function Row({ pessoas, linha, areaId, subsecaoId, podeEditar, onEditar, arrastando, setArrastando, moverPessoa, mrrPorPessoa }: {
+function Row({ pessoas, linha, areaId, subsecaoId, podeEditar, onEditar, arrastando, setArrastando, moverPessoa, mrrPorPessoa, qtdClientesPorPessoa }: {
   pessoas: OrgPessoa[]; linha: number; areaId: string; subsecaoId: string | null; podeEditar: boolean; onEditar: (p: OrgPessoa) => void;
   arrastando: string | null; setArrastando: (id: string | null) => void;
   moverPessoa: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; linha: number; colunaAlvo: number }) => Promise<void>;
   mrrPorPessoa: Map<string, number>;
+  qtdClientesPorPessoa: Map<string, number>;
 }) {
   const [hover, setHover] = useState(false);
   const podeReceber = !!arrastando;
@@ -539,7 +553,7 @@ function Row({ pessoas, linha, areaId, subsecaoId, podeEditar, onEditar, arrasta
       className={`flex flex-wrap justify-center gap-6 rounded-xl px-3 py-4 transition ${podeReceber ? (hover ? "bg-emerald-500/15 outline outline-2 outline-emerald-400" : "outline outline-1 outline-white/5") : ""}`}
     >
       {pessoas.map((p) => (
-        <PessoaAvatar key={p.id} pessoa={p} podeEditar={podeEditar} onClick={() => onEditar(p)} arrastando={arrastando} setArrastando={setArrastando} mrrPorPessoa={mrrPorPessoa} />
+        <PessoaAvatar key={p.id} pessoa={p} podeEditar={podeEditar} onClick={() => onEditar(p)} arrastando={arrastando} setArrastando={setArrastando} mrrPorPessoa={mrrPorPessoa} qtdClientesPorPessoa={qtdClientesPorPessoa} />
       ))}
     </div>
   );
@@ -565,15 +579,17 @@ function RowGap({ insertLinha, areaId, subsecaoId, arrastando, moverPessoaNovaLi
   );
 }
 
-function PessoaAvatar({ pessoa, podeEditar, onClick, arrastando, setArrastando, mrrPorPessoa }: {
+function PessoaAvatar({ pessoa, podeEditar, onClick, arrastando, setArrastando, mrrPorPessoa, qtdClientesPorPessoa }: {
   pessoa: OrgPessoa; podeEditar: boolean; onClick: () => void;
   arrastando: string | null; setArrastando: (id: string | null) => void; mrrPorPessoa: Map<string, number>;
+  qtdClientesPorPessoa: Map<string, number>;
 }) {
   const iniciais = pessoa.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
   const size = pessoa.destaque ? "h-24 w-24" : "h-16 w-16";
   const textSize = pessoa.destaque ? "text-2xl" : "text-lg";
   const eu = arrastando === pessoa.id;
   const mrr = pessoa.ruston_pessoa_id ? mrrPorPessoa.get(pessoa.ruston_pessoa_id) ?? 0 : 0;
+  const qtd = pessoa.ruston_pessoa_id ? qtdClientesPorPessoa.get(pessoa.ruston_pessoa_id) ?? 0 : 0;
   return (
     <div
       data-pessoa-card
@@ -600,7 +616,10 @@ function PessoaAvatar({ pessoa, podeEditar, onClick, arrastando, setArrastando, 
             💰 {formatMrrCompact(mrr)}
           </p>
         )}
-        {pessoa.tem_carteira && mrr === 0 && <p className="mt-0.5 text-[9px] text-amber-300">📋</p>}
+        {qtd > 0 && (
+          <p className="text-[10px] text-brand-muted">{qtd} {qtd === 1 ? "cliente" : "clientes"}</p>
+        )}
+        {pessoa.tem_carteira && mrr === 0 && qtd === 0 && <p className="mt-0.5 text-[9px] text-amber-300">📋</p>}
       </div>
     </div>
   );
