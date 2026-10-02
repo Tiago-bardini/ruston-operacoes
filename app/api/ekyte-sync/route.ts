@@ -16,8 +16,8 @@ export const runtime = "nodejs";
 export const maxDuration = 300; // até 5min (Vercel Pro). Em Hobby = 60s.
 
 const EKYTE_BASE = "https://api.ekyte.com/v1.1/tasks";
-const PAGE_SIZE_GUESS = 50;
-const MAX_PAGES = 100; // guard contra loop infinito
+const PAGE_SIZE_GUESS = 100; // Ekyte retorna 100 por página
+const MAX_PAGES = 500; // suporta até 50k tasks por status
 
 type EkyteTask = Record<string, any>;
 
