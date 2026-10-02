@@ -80,22 +80,42 @@ export default function EkytePage() {
   const [squads, setSquads] = useState<Squad[]>([]);
   const [sincronizando, setSincronizando] = useState(false);
   const [mensagem, setMensagem] = useState<string | null>(null);
-  const [tab, setTab] = useState<"resumo" | "ranking" | "squad" | "pessoa">("resumo");
+  const [tab, setTab] = useState<"resumo" | "ranking" | "squad" | "pessoa" | "vinculos">("resumo");
+  const [semMatch, setSemMatch] = useState<{executor_id: string|null; executor: string; executor_email: string|null; qtd_tasks: number}[]>([]);
   const [periodo, setPeriodo] = useState<Periodo>("mes");
   const [filtroSquad, setFiltroSquad] = useState<string>("");
   const [pessoaSel, setPessoaSel] = useState<string>("");
 
   async function carregar() {
-    const [{ data: ls }, { data: ts }, { data: ps }, { data: sq }] = await Promise.all([
+    const [{ data: ls }, { data: ts }, { data: ps }, { data: sq }, { data: sm }] = await Promise.all([
       supabase.from("ruston_ekyte_sync_log").select("*").order("started_at", { ascending: false }).limit(10),
       supabase.from("ruston_ekyte_tasks_view").select("*").limit(10000),
       supabase.from("ruston_pessoas").select("id,nome,cargo,squad_id,ativo").eq("ativo", true).order("nome"),
       supabase.from("ruston_squads").select("id,nome").eq("ativo", true).order("nome"),
+      supabase.rpc("fn_ekyte_pessoas_sem_match"),
     ]);
     setLogs(ls ?? []);
     setTasks(ts ?? []);
     setPessoas(ps ?? []);
     setSquads(sq ?? []);
+    setSemMatch((sm as any) ?? []);
+  }
+
+  async function rematch() {
+    setMensagem("Re-vinculando...");
+    const { data, error } = await supabase.rpc("fn_ekyte_match_pessoas");
+    if (error) { setMensagem(`✗ ${error.message}`); return; }
+    const r = Array.isArray(data) ? data[0] : data;
+    setMensagem(`✓ Re-match: ${r?.matched_total ?? 0} tasks vinculadas (email ${r?.por_email ?? 0}, nome ${r?.por_nome_exato ?? 0}, primeiro nome ${r?.por_primeiro_nome ?? 0}, manual ${r?.por_mapping ?? 0})`);
+    await carregar();
+  }
+
+  async function vincularManual(ekyte_executor_id: string | null, ekyte_email: string | null, ekyte_nome: string, pessoa_id: string) {
+    const { error } = await supabase.from("ruston_ekyte_mapping_pessoa").upsert({
+      ekyte_executor_id, ekyte_email, ekyte_nome, pessoa_id,
+    }, { onConflict: "ekyte_executor_id" });
+    if (error) { alert(`Erro: ${error.message}`); return; }
+    await rematch();
   }
 
   useEffect(() => { carregar(); }, []);
@@ -283,6 +303,7 @@ export default function EkytePage() {
         <TabBtn ativo={tab === "ranking"} onClick={() => setTab("ranking")}>👥 Ranking por Pessoa</TabBtn>
         <TabBtn ativo={tab === "squad"} onClick={() => setTab("squad")}>🏢 Por Squad</TabBtn>
         <TabBtn ativo={tab === "pessoa"} onClick={() => setTab("pessoa")}>🔍 Investidor (1:1)</TabBtn>
+        <TabBtn ativo={tab === "vinculos"} onClick={() => setTab("vinculos")}>🔗 Vínculos ({semMatch.length})</TabBtn>
       </div>
 
       {/* RESUMO */}
@@ -466,6 +487,54 @@ export default function EkytePage() {
               </div>
             </>
           )}
+        </div>
+      )}
+      {/* VÍNCULOS */}
+      {tab === "vinculos" && (
+        <div className="card p-4 overflow-x-auto">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold">Pessoas do Ekyte sem vínculo com cadastro</h3>
+              <p className="text-xs text-brand-muted">
+                Pra cada linha, escolhe quem é no cadastro Ruston. O vínculo é salvo e aplica em todas as tasks dessa pessoa.
+              </p>
+            </div>
+            <button className="btn-ghost text-xs" onClick={rematch}>🔄 Re-match automático</button>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-white/10 text-left text-xs uppercase text-brand-muted">
+                <th className="px-2 py-2">Nome no Ekyte</th>
+                <th className="px-2 py-2">Email no Ekyte</th>
+                <th className="px-2 py-2 text-center">Qtd tasks</th>
+                <th className="px-2 py-2">Vincular com (cadastro Ruston)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {semMatch.length === 0 && <tr><td colSpan={4} className="px-2 py-8 text-center text-emerald-300">🎉 Todas as pessoas estão vinculadas!</td></tr>}
+              {semMatch.map((s) => (
+                <tr key={s.executor_id || s.executor_email || s.executor} className="border-b border-white/5 last:border-0">
+                  <td className="px-2 py-2 font-medium">{s.executor}</td>
+                  <td className="px-2 py-2 text-xs text-brand-muted">{s.executor_email ?? "—"}</td>
+                  <td className="px-2 py-2 text-center">{s.qtd_tasks}</td>
+                  <td className="px-2 py-2">
+                    <select
+                      className="input text-xs"
+                      onChange={(e) => {
+                        if (e.target.value) vincularManual(s.executor_id, s.executor_email, s.executor, e.target.value);
+                      }}
+                      defaultValue=""
+                    >
+                      <option value="">— escolher —</option>
+                      {pessoas.map((p) => (
+                        <option key={p.id} value={p.id}>{p.nome} {p.cargo ? `(${p.cargo})` : ""}</option>
+                      ))}
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
