@@ -490,7 +490,7 @@ function AreaCard({ area, pessoas, carteiras, clientesAuto, fcaStatus, mostrarCa
   );
 }
 
-function LinhasContainer({ pessoas, areaId, subsecaoId, podeEditar, onEditar, arrastando, setArrastando, moverPessoa, moverPessoaNovaLinha, mrrPorPessoa }: {
+function LinhasContainer({ pessoas, areaId, subsecaoId, podeEditar, onEditar, arrastando, setArrastando, moverPessoa, moverPessoaNovaLinha, mrrPorPessoa, qtdClientesPorPessoa }: {
   pessoas: OrgPessoa[]; areaId: string; subsecaoId: string | null; podeEditar: boolean; onEditar: (p: OrgPessoa) => void;
   arrastando: string | null; setArrastando: (id: string | null) => void;
   moverPessoa: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; linha: number; colunaAlvo: number }) => Promise<void>;
@@ -508,7 +508,7 @@ function LinhasContainer({ pessoas, areaId, subsecaoId, podeEditar, onEditar, ar
       <RowGap insertLinha={linhaKeys[0] ?? 0} areaId={areaId} subsecaoId={subsecaoId} arrastando={arrastando} moverPessoaNovaLinha={moverPessoaNovaLinha} setArrastando={setArrastando} />
       {linhaKeys.map((linhaNum) => (
         <div key={linhaNum}>
-          <Row pessoas={linhas[linhaNum]} linha={linhaNum} areaId={areaId} subsecaoId={subsecaoId} podeEditar={podeEditar} onEditar={onEditar} arrastando={arrastando} setArrastando={setArrastando} moverPessoa={moverPessoa} mrrPorPessoa={mrrPorPessoa} />
+          <Row pessoas={linhas[linhaNum]} linha={linhaNum} areaId={areaId} subsecaoId={subsecaoId} podeEditar={podeEditar} onEditar={onEditar} arrastando={arrastando} setArrastando={setArrastando} moverPessoa={moverPessoa} mrrPorPessoa={mrrPorPessoa} qtdClientesPorPessoa={qtdClientesPorPessoa} />
           <RowGap insertLinha={linhaNum + 1} areaId={areaId} subsecaoId={subsecaoId} arrastando={arrastando} moverPessoaNovaLinha={moverPessoaNovaLinha} setArrastando={setArrastando} />
         </div>
       ))}
