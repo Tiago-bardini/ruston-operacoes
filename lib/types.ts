@@ -456,6 +456,7 @@ export interface Cliente {
   data_subir_churn_sistema: string | null;
   subiu_no_sistema: boolean;
   subiu_no_sistema_em: string | null;
+  link_debriefing_churn: string | null;
   coordenador_id: string | null;
   account_id: string | null;
   gestor_trafego_id: string | null;
