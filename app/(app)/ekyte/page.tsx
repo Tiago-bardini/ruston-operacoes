@@ -95,7 +95,7 @@ export default function EkytePage() {
   async function carregar() {
     const [{ data: ls }, { data: ts }, { data: ps }, { data: sq }, { data: sm }] = await Promise.all([
       supabase.from("ruston_ekyte_sync_log").select("*").order("started_at", { ascending: false }).limit(10),
-      supabase.from("ruston_ekyte_tasks_view").select("*").limit(10000),
+      supabase.from("ruston_ekyte_tasks_view").select("*").limit(50000),
       supabase.from("ruston_pessoas").select("id,nome,cargo,squad_id,ativo").eq("ativo", true).order("nome"),
       supabase.from("ruston_squads").select("id,nome").eq("ativo", true).order("nome"),
       supabase.rpc("fn_ekyte_pessoas_sem_match"),
@@ -485,9 +485,11 @@ export default function EkytePage() {
                         <td className="px-2 py-2 text-xs text-brand-muted">{t.phase ?? "—"}</td>
                         <td className="px-2 py-2 text-xs">
                           <span className={t.esta_atrasada ? "text-red-300" : "text-brand-muted"}>
-                            {formatDate(t.current_due_date)}
+                            {t.current_due_date ? formatDate(t.current_due_date) : "—"}
                           </span>
-                          {t.foi_prorrogada && <div className="text-[10px] text-amber-300">prorrogada (orig: {formatDate(t.original_due_date)})</div>}
+                          {t.foi_prorrogada && t.original_due_date && (
+                            <div className="text-[10px] text-amber-300">prorrogada (orig: {formatDate(t.original_due_date)})</div>
+                          )}
                         </td>
                         <td className="px-2 py-2 text-xs">
                           {t.resolved_date ? <span className="text-emerald-300">✓ concluída</span> :
