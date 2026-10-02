@@ -213,16 +213,19 @@ export interface Forecast {
   novos_contratos_valor: number;
   mrr_realizado: number | null;
   observacoes: string | null;
+  // Projetado
   mrr_aquisicao_projetado: number;
   onetime_aquisicao_projetado: number;
   mrr_upsell_projetado: number;
   onetime_upsell_projetado: number;
   clientes_churn_projetado: number;
+  // Realizado editável
   mrr_aquisicao_realizado: number | null;
   onetime_aquisicao_realizado: number | null;
   mrr_upsell_realizado: number | null;
   onetime_upsell_realizado: number | null;
   clientes_churn_realizado: number | null;
+  // Fechamento
   fechado: boolean;
   fechado_em: string | null;
   mrr_total_snapshot: number | null;
@@ -312,7 +315,7 @@ export interface FcaAvaliacao {
   cliente_id: string;
   ano: number;
   mes: number;
-  data_referencia: string;
+  data_referencia: string; // sexta-feira da semana FCA (sábado→sexta)
   nota_resultado: number | null;
   nota_operacao_trafego: number | null;
   nota_prazo: number | null;
@@ -331,18 +334,24 @@ export interface FcaAvaliacao {
   updated_at: string;
 }
 
+/** Retorna a data da sexta-feira da semana FCA (sábado→sexta) que contém a data recebida.
+ * Ex: 06/08 (sábado) → 12/08 (próxima sexta) porque começa nova semana
+ *     08/08 (segunda) → 12/08 (sexta da mesma semana)
+ *     12/08 (sexta) → 12/08 (mesma data)
+ */
 export function sextaDaSemanaFca(data?: Date | string): string {
   const d = data ? new Date(typeof data === "string" ? data + "T00:00:00" : data) : new Date();
   d.setHours(0, 0, 0, 0);
-  const dow = d.getDay();
+  const dow = d.getDay(); // 0=domingo, 1=segunda, ..., 5=sexta, 6=sábado
   let dias: number;
-  if (dow === 6) dias = 6;
-  else if (dow === 5) dias = 0;
-  else dias = 5 - dow;
+  if (dow === 6) dias = 6;          // sábado → próxima sexta (6 dias)
+  else if (dow === 5) dias = 0;     // sexta → hoje
+  else dias = 5 - dow;              // dom/seg/ter/qua/qui → dias até sexta
   d.setDate(d.getDate() + dias);
   return d.toISOString().slice(0, 10);
 }
 
+/** Formata "Sexta, 07/ago" a partir de uma data ISO */
 export function formatSemanaFca(iso: string): string {
   const d = new Date(iso + "T00:00:00");
   const dia = String(d.getDate()).padStart(2, "0");
@@ -350,6 +359,7 @@ export function formatSemanaFca(iso: string): string {
   return `Sex. ${dia}/${mes}`;
 }
 
+/** Últimas N sextas-feiras a partir de hoje, ordenadas da mais nova pra mais antiga */
 export function ultimasSextas(n: number = 12): string[] {
   const hoje = sextaDaSemanaFca();
   const d = new Date(hoje + "T00:00:00");
@@ -456,6 +466,7 @@ export interface Cliente {
   data_subir_churn_sistema: string | null;
   subiu_no_sistema: boolean;
   subiu_no_sistema_em: string | null;
+  link_debriefing_churn: string | null;
   coordenador_id: string | null;
   account_id: string | null;
   gestor_trafego_id: string | null;
@@ -466,8 +477,6 @@ export interface Cliente {
   created_at: string;
   updated_at: string;
   updated_by: string | null;
-  plano_acao_monetizacao: string | null;
-  plano_acao_atualizado_em: string | null;
 }
 
 export interface ClienteView extends Cliente {
@@ -489,6 +498,7 @@ export function formatDate(iso: string | null | undefined): string {
   return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR");
 }
 
+/** Status de vencimento do contrato — usado pra colorir badges e alertas */
 export type StatusVencimento = "vencido" | "critico" | "atencao" | "ok" | "sem_data";
 
 export function statusVencimento(dataVencimento: string | null | undefined): StatusVencimento {
@@ -526,53 +536,3 @@ export const STATUS_VENCIMENTO_COLOR: Record<StatusVencimento, string> = {
   ok:       "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
   sem_data: "bg-white/5 text-brand-muted border-white/10",
 };
-
-/* ================= ENTREGAS CONTRATADAS ================= */
-
-export type CategoriaEntrega = "recorrente" | "pontual_saber" | "pontual_ter" | "componente";
-
-export const CATEGORIA_ENTREGA_LABEL: Record<CategoriaEntrega, string> = {
-  recorrente: "Recorrente",
-  pontual_saber: "Pontual (Diagnóstico)",
-  pontual_ter: "Pontual (Implementação)",
-  componente: "Componente / Comissão",
-};
-
-export const CATEGORIA_ENTREGA_COR: Record<CategoriaEntrega, string> = {
-  recorrente:    "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
-  pontual_saber: "bg-sky-500/20 text-sky-300 border-sky-500/40",
-  pontual_ter:   "bg-purple-500/20 text-purple-300 border-purple-500/40",
-  componente:    "bg-amber-500/20 text-amber-300 border-amber-500/40",
-};
-
-export interface TipoEntrega {
-  id: string;
-  nome: string;
-  categoria: CategoriaEntrega;
-  descricao: string | null;
-  unidade_padrao: string;
-  ordem: number;
-  ativo: boolean;
-  created_at?: string;
-  updated_at?: string;
-}
-
-export interface EntregaPrevista {
-  id: string;
-  cliente_id: string;
-  tipo_entrega_id: string;
-  quantidade_mensal: number | null;
-  quantidade_texto: string | null;
-  percentual_alocacao: string | null;
-  valor_mensal: number | null;
-  observacoes: string | null;
-  created_at?: string;
-  updated_at?: string;
-}
-
-export interface EntregaPrevistaView extends EntregaPrevista {
-  cliente_nome: string;
-  tipo_entrega_nome: string;
-  tipo_entrega_categoria: CategoriaEntrega;
-  tipo_entrega_unidade: string;
-}
