@@ -3,15 +3,15 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { Pessoa, Squad, HeadcountPlanejado, Cargo } from "@/lib/types";
+import type { Pessoa, Squad, HeadcountPlanejado, Cargo, Cliente } from "@/lib/types";
 import { CARGO_LABEL, formatBRL } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
-// Cargos operacionais que entram no planejamento por squad
 const CARGOS_OPERACIONAIS: Cargo[] = ["coordenador", "gestor_projetos", "gestor_trafego", "designer"];
 
-// Cargos compartilhados (aparecem em todos os squads, custo dividido)
-const CARGOS_COMPARTILHADOS: Cargo[] = ["gerente", "tech", "coo"];
+// Metas de % de custo (sobre receita)
+const META_VERDE = 20;    // ≤20% = verde
+const META_AMARELO = 25;  // 20-25% = amarelo. >25% = vermelho
 
 export default function HeadcountPage() {
   const supabase = createClient();
@@ -23,6 +23,7 @@ export default function HeadcountPage() {
 
   const [squads, setSquads] = useState<Squad[]>([]);
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
+  const [clientes, setClientes] = useState<Cliente[]>([]);
   const [planejados, setPlanejados] = useState<HeadcountPlanejado[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -32,17 +33,17 @@ export default function HeadcountPage() {
     setLoading(true);
     let sqQuery = supabase.from("ruston_squads").select("*").eq("ativo", true)
       .eq("incluir_em_comparativo", true).order("nome");
-    // Coordenador só vê o próprio squad
-    if (isCoordenador && squadId) {
-      sqQuery = sqQuery.eq("id", squadId);
-    }
-    const [{ data: sq }, { data: ps }, { data: hp }] = await Promise.all([
+    if (isCoordenador && squadId) sqQuery = sqQuery.eq("id", squadId);
+
+    const [{ data: sq }, { data: ps }, { data: cl }, { data: hp }] = await Promise.all([
       sqQuery,
       supabase.from("ruston_pessoas").select("*").eq("ativo", true).order("nome"),
+      supabase.from("ruston_clientes").select("id,nome,mrr,squad_id,ativo").eq("ativo", true),
       supabase.from("ruston_headcount_planejado").select("*"),
     ]);
     setSquads((sq as Squad[]) ?? []);
     setPessoas((ps as Pessoa[]) ?? []);
+    setClientes((cl as Cliente[]) ?? []);
     setPlanejados((hp as HeadcountPlanejado[]) ?? []);
     setLoading(false);
   }
@@ -53,60 +54,70 @@ export default function HeadcountPage() {
   /* eslint-disable-next-line */
   }, [loadingPerfil, isCoordenador, squadId]);
 
-  // Pessoas compartilhadas (Gerente/Tech/COO) — custo dividido entre squads operacionais
   const compartilhadas = useMemo(
     () => pessoas.filter((p) => p.compartilhado_entre_squads),
     [pessoas]
   );
-
   const salarioCompartilhadoTotal = useMemo(
     () => compartilhadas.reduce((s, p) => s + (Number(p.salario) || 0), 0),
     [compartilhadas]
   );
+  const salarioCompartilhadoPorSquad = squads.length > 0 ? salarioCompartilhadoTotal / squads.length : 0;
 
-  const salarioCompartilhadoPorSquad = squads.length > 0
-    ? salarioCompartilhadoTotal / squads.length
-    : 0;
+  // Receita MRR por squad
+  const receitaPorSquad = useMemo(() => {
+    const map = new Map<string, number>();
+    clientes.forEach((c) => {
+      if (!c.squad_id) return;
+      map.set(c.squad_id, (map.get(c.squad_id) ?? 0) + Number(c.mrr || 0));
+    });
+    return map;
+  }, [clientes]);
 
-  async function atualizarPlanejado(squadId: string, cargo: Cargo, qtd: number) {
-    setSaving(`${squadId}-${cargo}`);
-    const existente = planejados.find((p) => p.squad_id === squadId && p.cargo === cargo);
+  // Totais consolidados da unidade
+  const consolidado = useMemo(() => {
+    const receitaTotal = squads.reduce((s, sq) => s + (receitaPorSquad.get(sq.id) ?? 0), 0);
+    const custoOperacional = pessoas
+      .filter((p) => !p.compartilhado_entre_squads && p.squad_id && squads.some((s) => s.id === p.squad_id))
+      .reduce((s, p) => s + (Number(p.salario) || 0), 0);
+    const custoTotal = custoOperacional + salarioCompartilhadoTotal;
+    const resultado = receitaTotal - custoTotal;
+    const pctCusto = receitaTotal > 0 ? (custoTotal / receitaTotal) * 100 : 0;
+    const pessoasAtivas = pessoas.filter((p) => p.squad_id && squads.some((s) => s.id === p.squad_id)).length;
+    return { receitaTotal, custoTotal, custoOperacional, resultado, pctCusto, pessoasAtivas };
+  }, [pessoas, squads, receitaPorSquad, salarioCompartilhadoTotal]);
+
+  async function atualizarPlanejado(sqId: string, cargo: Cargo, qtd: number) {
+    setSaving(`${sqId}-${cargo}`);
+    const existente = planejados.find((p) => p.squad_id === sqId && p.cargo === cargo);
     if (existente) {
       await supabase.from("ruston_headcount_planejado")
-        .update({ quantidade_planejada: qtd })
-        .eq("id", existente.id);
+        .update({ quantidade_planejada: qtd }).eq("id", existente.id);
     } else {
-      await supabase.from("ruston_headcount_planejado").insert({
-        squad_id: squadId, cargo, quantidade_planejada: qtd,
-      });
+      await supabase.from("ruston_headcount_planejado").insert({ squad_id: sqId, cargo, quantidade_planejada: qtd });
     }
     setSaving(null);
     load();
   }
 
   function toggleSquad(id: string) {
-    const novo = new Set(squadExpandido);
-    if (novo.has(id)) novo.delete(id); else novo.add(id);
-    setSquadExpandido(novo);
+    const n = new Set(squadExpandido);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    setSquadExpandido(n);
   }
 
-  // Stats globais
-  const totalPlanejado = planejados.reduce((s, p) => s + p.quantidade_planejada, 0);
-  const totalAtualOperacional = pessoas.filter(
-    (p) => !p.compartilhado_entre_squads && p.squad_id && CARGOS_OPERACIONAIS.includes(p.cargo)
-  ).length;
-  const totalGeral = totalAtualOperacional + compartilhadas.length;
-  const custoOperacional = pessoas
-    .filter((p) => !p.compartilhado_entre_squads && p.squad_id)
-    .reduce((s, p) => s + (Number(p.salario) || 0), 0);
-  const custoTotal = custoOperacional + salarioCompartilhadoTotal;
+  function corSemaforo(pct: number): { bg: string; text: string; label: string; emoji: string } {
+    if (pct <= META_VERDE) return { bg: "bg-emerald-500/10 border-emerald-500/30", text: "text-emerald-300", label: "saudável", emoji: "🟢" };
+    if (pct <= META_AMARELO) return { bg: "bg-amber-500/10 border-amber-500/30", text: "text-amber-300", label: "atenção", emoji: "🟠" };
+    return { bg: "bg-red-500/10 border-red-500/30", text: "text-red-300", label: "crítico", emoji: "🔴" };
+  }
 
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">Headcount por Squad</h1>
+        <h1 className="text-2xl font-bold">💰 Headcount & Rentabilidade</h1>
         <p className="text-sm text-brand-muted">
-          Planejamento vs. atual, custo por squad, alocação de gerência/tech compartilhada
+          Receita × Custo por squad. Meta: custo ≤ 20% da receita.
         </p>
       </div>
 
@@ -114,42 +125,73 @@ export default function HeadcountPage() {
 
       {!loading && (
         <>
-          {/* Stats globais */}
-          <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatCard label="Time total" valor={String(totalGeral)} />
-            <StatCard label="Operacional" valor={`${totalAtualOperacional}/${totalPlanejado}`} sublabel="atual/planejado" />
-            <StatCard label="Compartilhados" valor={String(compartilhadas.length)} sublabel="Gerente · Tech · COO" />
-            <StatCard label="Custo total" valor={formatBRL(custoTotal)} cor="text-brand" />
-          </div>
+          {/* CARD CONSOLIDADO DA UNIDADE */}
+          {!isCoordenador && (() => {
+            const s = corSemaforo(consolidado.pctCusto);
+            return (
+              <div className={`mb-6 card ${s.bg} border`}>
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-brand-muted">Unidade Ruston · Consolidado</p>
+                    <p className="mt-1 text-xl font-bold">{s.emoji} {s.label}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-brand-muted">{squads.length} squads · {consolidado.pessoasAtivas} pessoas</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                  <KPI label="💰 Receita MRR" valor={formatBRL(consolidado.receitaTotal)} cor="text-emerald-300" />
+                  <KPI
+                    label="💸 Custo total"
+                    valor={formatBRL(consolidado.custoTotal)}
+                    cor="text-red-300"
+                    sub={`${consolidado.pctCusto.toFixed(1)}% da receita`}
+                  />
+                  <KPI label="✅ Resultado" valor={formatBRL(consolidado.resultado)} cor={consolidado.resultado >= 0 ? "text-emerald-300" : "text-red-300"} />
+                  <KPI
+                    label="📊 Margem"
+                    valor={`${consolidado.receitaTotal > 0 ? (100 - consolidado.pctCusto).toFixed(1) : "0.0"}%`}
+                    cor={s.text}
+                  />
+                </div>
+                <BarraCusto pct={consolidado.pctCusto} />
+              </div>
+            );
+          })()}
 
-          {/* Cards por squad */}
+          {/* CARDS POR SQUAD */}
           <div className="space-y-4">
             {squads.map((squad) => {
+              const receita = receitaPorSquad.get(squad.id) ?? 0;
               const pessoasDoSquad = pessoas.filter(
                 (p) => !p.compartilhado_entre_squads && p.squad_id === squad.id
               );
-              const custoSquad = pessoasDoSquad.reduce((s, p) => s + (Number(p.salario) || 0), 0);
-              const custoTotalSquad = custoSquad + salarioCompartilhadoPorSquad;
+              const custoOperacional = pessoasDoSquad.reduce((s, p) => s + (Number(p.salario) || 0), 0);
+              const custoTotal = custoOperacional + salarioCompartilhadoPorSquad;
+              const resultado = receita - custoTotal;
+              const pctCusto = receita > 0 ? (custoTotal / receita) * 100 : 0;
+              const margem = receita > 0 ? 100 - pctCusto : 0;
+              const sem = corSemaforo(pctCusto);
               const expandido = squadExpandido.has(squad.id);
+              const totalAtual = pessoasDoSquad.length;
 
-              // Planejado × Atual por cargo
               const linhas = CARGOS_OPERACIONAIS.map((cargo) => {
                 const plan = planejados.find((p) => p.squad_id === squad.id && p.cargo === cargo);
                 const atuais = pessoasDoSquad.filter((p) => p.cargo === cargo);
-                const custoLinha = atuais.reduce((s, p) => s + (Number(p.salario) || 0), 0);
-                const planejado = plan?.quantidade_planejada ?? 0;
-                const atual = atuais.length;
-                const gap = atual - planejado;
-                return { cargo, planejado, atual, gap, atuais, custoLinha };
+                return {
+                  cargo,
+                  planejado: plan?.quantidade_planejada ?? 0,
+                  atual: atuais.length,
+                  gap: atuais.length - (plan?.quantidade_planejada ?? 0),
+                  atuais,
+                  custoLinha: atuais.reduce((s, p) => s + (Number(p.salario) || 0), 0),
+                };
               });
 
-              const totalPlanejadoSquad = linhas.reduce((s, l) => s + l.planejado, 0);
-              const totalAtualSquad = linhas.reduce((s, l) => s + l.atual, 0);
-
               return (
-                <div key={squad.id} className="card">
-                  {/* Header do squad */}
-                  <div className="mb-3 flex items-start justify-between">
+                <div key={squad.id} className={`card border ${sem.bg}`}>
+                  {/* Header */}
+                  <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-3">
                       <div
                         className="flex h-12 w-12 items-center justify-center rounded-lg font-bold text-white text-lg"
@@ -158,110 +200,122 @@ export default function HeadcountPage() {
                         {squad.nome.charAt(0)}
                       </div>
                       <div>
-                        <p className="text-lg font-bold">{squad.nome}</p>
+                        <p className="text-lg font-bold">{sem.emoji} {squad.nome}</p>
                         <p className="text-xs text-brand-muted">
-                          {totalAtualSquad}/{totalPlanejadoSquad} operacionais · {formatBRL(custoTotalSquad)} custo total
+                          {totalAtual} pessoas · {sem.label}
                         </p>
                       </div>
                     </div>
                     <button
                       onClick={() => toggleSquad(squad.id)}
-                      className="text-xs text-brand-muted hover:text-gray-200"
+                      className="text-xs text-brand hover:text-emerald-300"
                     >
-                      {expandido ? "− ocultar" : "+ ver pessoas"}
+                      {expandido ? "− ocultar detalhes" : "+ ver pessoas e planejado"}
                     </button>
                   </div>
 
-                  {/* Tabela de cargos */}
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-white/5 text-left text-xs uppercase tracking-wide text-brand-muted">
-                          <th className="py-2">Cargo</th>
-                          <th className="py-2 w-24 text-center">Planejado</th>
-                          <th className="py-2 w-24 text-center">Atual</th>
-                          <th className="py-2 w-24 text-center">Gap</th>
-                          <th className="py-2 w-40 text-right">Custo</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {linhas.map((l) => {
-                          const gapColor = l.gap === 0 ? "text-emerald-300"
-                            : l.gap > 0 ? "text-amber-300"
-                            : "text-red-300";
-                          return (
-                            <React.Fragment key={l.cargo}>
-                              <tr className="border-b border-white/5 last:border-0">
-                                <td className="py-2 font-medium">{CARGO_LABEL[l.cargo]}</td>
-                                <td className="py-2 text-center">
-                                  <input
-                                    type="number" min="0"
-                                    className="input py-1 text-center text-sm w-16 mx-auto"
-                                    defaultValue={l.planejado}
-                                    onBlur={(e) => {
-                                      const v = Number(e.target.value) || 0;
-                                      if (v !== l.planejado) atualizarPlanejado(squad.id, l.cargo, v);
-                                    }}
-                                  />
-                                </td>
-                                <td className="py-2 text-center">
-                                  <span className={l.atual === l.planejado ? "text-emerald-300 font-semibold" : "text-white"}>
-                                    {l.atual}
-                                  </span>
-                                </td>
-                                <td className={`py-2 text-center font-semibold ${gapColor}`}>
-                                  {l.gap === 0 ? "✓" : (l.gap > 0 ? `+${l.gap}` : l.gap)}
-                                </td>
-                                <td className="py-2 text-right font-medium">
-                                  {formatBRL(l.custoLinha)}
-                                </td>
-                              </tr>
-                              {expandido && l.atuais.length > 0 && (
-                                <tr>
-                                  <td colSpan={5} className="pb-2 pl-4">
-                                    <div className="space-y-1 pl-2 border-l-2 border-white/5">
-                                      {l.atuais.map((p) => (
-                                        <div key={p.id} className="flex items-center justify-between text-xs">
-                                          <span className="text-brand-muted">↳ {p.nome}</span>
-                                          <span className="text-brand">{p.salario ? formatBRL(p.salario) : "salário —"}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </td>
-                                </tr>
-                              )}
-                            </React.Fragment>
-                          );
-                        })}
-                        {/* Linha de compartilhados */}
-                        <tr className="border-t-2 border-white/10">
-                          <td className="pt-3 text-xs italic text-brand-muted">
-                            Compartilhados (Gerente · Tech · COO)
-                          </td>
-                          <td colSpan={2} className="pt-3 text-center text-xs text-brand-muted">
-                            {compartilhadas.length} ÷ {squads.length} squads
-                          </td>
-                          <td className="pt-3 text-center text-xs text-brand-muted">—</td>
-                          <td className="pt-3 text-right text-xs italic text-brand-muted">
-                            {formatBRL(salarioCompartilhadoPorSquad)}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
+                  {/* KPIs */}
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mb-3">
+                    <KPI label="💰 Receita MRR" valor={formatBRL(receita)} cor="text-emerald-300" />
+                    <KPI
+                      label="💸 Custo total"
+                      valor={formatBRL(custoTotal)}
+                      cor="text-red-300"
+                      sub={receita > 0 ? `${pctCusto.toFixed(1)}% da receita` : "sem receita"}
+                    />
+                    <KPI label="✅ Resultado" valor={formatBRL(resultado)} cor={resultado >= 0 ? "text-emerald-300" : "text-red-300"} />
+                    <KPI label="📊 Margem" valor={`${margem.toFixed(1)}%`} cor={sem.text} />
                   </div>
+
+                  {/* Breakdown de custo */}
+                  <div className="mb-3 text-xs text-brand-muted space-y-1">
+                    <div className="flex justify-between">
+                      <span>├─ Operacional ({pessoasDoSquad.length} pessoas)</span>
+                      <span>{formatBRL(custoOperacional)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>└─ Rateio compartilhado ({compartilhadas.length} ÷ {squads.length} squads)</span>
+                      <span>{formatBRL(salarioCompartilhadoPorSquad)}</span>
+                    </div>
+                  </div>
+
+                  <BarraCusto pct={pctCusto} />
+
+                  {/* Expandido: planejado × atual + pessoas */}
+                  {expandido && (
+                    <div className="mt-4 pt-4 border-t border-white/5 overflow-x-auto">
+                      <p className="text-xs uppercase tracking-wide text-brand-muted mb-2">Planejado × Atual por cargo</p>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-white/5 text-left text-xs uppercase tracking-wide text-brand-muted">
+                            <th className="py-2">Cargo</th>
+                            <th className="py-2 w-24 text-center">Planejado</th>
+                            <th className="py-2 w-24 text-center">Atual</th>
+                            <th className="py-2 w-24 text-center">Gap</th>
+                            <th className="py-2 w-40 text-right">Custo</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {linhas.map((l) => {
+                            const gapColor = l.gap === 0 ? "text-emerald-300"
+                              : l.gap > 0 ? "text-amber-300" : "text-red-300";
+                            return (
+                              <React.Fragment key={l.cargo}>
+                                <tr className="border-b border-white/5 last:border-0">
+                                  <td className="py-2 font-medium">{CARGO_LABEL[l.cargo]}</td>
+                                  <td className="py-2 text-center">
+                                    <input
+                                      type="number" min="0"
+                                      className="input py-1 text-center text-sm w-16 mx-auto"
+                                      defaultValue={l.planejado}
+                                      onBlur={(e) => {
+                                        const v = Number(e.target.value) || 0;
+                                        if (v !== l.planejado) atualizarPlanejado(squad.id, l.cargo, v);
+                                      }}
+                                    />
+                                  </td>
+                                  <td className="py-2 text-center">
+                                    <span className={l.atual === l.planejado ? "text-emerald-300 font-semibold" : "text-white"}>{l.atual}</span>
+                                  </td>
+                                  <td className={`py-2 text-center font-semibold ${gapColor}`}>
+                                    {l.gap === 0 ? "✓" : l.gap > 0 ? `+${l.gap}` : l.gap}
+                                  </td>
+                                  <td className="py-2 text-right">{formatBRL(l.custoLinha)}</td>
+                                </tr>
+                                {l.atuais.length > 0 && (
+                                  <tr>
+                                    <td colSpan={5} className="pb-2 pl-4">
+                                      <div className="space-y-1 pl-2 border-l-2 border-white/5">
+                                        {l.atuais.map((p) => (
+                                          <div key={p.id} className="flex items-center justify-between text-xs">
+                                            <span className="text-brand-muted">↳ {p.nome}</span>
+                                            <span className="text-brand">{p.salario ? formatBRL(p.salario) : "salário —"}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
 
-          {/* Seção compartilhados */}
+          {/* COMPARTILHADOS */}
           {compartilhadas.length > 0 && (
             <div className="mt-6 card">
               <div className="mb-3 flex items-center justify-between">
                 <div>
-                  <p className="font-semibold">Compartilhados entre squads</p>
+                  <p className="font-semibold">👥 Compartilhados entre squads</p>
                   <p className="text-[10px] text-brand-muted">
-                    Cada squad carrega {formatBRL(salarioCompartilhadoPorSquad)} de custo
+                    Rateio igualitário: cada squad carrega {formatBRL(salarioCompartilhadoPorSquad)}
                   </p>
                 </div>
                 <div className="text-right">
@@ -276,17 +330,10 @@ export default function HeadcountPage() {
                       <p className="font-medium">{p.nome}</p>
                       <p className="text-[10px] text-brand-muted">{CARGO_LABEL[p.cargo]}</p>
                     </div>
-                    <span className="text-brand font-medium">
-                      {p.salario ? formatBRL(p.salario) : "salário —"}
-                    </span>
+                    <span className="text-brand font-medium">{p.salario ? formatBRL(p.salario) : "salário —"}</span>
                   </div>
                 ))}
               </div>
-              {compartilhadas.length === 0 && (
-                <p className="text-xs text-brand-muted">
-                  Nenhuma pessoa marcada como compartilhada. Cadastre Gerente/Tech/COO em /pessoas e marque o checkbox "Compartilhado entre squads".
-                </p>
-              )}
             </div>
           )}
         </>
@@ -295,14 +342,29 @@ export default function HeadcountPage() {
   );
 }
 
-function StatCard({ label, valor, sublabel, cor }: {
-  label: string; valor: string; sublabel?: string; cor?: string;
-}) {
+function KPI({ label, valor, cor, sub }: { label: string; valor: string; cor?: string; sub?: string }) {
   return (
-    <div className="card p-3">
+    <div>
       <p className="text-[10px] uppercase tracking-wide text-brand-muted">{label}</p>
-      <p className={`mt-1 text-xl font-bold ${cor ?? "text-white"}`}>{valor}</p>
-      {sublabel && <p className="text-[10px] text-brand-muted">{sublabel}</p>}
+      <p className={`mt-1 text-lg font-bold ${cor ?? "text-white"}`}>{valor}</p>
+      {sub && <p className="text-[10px] text-brand-muted">{sub}</p>}
+    </div>
+  );
+}
+
+function BarraCusto({ pct }: { pct: number }) {
+  const clamped = Math.min(100, Math.max(0, pct));
+  const cor = pct <= 20 ? "bg-emerald-500" : pct <= 25 ? "bg-amber-500" : "bg-red-500";
+  return (
+    <div className="mt-2">
+      <div className="h-2 w-full rounded-full bg-white/5 overflow-hidden">
+        <div className={`h-full ${cor} transition-all`} style={{ width: `${clamped}%` }} />
+      </div>
+      <div className="mt-1 flex justify-between text-[10px] text-brand-muted">
+        <span>0%</span>
+        <span className="font-medium">{pct.toFixed(1)}% custo</span>
+        <span>meta ≤ 20%</span>
+      </div>
     </div>
   );
 }
