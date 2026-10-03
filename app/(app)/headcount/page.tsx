@@ -13,6 +13,12 @@ const CARGOS_OPERACIONAIS: Cargo[] = ["coordenador", "gestor_projetos", "gestor_
 const META_VERDE = 20;    // ≤20% = verde
 const META_AMARELO = 25;  // 20-25% = amarelo. >25% = vermelho
 
+// Squads que NÃO entram em nenhum cálculo (ISSAS/ISAAS etc.)
+function squadExcluido(nome: string): boolean {
+  const prefixo = (nome || "").slice(0, 3).toLowerCase();
+  return prefixo === "iss" || prefixo === "isa";
+}
+
 export default function HeadcountPage() {
   const supabase = createClient();
   const router = useRouter();
@@ -41,7 +47,8 @@ export default function HeadcountPage() {
       supabase.from("ruston_clientes").select("id,nome,mrr,squad_id,ativo").eq("ativo", true),
       supabase.from("ruston_headcount_planejado").select("*"),
     ]);
-    setSquads((sq as Squad[]) ?? []);
+    // Filtro extra: tira ISSAS/ISAAS mesmo se tiver incluir_em_comparativo=true
+    setSquads(((sq as Squad[]) ?? []).filter((s) => !squadExcluido(s.nome)));
     setPessoas((ps as Pessoa[]) ?? []);
     setClientes((cl as Cliente[]) ?? []);
     setPlanejados((hp as HeadcountPlanejado[]) ?? []);
