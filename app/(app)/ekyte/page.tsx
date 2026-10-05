@@ -41,7 +41,7 @@ type Task = {
 type Pessoa = { id: string; nome: string; cargo: string | null; squad_id: string | null; ativo: boolean };
 type Squad = { id: string; nome: string };
 
-type Periodo = "aberto" | "semana" | "mes" | "7d" | "30d" | "90d" | "mes_passado";
+type Periodo = "aberto" | "semana" | "mes" | "7d" | "30d" | "90d" | "mes_passado" | "custom";
 
 const PERIODO_LABEL: Record<Periodo, string> = {
   aberto: "Tudo em aberto (recomendado)",
@@ -51,12 +51,18 @@ const PERIODO_LABEL: Record<Periodo, string> = {
   "30d": "Últimos 30 dias",
   "90d": "Últimos 90 dias",
   mes_passado: "Mês passado",
+  custom: "📅 Período customizado",
 };
 
-function limitesPeriodo(p: Periodo): { ini: Date; fim: Date } {
+function limitesPeriodo(p: Periodo, customIni?: string, customFim?: string): { ini: Date; fim: Date } {
   const now = new Date();
   const fim = new Date(now); fim.setHours(23, 59, 59, 999);
   const ini = new Date(now);
+  if (p === "custom") {
+    const dIni = customIni ? new Date(customIni + "T00:00:00") : new Date(2000, 0, 1);
+    const dFim = customFim ? new Date(customFim + "T23:59:59") : new Date();
+    return { ini: dIni, fim: dFim };
+  }
   if (p === "aberto") {
     ini.setFullYear(2000); // efetivamente "sem limite"
   } else if (p === "semana") {
@@ -90,6 +96,10 @@ export default function EkytePage() {
   const [tab, setTab] = useState<"resumo" | "ranking" | "squad" | "pessoa" | "vinculos">("resumo");
   const [semMatch, setSemMatch] = useState<{executor_id: string|null; executor: string; executor_email: string|null; qtd_tasks: number}[]>([]);
   const [periodo, setPeriodo] = useState<Periodo>("aberto");
+  const hojeStr = new Date().toISOString().slice(0, 10);
+  const trintaDiasAtras = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const [customIni, setCustomIni] = useState<string>(trintaDiasAtras);
+  const [customFim, setCustomFim] = useState<string>(hojeStr);
   const [filtroSquad, setFiltroSquad] = useState<string>("");
   const [pessoaSel, setPessoaSel] = useState<string>("");
 
@@ -152,7 +162,7 @@ export default function EkytePage() {
     }
   }
 
-  const { ini, fim } = useMemo(() => limitesPeriodo(periodo), [periodo]);
+  const { ini, fim } = useMemo(() => limitesPeriodo(periodo, customIni, customFim), [periodo, customIni, customFim]);
 
   // Tasks "do período" = qualquer uma com atividade no período:
   //  - criada no período
@@ -296,10 +306,20 @@ export default function EkytePage() {
           <h1 className="text-2xl font-bold">📊 Ekyte</h1>
           <p className="text-sm text-brand-muted">Sincroniza tasks e cruza com contrato, apontamento e prazos.</p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
           <select className="input" value={periodo} onChange={(e) => setPeriodo(e.target.value as Periodo)}>
             {Object.entries(PERIODO_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
+          {periodo === "custom" && (
+            <div className="flex gap-2 items-center">
+              <span className="text-xs text-brand-muted">de</span>
+              <input type="date" className="input" value={customIni}
+                onChange={(e) => setCustomIni(e.target.value)} />
+              <span className="text-xs text-brand-muted">até</span>
+              <input type="date" className="input" value={customFim}
+                onChange={(e) => setCustomFim(e.target.value)} />
+            </div>
+          )}
           <select className="input" value={filtroSquad} onChange={(e) => setFiltroSquad(e.target.value)}>
             <option value="">Todos os squads</option>
             {squads.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
