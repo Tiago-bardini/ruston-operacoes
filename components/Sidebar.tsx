@@ -24,6 +24,7 @@ const NAV_ACTIVE: NavItem[] = [
   { href: "/metas", label: "Metas", icon: "◈" },
   { href: "/fca", label: "FCA", icon: "▤" },
   { href: "/ekyte", label: "Ekyte", icon: "📊" },
+  { href: "/radar-whatsapp", label: "Radar WhatsApp", icon: "📱" },
   { href: "/headcount", label: "Headcount", icon: "☰", soGerenteCoord: true },
   { href: "/forecast", label: "Forecast", icon: "↗", soGerenteCoord: true },
   { href: "/reunioes", label: "Reuniões", icon: "☎" },
@@ -40,15 +41,6 @@ const NAV_SOON: NavSoonItem[] = [
       "Sinais de risco de churn",
       "Sinais de upsell",
       "Integração Google Meet",
-    ],
-  },
-  {
-    label: "Radar WhatsApp",
-    icon: "💬",
-    subitems: [
-      "Alerta 5 dias sem contato",
-      "Análise IA de grupos",
-      "Sinais de churn/upsell",
     ],
   },
   {
