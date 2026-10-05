@@ -98,9 +98,9 @@ export async function POST(req: Request) {
 
     const conversa_id = conv?.id;
 
-    // Incrementa contador manualmente
+    // Incrementa contador manualmente (ignora erro se função não existir)
     if (conversa_id) {
-      await supabase.rpc("exec_sql_increment_conv_msgs", { p_conversa_id: conversa_id }).then(() => null).catch(() => null);
+      try { await supabase.rpc("exec_sql_increment_conv_msgs", { p_conversa_id: conversa_id }); } catch {}
     }
 
     // 2) INSERT mensagem (ignora duplicata via message_id)
@@ -123,7 +123,7 @@ export async function POST(req: Request) {
     // 3) Tenta vincular conversa → cliente pelo número (match automático)
     //    Roda a função que criamos no SQL. Só mexe em conversas sem vínculo.
     if (!isGroup) {
-      await supabase.rpc("fn_whatsapp_match_clientes").then(() => null).catch(() => null);
+      try { await supabase.rpc("fn_whatsapp_match_clientes"); } catch {}
     }
 
     return NextResponse.json({ ok: true, conversa_id, chat_id });
