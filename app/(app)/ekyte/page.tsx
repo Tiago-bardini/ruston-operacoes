@@ -230,10 +230,10 @@ export default function EkytePage() {
       }
       const l = map.get(key)!;
       l.tasks_total += 1;
-      if (t.resolved_date) {
-        l.tasks_concluidas += 1;
-        l.minutos_apontados += t.actual_time ?? 0;
-      }
+      // Horas apontadas = soma de actual_time de QUALQUER task do período
+      // (não só concluídas — pessoa pode apontar horas em task ainda em andamento)
+      l.minutos_apontados += t.actual_time ?? 0;
+      if (t.resolved_date) l.tasks_concluidas += 1;
       if (t.esta_atrasada) l.tasks_atrasadas += 1;
       if (t.foi_prorrogada) l.tasks_prorrogadas += 1;
     });
@@ -474,7 +474,8 @@ export default function EkytePage() {
                 const concluidas = tasksDaPessoa.filter((t) => t.resolved_date).length;
                 const atrasadas = tasksDaPessoa.filter((t) => t.esta_atrasada).length;
                 const prorrogadas = tasksDaPessoa.filter((t) => t.foi_prorrogada).length;
-                const minutos = tasksDaPessoa.filter((t) => t.resolved_date).reduce((acc, t) => acc + (t.actual_time ?? 0), 0);
+                // Horas apontadas = soma de actual_time de QUALQUER task da pessoa no período
+                const minutos = tasksDaPessoa.reduce((acc, t) => acc + (t.actual_time ?? 0), 0);
                 return (
                   <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
                     <Card label="Tasks no período" value={total} />
