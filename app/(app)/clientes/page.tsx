@@ -25,6 +25,7 @@ const emptyForm = {
   prazo_contrato_meses: "",
   data_vencimento_contrato: "",
   contrato_url: "",
+  whatsapp: "",
   coordenador_id: "",
   account_id: "",
   gestor_trafego_id: "",
@@ -85,6 +86,7 @@ export default function ClientesPage() {
       prazo_contrato_meses: form.prazo_contrato_meses ? Number(form.prazo_contrato_meses) : null,
       data_vencimento_contrato: form.data_vencimento_contrato || null,
       contrato_url: form.contrato_url || null,
+      whatsapp: form.whatsapp ? form.whatsapp.replace(/\D/g, "") || null : null,
       coordenador_id: form.coordenador_id || null,
       account_id: form.account_id || null,
       gestor_trafego_id: form.gestor_trafego_id || null,
@@ -115,6 +117,7 @@ export default function ClientesPage() {
       prazo_contrato_meses: c.prazo_contrato_meses != null ? String(c.prazo_contrato_meses) : "",
       data_vencimento_contrato: c.data_vencimento_contrato ?? "",
       contrato_url: c.contrato_url ?? "",
+      whatsapp: c.whatsapp ?? "",
       coordenador_id: c.coordenador_id ?? "",
       account_id: c.account_id ?? "",
       gestor_trafego_id: c.gestor_trafego_id ?? "",
@@ -377,6 +380,18 @@ export default function ClientesPage() {
               <label className="label">URL do contrato</label>
               <input className="input" value={form.contrato_url}
                 onChange={(e) => setForm({ ...form, contrato_url: e.target.value })} />
+            </div>
+            <div className="lg:col-span-3">
+              <label className="label">📱 WhatsApp do cliente</label>
+              <input
+                className="input"
+                value={form.whatsapp}
+                onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
+                placeholder="Ex: 5541988888888 (DDI + DDD + número)"
+              />
+              <p className="mt-1 text-[10px] text-brand-muted">
+                Usado pelo Radar WhatsApp pra ligar conversas ao cliente. Pode colar com (), -, espaços — a gente limpa.
+              </p>
             </div>
             <div>
               <label className="label">Squad</label>
