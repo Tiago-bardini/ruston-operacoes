@@ -457,6 +457,7 @@ export interface Cliente {
   subiu_no_sistema: boolean;
   subiu_no_sistema_em: string | null;
   link_debriefing_churn: string | null;
+  whatsapp: string | null;
   plano_acao_monetizacao: string | null;
   plano_acao_atualizado_em: string | null;
   coordenador_id: string | null;
