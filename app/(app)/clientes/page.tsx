@@ -86,7 +86,12 @@ export default function ClientesPage() {
       prazo_contrato_meses: form.prazo_contrato_meses ? Number(form.prazo_contrato_meses) : null,
       data_vencimento_contrato: form.data_vencimento_contrato || null,
       contrato_url: form.contrato_url || null,
-      whatsapp: form.whatsapp ? form.whatsapp.replace(/\D/g, "") || null : null,
+      whatsapp: form.whatsapp
+        ? form.whatsapp.split(",")
+            .map((n) => n.replace(/\D/g, ""))
+            .filter((n) => n.length >= 10)
+            .join(",") || null
+        : null,
       coordenador_id: form.coordenador_id || null,
       account_id: form.account_id || null,
       gestor_trafego_id: form.gestor_trafego_id || null,
@@ -382,15 +387,16 @@ export default function ClientesPage() {
                 onChange={(e) => setForm({ ...form, contrato_url: e.target.value })} />
             </div>
             <div className="lg:col-span-3">
-              <label className="label">📱 WhatsApp do cliente</label>
-              <input
+              <label className="label">📱 WhatsApp(s) do cliente</label>
+              <textarea
                 className="input"
+                rows={2}
                 value={form.whatsapp}
                 onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
-                placeholder="Ex: 5541988888888 (DDI + DDD + número)"
+                placeholder="Ex: 5541988888888, 5541977777777"
               />
               <p className="mt-1 text-[10px] text-brand-muted">
-                Usado pelo Radar WhatsApp pra ligar conversas ao cliente. Pode colar com (), -, espaços — a gente limpa.
+                Vários números? Separa por vírgula. Usado pelo Radar WhatsApp pra ligar conversas ao cliente. Pode colar com (), -, espaços — a gente limpa.
               </p>
             </div>
             <div>
