@@ -7,6 +7,10 @@
     {
       "path": "/api/whatsapp-alertas-check?tipo=silencio",
       "schedule": "0 20 * * 1-5"
+    },
+    {
+      "path": "/api/whatsapp-analise-ia",
+      "schedule": "0 10 * * *"
     }
   ]
 }
