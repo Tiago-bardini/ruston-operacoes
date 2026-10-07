@@ -135,9 +135,11 @@ export async function POST(req: Request) {
 
     // 3) Match automático conversa → cliente
     //    - Individual (1:1): pelo número do contato
-    //    - Grupo: pelos participantes (cliente com mais msgs no grupo)
+    //    - Grupo: 1º tenta pelos participantes, 2º tenta pelo nome do grupo
     if (isGroup) {
       try { await supabase.rpc("fn_whatsapp_match_grupos"); } catch {}
+      // Fallback: tenta vincular pelo nome do grupo (ex: "[RIO MAQ] V4 Externo" → cliente "RIO MAQ")
+      try { await supabase.rpc("fn_whatsapp_match_grupos_por_nome"); } catch {}
     } else {
       try { await supabase.rpc("fn_whatsapp_match_clientes"); } catch {}
     }
