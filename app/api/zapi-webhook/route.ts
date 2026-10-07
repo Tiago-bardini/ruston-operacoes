@@ -82,6 +82,12 @@ export async function POST(req: Request) {
   if (!chat_id) return NextResponse.json({ ok: false, error: "sem chat_id" }, { status: 400 });
 
   const { tipo, conteudo, media_url } = extrairConteudo(payload);
+
+  // Ignora msgs vazias (eventos de grupo, reações, status etc.)
+  // Mensagem real tem conteudo OU media_url. Tipo "outro" sem nada = lixo.
+  if (tipo === "outro" && !conteudo && !media_url) {
+    return NextResponse.json({ ok: true, ignored: "msg_vazia_ou_evento_grupo" });
+  }
   // Z-API usa `momment` em milissegundos. messageTimestamp pode vir em segundos.
   // Detecta: valores >= 10^12 são ms, senão segundos.
   const rawTs = payload.momment ?? payload.messageTimestamp ?? Date.now();
