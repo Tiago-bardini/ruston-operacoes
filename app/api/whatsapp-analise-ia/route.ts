@@ -20,7 +20,7 @@ export const maxDuration = 300;
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
-const MODELO_LLM = "llama-3.1-70b-versatile";
+const MODELO_LLM = "openai/gpt-oss-120b";
 const MODELO_WHISPER = "whisper-large-v3";
 
 type Msg = {
