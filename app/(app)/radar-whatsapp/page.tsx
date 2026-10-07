@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatBRL } from "@/lib/types";
+import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
 type Conversa = {
   conversa_id: string;
@@ -31,25 +33,50 @@ type Tab = "radar" | "churn" | "upsell" | "silencio" | "sem_vinculo";
 
 const DIAS_ALERTA_SILENCIO = 5;
 
+type Squad = { id: string; nome: string };
+
 export default function RadarWhatsappPage() {
   const supabase = createClient();
+  const router = useRouter();
+  const { loading: loadingPerfil, isGerente, isCoordenador, squadId: perfilSquadId } = useUsuarioPerfil();
+
+  // Só gerente e coordenador podem acessar
+  useEffect(() => {
+    if (!loadingPerfil && !isGerente && !isCoordenador) {
+      router.push("/cockpit");
+    }
+  }, [loadingPerfil, isGerente, isCoordenador, router]);
   const [conversas, setConversas] = useState<Conversa[]>([]);
+  const [squads, setSquads] = useState<Squad[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("radar");
   const [busca, setBusca] = useState("");
+  const [filtroSquad, setFiltroSquad] = useState<string>("");
 
   async function carregar() {
     setLoading(true);
-    const { data } = await supabase.from("ruston_whatsapp_radar_view").select("*").limit(5000);
+    const [{ data }, { data: sq }] = await Promise.all([
+      supabase.from("ruston_whatsapp_radar_view").select("*").limit(5000),
+      supabase.from("ruston_squads").select("id,nome").eq("ativo", true).order("nome"),
+    ]);
     setConversas((data as Conversa[]) ?? []);
+    setSquads((sq as Squad[]) ?? []);
     setLoading(false);
   }
 
   useEffect(() => { carregar(); }, []);
 
+  // Coordenador trava no próprio squad
+  useEffect(() => {
+    if (isCoordenador && perfilSquadId) setFiltroSquad(perfilSquadId);
+  }, [isCoordenador, perfilSquadId]);
+
   const filtradas = useMemo(() => {
     const term = busca.toLowerCase().trim();
     return conversas.filter((c) => {
+      // Filtro de squad
+      if (filtroSquad && c.squad_id !== filtroSquad) return false;
+      // Filtro de busca
       if (!term) return true;
       return (
         c.cliente_nome?.toLowerCase().includes(term) ||
@@ -57,7 +84,7 @@ export default function RadarWhatsappPage() {
         c.numero?.includes(term)
       );
     });
-  }, [conversas, busca]);
+  }, [conversas, busca, filtroSquad]);
 
   const emChurn = useMemo(() => filtradas.filter((c) => c.risco_churn === "alto" || c.risco_churn === "medio"), [filtradas]);
   const emUpsell = useMemo(() => filtradas.filter((c) => c.oportunidade_upsell === "clara" || c.oportunidade_upsell === "possivel"), [filtradas]);
@@ -82,12 +109,24 @@ export default function RadarWhatsappPage() {
             Monitora conversas com clientes. Detecta risco de churn, oportunidades de upsell e silêncio prolongado.
           </p>
         </div>
-        <input
-          className="input w-64"
-          placeholder="🔍 Buscar cliente, nome, número..."
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-        />
+        <div className="flex gap-2 flex-wrap">
+          <select
+            className="input"
+            value={filtroSquad}
+            onChange={(e) => setFiltroSquad(e.target.value)}
+            disabled={isCoordenador && !isGerente}
+            title={isCoordenador && !isGerente ? "Coordenador vê só o próprio squad" : ""}
+          >
+            {isGerente && <option value="">Todos os squads</option>}
+            {squads.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+          </select>
+          <input
+            className="input w-64"
+            placeholder="🔍 Buscar cliente, nome, número..."
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+        </div>
       </div>
 
 
