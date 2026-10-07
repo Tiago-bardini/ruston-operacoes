@@ -82,8 +82,11 @@ export async function POST(req: Request) {
   if (!chat_id) return NextResponse.json({ ok: false, error: "sem chat_id" }, { status: 400 });
 
   const { tipo, conteudo, media_url } = extrairConteudo(payload);
-  const timestamp = payload.messageTimestamp ?? payload.momment ?? Math.floor(Date.now() / 1000);
-  const enviada_em = new Date(timestamp * 1000).toISOString();
+  // Z-API usa `momment` em milissegundos. messageTimestamp pode vir em segundos.
+  // Detecta: valores >= 10^12 são ms, senão segundos.
+  const rawTs = payload.momment ?? payload.messageTimestamp ?? Date.now();
+  const tsMs = typeof rawTs === "number" ? (rawTs >= 1e12 ? rawTs : rawTs * 1000) : Date.now();
+  const enviada_em = new Date(tsMs).toISOString();
   const de_mim = payload.fromMe === true;
 
   const autor_numero = clean(isGroup ? (payload.participantPhone ?? payload.senderPhone) : (de_mim ? payload.connectedPhone : chatPhone));
@@ -91,7 +94,7 @@ export async function POST(req: Request) {
 
   try {
     // 1) UPSERT conversa (chat_id como chave)
-    const { data: conv } = await supabase
+    const { data: conv, error: convErr } = await supabase
       .from("ruston_whatsapp_conversas")
       .upsert({
         chat_id,
@@ -104,6 +107,7 @@ export async function POST(req: Request) {
       .select("id")
       .single();
 
+    if (convErr) console.error("[zapi-webhook] erro ao upsert conversa:", convErr);
     const conversa_id = conv?.id;
 
     // Incrementa contador manualmente (ignora erro se função não existir)
@@ -113,7 +117,7 @@ export async function POST(req: Request) {
 
     // 2) INSERT mensagem (ignora duplicata via message_id)
     if (conversa_id) {
-      await supabase.from("ruston_whatsapp_mensagens").upsert({
+      const { error: msgErr } = await supabase.from("ruston_whatsapp_mensagens").upsert({
         message_id: messageId,
         conversa_id,
         chat_id,
@@ -126,6 +130,7 @@ export async function POST(req: Request) {
         enviada_em,
         payload_raw: payload,
       }, { onConflict: "message_id", ignoreDuplicates: true });
+      if (msgErr) console.error("[zapi-webhook] erro ao upsert msg:", msgErr);
     }
 
     // 3) Match automático conversa → cliente
