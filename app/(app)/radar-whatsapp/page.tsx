@@ -73,8 +73,6 @@ export default function RadarWhatsappPage() {
     upsell_claro: conversas.filter((c) => c.oportunidade_upsell === "clara").length,
   }), [conversas, emSilencio]);
 
-  const semZapi = conversas.length === 0 && !loading;
-
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -92,23 +90,6 @@ export default function RadarWhatsappPage() {
         />
       </div>
 
-      {/* Setup pendente */}
-      {semZapi && (
-        <div className="card border border-amber-500/30 bg-amber-500/10 p-4">
-          <p className="font-semibold text-amber-300">⚠ Z-API ainda não configurada</p>
-          <p className="mt-1 text-sm text-brand-muted">
-            Pra começar a receber conversas aqui, você precisa criar uma conta Z-API e configurar o webhook.
-            O passo a passo está nessa conversa com o Claude. Qualquer dúvida, só chamar.
-          </p>
-          <ol className="mt-3 ml-5 list-decimal text-xs text-brand-muted space-y-1">
-            <li>Criar conta em z-api.io e gerar uma instância</li>
-            <li>Fornecer Instance ID + Token + Client Token pro Claude</li>
-            <li>Claude configura o webhook pra `/api/zapi-webhook`</li>
-            <li>Conectar seu WhatsApp Business via QR Code no painel Z-API</li>
-            <li>Mensagens começam a aparecer aqui em tempo real</li>
-          </ol>
-        </div>
-      )}
 
       {/* STATS */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -152,7 +133,7 @@ export default function RadarWhatsappPage() {
                 filtradas;
               if (lista.length === 0) return (
                 <tr><td colSpan={8} className="px-3 py-12 text-center text-brand-muted">
-                  {semZapi ? "Nenhuma conversa ainda. Configure Z-API primeiro." : "Nenhuma conversa nesse filtro."}
+                  Nenhuma conversa nesse filtro.
                 </td></tr>
               );
               return lista
