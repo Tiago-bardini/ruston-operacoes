@@ -51,18 +51,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "payload inválido" }, { status: 400 });
   }
 
+  // LOG completo pra debug (aparece nos Vercel Logs)
+  console.log("[zapi-webhook] payload recebido:", JSON.stringify(payload).slice(0, 2000));
+
   // Z-API manda vários tipos de callback. Só processamos mensagem.
-  // Tipos comuns: ReceivedCallback (recebeu), MessageStatusCallback (status), etc.
-  const type = payload.type ?? payload.callbackType ?? null;
-  const isMensagem = (
-    type === "ReceivedCallback" ||
-    type === "DeliveryCallback" ||
-    (payload.messageId && (payload.phone || payload.chat))
+  // Tipos: ReceivedCallback, DeliveryCallback, MessageStatusCallback, PresenceChatCallback etc.
+  const type = payload.type ?? payload.callbackType ?? payload.event ?? null;
+  const isStatusOuPresenca = (
+    type === "MessageStatusCallback" ||
+    type === "PresenceChatCallback" ||
+    type === "ConnectedCallback" ||
+    type === "DisconnectedCallback" ||
+    (payload.status && !payload.messageId) // só status
   );
 
-  // Se não for mensagem, ack rápido (status, conexão, etc.) — não processa
+  // Qualquer coisa com phone + messageId tratamos como mensagem (recebida ou enviada)
+  const temConteudo = !!(payload.messageId && (payload.phone || payload.chat || payload.chatId));
+  const isMensagem = temConteudo && !isStatusOuPresenca;
+
   if (!isMensagem) {
-    return NextResponse.json({ ok: true, ignored: type ?? "sem_type" });
+    return NextResponse.json({ ok: true, ignored: type ?? "sem_type", temConteudo });
   }
 
   const messageId = payload.messageId ?? payload.id;
@@ -120,9 +128,12 @@ export async function POST(req: Request) {
       }, { onConflict: "message_id", ignoreDuplicates: true });
     }
 
-    // 3) Tenta vincular conversa → cliente pelo número (match automático)
-    //    Roda a função que criamos no SQL. Só mexe em conversas sem vínculo.
-    if (!isGroup) {
+    // 3) Match automático conversa → cliente
+    //    - Individual (1:1): pelo número do contato
+    //    - Grupo: pelos participantes (cliente com mais msgs no grupo)
+    if (isGroup) {
+      try { await supabase.rpc("fn_whatsapp_match_grupos"); } catch {}
+    } else {
       try { await supabase.rpc("fn_whatsapp_match_clientes"); } catch {}
     }
 
