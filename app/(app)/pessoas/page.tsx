@@ -22,6 +22,7 @@ const CARGOS_COM_SENIORIDADE: Cargo[] = [
 const emptyForm = {
   nome: "",
   email: "",
+  whatsapp: "",
   cargo: "gestor_projetos" as Cargo,
   squad_id: "",
   nivel_senioridade: "" as NivelSenioridade | "",
@@ -61,6 +62,12 @@ export default function PessoasPage() {
     const payload = {
       nome: form.nome,
       email: form.email || null,
+      whatsapp: form.whatsapp
+        ? form.whatsapp.split(",")
+            .map((n) => n.replace(/\D/g, ""))
+            .filter((n) => n.length >= 10)
+            .join(",") || null
+        : null,
       cargo: form.cargo,
       squad_id: form.squad_id || null,
       nivel_senioridade: form.nivel_senioridade || null,
@@ -84,6 +91,7 @@ export default function PessoasPage() {
     setForm({
       nome: p.nome,
       email: p.email ?? "",
+      whatsapp: (p as any).whatsapp ?? "",
       cargo: p.cargo,
       squad_id: p.squad_id ?? "",
       nivel_senioridade: p.nivel_senioridade ?? "",
@@ -169,6 +177,15 @@ export default function PessoasPage() {
                 onChange={(e) => setForm({ ...form, cargo: e.target.value as Cargo })}>
                 {CARGOS.map((c) => <option key={c} value={c}>{CARGO_LABEL[c]}</option>)}
               </select>
+            </div>
+            <div className="lg:col-span-3">
+              <label className="label">📱 WhatsApp (recebe alertas)</label>
+              <input className="input" value={form.whatsapp}
+                onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
+                placeholder="Ex: 5541988888888 (DDI + DDD + número). Múltiplos? separa por vírgula" />
+              <p className="mt-1 text-[10px] text-brand-muted">
+                Coordenadores e gerentes com WhatsApp cadastrado recebem alertas automáticos de SLA, silêncio etc.
+              </p>
             </div>
             <div>
               <label className="label">Squad</label>
