@@ -28,8 +28,111 @@ export default function FcaPage() {
   const [filterBandeira, setFilterBandeira] = useState<BandeiraFca | "">("");
   const [filterStatus, setFilterStatus] = useState<StatusFca | "">("");
   const [modalCliente, setModalCliente] = useState<ClienteView | null>(null);
+  const [importando, setImportando] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
 
   const sextas = useMemo(() => ultimasSextas(24), []);
+
+  // -----------------------------------------------------------------------
+  // Importar JSON em lote
+  // -----------------------------------------------------------------------
+  // Formato esperado:
+  // [
+  //   {
+  //     "cliente_nome": "ABC Marketing",   // ou "cliente_id": "uuid"
+  //     "data_referencia": "2026-10-09",   // opcional, usa dataRef se omitir
+  //     "nota_resultado": 8,
+  //     "nota_operacao_trafego": 7,
+  //     "nota_prazo": 9,
+  //     "nota_qualidade": 8,
+  //     "nota_relacionamento": 8,
+  //     "nota_roi": 7,
+  //     "fato": "...",
+  //     "causa": "...",
+  //     "acao": "...",
+  //     "observacoes": "...",
+  //     "status": "rascunho" | "aguardando_validacao" | "validado"
+  //   }
+  // ]
+  async function importarJSON(file: File) {
+    setImportando(true);
+    setImportResult(null);
+    let ok = 0, err = 0;
+    const erros: string[] = [];
+    try {
+      const txt = await file.text();
+      const raw = JSON.parse(txt);
+      const itens: any[] = Array.isArray(raw) ? raw : (raw.itens ?? raw.data ?? [raw]);
+
+      for (const it of itens) {
+        try {
+          // Resolver cliente_id
+          let clienteId = it.cliente_id as string | undefined;
+          if (!clienteId && it.cliente_nome) {
+            const nomeBusca = String(it.cliente_nome).trim().toLowerCase();
+            const match = clientes.find((c) => c.nome.toLowerCase() === nomeBusca)
+                       ?? clientes.find((c) => c.nome.toLowerCase().includes(nomeBusca));
+            clienteId = match?.id;
+          }
+          if (!clienteId) {
+            erros.push(`cliente não encontrado: ${it.cliente_nome ?? "(sem nome)"}`);
+            err++;
+            continue;
+          }
+
+          const dRef = it.data_referencia ?? dataRef;
+          const d = new Date(dRef + "T00:00:00");
+
+          const payload: any = {
+            cliente_id: clienteId,
+            data_referencia: dRef,
+            ano: d.getFullYear(),
+            mes: d.getMonth() + 1,
+            nota_resultado:        it.nota_resultado        ?? it.resultado        ?? null,
+            nota_operacao_trafego: it.nota_operacao_trafego ?? it.operacao_trafego ?? it.operacao ?? null,
+            nota_prazo:            it.nota_prazo            ?? it.prazo            ?? null,
+            nota_qualidade:        it.nota_qualidade        ?? it.qualidade        ?? null,
+            nota_relacionamento:   it.nota_relacionamento   ?? it.relacionamento   ?? null,
+            nota_roi:              it.nota_roi              ?? it.roi              ?? null,
+            fato:  it.fato  ?? null,
+            causa: it.causa ?? null,
+            acao:  it.acao  ?? null,
+            observacoes: it.observacoes ?? null,
+            status: it.status ?? "rascunho",
+          };
+
+          // Já existe? Atualiza. Se não, insere.
+          const { data: existente } = await supabase
+            .from("ruston_fca")
+            .select("id")
+            .eq("cliente_id", clienteId)
+            .eq("data_referencia", dRef)
+            .maybeSingle();
+
+          if (existente?.id) {
+            const { error } = await supabase.from("ruston_fca").update(payload).eq("id", existente.id);
+            if (error) throw error;
+          } else {
+            const { error } = await supabase.from("ruston_fca").insert(payload);
+            if (error) throw error;
+          }
+          ok++;
+        } catch (e: any) {
+          err++;
+          erros.push(`${it.cliente_nome ?? it.cliente_id ?? "?"}: ${e?.message ?? e}`);
+        }
+      }
+
+      setImportResult(
+        `✓ ${ok} importado(s), ${err} erro(s)${erros.length ? "\n\nErros:\n" + erros.slice(0, 5).join("\n") : ""}`
+      );
+      await load();
+    } catch (e: any) {
+      setImportResult(`Erro ao ler JSON: ${e?.message ?? e}`);
+    } finally {
+      setImportando(false);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -130,7 +233,33 @@ export default function FcaPage() {
               <option value="aguardando_validacao">Aguardando validação</option>
               <option value="validado">Validado</option>
             </select>
+
+            {/* Importar JSON em lote */}
+            <label className="btn-ghost cursor-pointer ml-auto">
+              {importando ? "Importando..." : "📤 Importar JSON"}
+              <input
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                disabled={importando}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) importarJSON(f);
+                  e.target.value = ""; // reset pra permitir re-upload do mesmo arquivo
+                }}
+              />
+            </label>
           </div>
+
+          {importResult && (
+            <div className="mb-4 rounded-lg border border-brand/30 bg-brand-panel/50 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <pre className="text-xs text-white whitespace-pre-wrap flex-1">{importResult}</pre>
+                <button onClick={() => setImportResult(null)}
+                  className="text-brand-muted hover:text-white text-sm">×</button>
+              </div>
+            </div>
+          )}
 
           {/* Stats */}
           <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -674,9 +803,9 @@ function FcaModal({ cliente, avaliacao, dataRef, historicoCliente, onFechar, onS
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 overflow-y-auto"
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 overflow-y-auto"
       onClick={onFechar}>
-      <div className="w-full max-w-3xl rounded-xl bg-brand-panel p-6 shadow-lg my-8"
+      <div className="w-full max-w-3xl rounded-xl bg-brand-panel p-6 shadow-lg my-8 max-h-[calc(100vh-4rem)] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-start justify-between">
           <div>
