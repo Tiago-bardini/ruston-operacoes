@@ -23,7 +23,7 @@ export const maxDuration = 300;
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const OPENAI_WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
-const MODELO_LLM = "claude-sonnet-5-5-20251001";
+const MODELO_LLM = "claude-sonnet-4-5-20250929";
 const MODELO_WHISPER = "whisper-1";
 
 type Msg = {
