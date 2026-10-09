@@ -1,0 +1,26 @@
+name: WhatsApp Análise IA (Claude Sonnet + Whisper)
+
+on:
+  schedule:
+    - cron: "0 14 * * *"
+    - cron: "0 20 * * *"
+  workflow_dispatch:
+
+jobs:
+  rodar-analise:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chamar endpoint de análise
+        run: |
+          echo "Chamando análise IA às $(date -u) UTC..."
+          RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" \
+            -X POST \
+            "${{ secrets.VERCEL_APP_URL }}/api/whatsapp-analise-ia?limit=100")
+          echo "Resposta:"
+          echo "$RESPONSE"
+          HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d':' -f2)
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Falhou com HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "Analise concluida"
