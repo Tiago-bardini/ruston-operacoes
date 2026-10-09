@@ -1,15 +1,18 @@
 // =====================================================================
-// WHATSAPP ANÁLISE IA — roda Llama 3.3 (Groq) + Whisper em cada conversa
+// WHATSAPP ANÁLISE IA — Claude Sonnet 5.5 + OpenAI Whisper
 // =====================================================================
 // Pra cada conversa com cliente vinculado:
 //   1) Pega msgs desde a última análise
-//   2) Transcreve áudios com Whisper (Groq)
-//   3) Monta contexto separando Ruston (equipe cadastrada em /pessoas) de cliente
-//   4) Envia pro Llama 3.3 70B
+//   2) Transcreve áudios com Whisper (OpenAI)
+//   3) Monta contexto separando Ruston (equipe cadastrada) de cliente
+//   4) Envia pro Claude Sonnet 5.5
 //   5) Salva resultado (temperatura, risco churn, upsell, sinais, resumo)
 //
-// Rodado via Vercel Cron 1x/dia (às 7h BR = 10h UTC).
-// Também pode ser chamado manual: /api/whatsapp-analise-ia?limit=10
+// Env vars necessárias:
+//   - ANTHROPIC_API_KEY
+//   - OPENAI_API_KEY
+//   - SUPABASE_SERVICE_ROLE_KEY
+//   - NEXT_PUBLIC_SUPABASE_URL
 // =====================================================================
 
 import { NextResponse } from "next/server";
@@ -18,10 +21,10 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
-const MODELO_LLM = "openai/gpt-oss-120b";
-const MODELO_WHISPER = "whisper-large-v3";
+const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+const OPENAI_WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
+const MODELO_LLM = "claude-sonnet-5-5-20251001";
+const MODELO_WHISPER = "whisper-1";
 
 type Msg = {
   id: string;
@@ -35,23 +38,21 @@ type Msg = {
   transcricao: string | null;
 };
 
-async function transcreverAudio(audioUrl: string, groqKey: string): Promise<string | null> {
+async function transcreverAudio(audioUrl: string, openaiKey: string): Promise<string | null> {
   try {
-    // Baixa o áudio
     const audioRes = await fetch(audioUrl);
     if (!audioRes.ok) return null;
     const audioBlob = await audioRes.blob();
 
-    // Envia pro Whisper via Groq
     const form = new FormData();
     form.append("file", audioBlob, "audio.ogg");
     form.append("model", MODELO_WHISPER);
     form.append("language", "pt");
     form.append("response_format", "json");
 
-    const res = await fetch(GROQ_WHISPER_URL, {
+    const res = await fetch(OPENAI_WHISPER_URL, {
       method: "POST",
-      headers: { Authorization: `Bearer ${groqKey}` },
+      headers: { Authorization: `Bearer ${openaiKey}` },
       body: form,
     });
 
@@ -67,8 +68,8 @@ async function transcreverAudio(audioUrl: string, groqKey: string): Promise<stri
   }
 }
 
-async function analisarComLlama(contexto: string, cliente: string, groqKey: string): Promise<any> {
-  const prompt = `Você é um analista de relacionamento com cliente da agência de marketing Ruston & Co (franquia V4 Company).
+async function analisarComClaude(contexto: string, cliente: string, apiKey: string): Promise<any> {
+  const prompt = `Você é um analista sênior de relacionamento com cliente da agência de marketing Ruston & Co (franquia V4 Company).
 
 Analise a conversa abaixo entre a equipe Ruston e o cliente "${cliente}" e retorne APENAS um JSON válido (sem markdown, sem texto antes/depois) com essa estrutura:
 
@@ -90,44 +91,48 @@ Regras importantes:
 - "risco_churn alto" só quando há sinais explícitos (ultimato, reclamação séria, ameaça de cancelar)
 - "upsell clara" só quando o cliente pede mais serviço ou aumenta orçamento
 - Seja direto e prático nas ações sugeridas
+- Use português brasileiro informal mas profissional
 
 Conversa (ordem cronológica):
 ${contexto}
 
 Responda APENAS com o JSON válido, sem markdown.`;
 
-  const res = await fetch(GROQ_URL, {
+  const res = await fetch(ANTHROPIC_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${groqKey}`,
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
       model: MODELO_LLM,
-      messages: [{ role: "user", content: prompt }],
+      max_tokens: 2000,
       temperature: 0.3,
-      max_tokens: 1500,
-      response_format: { type: "json_object" },
+      messages: [{ role: "user", content: prompt }],
     }),
   });
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Groq erro ${res.status}: ${err}`);
+    throw new Error(`Anthropic erro ${res.status}: ${err}`);
   }
 
   const data = await res.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("resposta vazia do Llama");
+  const content = data.content?.[0]?.text;
+  if (!content) throw new Error("resposta vazia do Claude");
+
+  // Remove markdown se vier
+  const cleanContent = content.replace(/^```json\s*/i, "").replace(/\s*```\s*$/, "").trim();
 
   try {
     return {
-      analise: JSON.parse(content),
-      tokens_entrada: data.usage?.prompt_tokens ?? 0,
-      tokens_saida: data.usage?.completion_tokens ?? 0,
+      analise: JSON.parse(cleanContent),
+      tokens_entrada: data.usage?.input_tokens ?? 0,
+      tokens_saida: data.usage?.output_tokens ?? 0,
     };
   } catch {
-    throw new Error(`JSON inválido do Llama: ${content.slice(0, 200)}`);
+    throw new Error(`JSON inválido do Claude: ${cleanContent.slice(0, 200)}`);
   }
 }
 
@@ -150,16 +155,18 @@ export async function POST(req: Request) {
 export async function GET(req: Request) {
   const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SB_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const GROQ_KEY = process.env.GROQ_API_KEY;
+  const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+  const OPENAI_KEY = process.env.OPENAI_API_KEY;
 
   if (!SB_URL || !SB_SERVICE) return NextResponse.json({ error: "Supabase não configurado" }, { status: 500 });
-  if (!GROQ_KEY) return NextResponse.json({ error: "GROQ_API_KEY não configurada" }, { status: 500 });
+  if (!ANTHROPIC_KEY) return NextResponse.json({ error: "ANTHROPIC_API_KEY não configurada" }, { status: 500 });
+  if (!OPENAI_KEY) return NextResponse.json({ error: "OPENAI_API_KEY não configurada" }, { status: 500 });
 
   const supabase = createClient(SB_URL, SB_SERVICE, { auth: { persistSession: false } });
   const url = new URL(req.url);
   const limit = parseInt(url.searchParams.get("limit") ?? "50", 10);
 
-  // 1) Lista números do time Ruston
+  // 1) Números do time Ruston
   const { data: pessoas } = await supabase
     .from("ruston_pessoas")
     .select("whatsapp")
@@ -174,7 +181,7 @@ export async function GET(req: Request) {
     });
   });
 
-  // 2) Pega conversas com cliente vinculado e msgs novas desde a última análise
+  // 2) Conversas com cliente vinculado
   const { data: conversas } = await supabase
     .from("ruston_whatsapp_conversas")
     .select("id, nome, cliente_id, ultima_mensagem_em")
@@ -218,30 +225,27 @@ export async function GET(req: Request) {
       for (const m of msgs as any[]) {
         let transcricao: string | null = null;
         if (m.tipo === "audio" && m.media_url) {
-          transcricao = await transcreverAudio(m.media_url, GROQ_KEY);
+          transcricao = await transcreverAudio(m.media_url, OPENAI_KEY);
           if (transcricao) stats.audios_transcritos++;
         }
         msgsComTranscricao.push({ ...m, transcricao });
       }
 
-      // Dados do cliente
       const { data: cliente } = await supabase
         .from("ruston_clientes")
         .select("nome")
         .eq("id", conv.cliente_id)
         .single();
 
-      // Analisa com Llama
       const contexto = formatarContexto(msgsComTranscricao, numerosRuston);
-      if (contexto.length > 50000) {
-        // Trunca pros últimos 50k chars (contexto Llama 3.3 é 128k mas conservador)
-        // já ordenado cronologicamente, mantém o fim (mais recente)
-      }
-      const contextoTrunc = contexto.slice(-50000);
+      // Trunca pros últimos 80k chars (Claude Sonnet aguenta muito mais, mas conservador)
+      const contextoTrunc = contexto.slice(-80000);
 
-      const { analise, tokens_entrada, tokens_saida } = await analisarComLlama(contextoTrunc, cliente?.nome ?? "cliente", GROQ_KEY);
+      const { analise, tokens_entrada, tokens_saida } = await analisarComClaude(contextoTrunc, cliente?.nome ?? "cliente", ANTHROPIC_KEY);
 
-      // Salva análise
+      // Custo estimado (Claude Sonnet 5.5): $3/MTok input + $15/MTok output
+      const custoUSD = (tokens_entrada * 3 / 1_000_000) + (tokens_saida * 15 / 1_000_000);
+
       await supabase.from("ruston_whatsapp_analises").insert({
         conversa_id: conv.id,
         cliente_id: conv.cliente_id,
@@ -260,7 +264,7 @@ export async function GET(req: Request) {
         modelo: MODELO_LLM,
         tokens_entrada,
         tokens_saida,
-        custo_estimado_usd: 0,
+        custo_estimado_usd: Number(custoUSD.toFixed(6)),
       });
 
       stats.analisadas++;
