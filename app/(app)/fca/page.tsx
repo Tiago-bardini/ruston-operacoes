@@ -30,8 +30,75 @@ export default function FcaPage() {
   const [modalCliente, setModalCliente] = useState<ClienteView | null>(null);
   const [importando, setImportando] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
+  const [showImportPanel, setShowImportPanel] = useState(false);
+  const [jsonText, setJsonText] = useState("");
 
   const sextas = useMemo(() => ultimasSextas(24), []);
+
+  // Modelo de JSON (usado nos botões "Baixar modelo" e "Copiar exemplo")
+  const MODELO_JSON = useMemo(() => {
+    const exemplo = [
+      {
+        cliente_nome: "Nome do Cliente 1",
+        data_referencia: dataRef,
+        nota_resultado: 8,
+        nota_operacao_trafego: 7.5,
+        nota_prazo: 9,
+        nota_qualidade: 8,
+        nota_relacionamento: 9,
+        nota_roi: 7,
+        fato: "Campanha de leads superou meta em 15% na semana. Cliente aprovou criativos no mesmo dia.",
+        causa: "Boa segmentação da campanha + alinhamento semanal fixo com o cliente funcionando.",
+        acao: "Manter cadência atual, propor expansão de verba pro próximo mês.",
+        observacoes: "",
+        status: "rascunho",
+      },
+      {
+        cliente_nome: "Nome do Cliente 2",
+        nota_resultado: 5,
+        nota_operacao_trafego: 6,
+        nota_prazo: 4,
+        nota_qualidade: 7,
+        nota_relacionamento: 6,
+        nota_roi: 5,
+        fato: "Cliente reclamou do atraso na entrega da LP. CPL subiu 30% na semana.",
+        causa: "Fila de design travada, falta de aprovação de material pelo cliente no prazo.",
+        acao: "Reunião de alinhamento emergencial segunda-feira; revisar fluxo de aprovação.",
+        status: "rascunho",
+      },
+    ];
+    return JSON.stringify(exemplo, null, 2);
+  }, [dataRef]);
+
+  function baixarModelo() {
+    const blob = new Blob([MODELO_JSON], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `modelo-fca-${dataRef}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function copiarExemplo() {
+    try {
+      await navigator.clipboard.writeText(MODELO_JSON);
+      setImportResult("✓ Exemplo copiado! Agora é só colar no bloco abaixo e ajustar os dados.");
+    } catch {
+      setImportResult("Não deu pra copiar automaticamente. Seleciona o texto do modelo acima e copia manualmente.");
+    }
+  }
+
+  async function importarDoTexto() {
+    if (!jsonText.trim()) {
+      setImportResult("⚠️ Cola o JSON no bloco acima primeiro.");
+      return;
+    }
+    // Transforma o texto num "arquivo" fake pra reaproveitar a função importarJSON
+    const fakeFile = new File([jsonText], "colado.json", { type: "application/json" });
+    await importarJSON(fakeFile);
+    setJsonText(""); // limpa depois de importar
+  }
 
   // -----------------------------------------------------------------------
   // Importar JSON em lote
@@ -235,21 +302,96 @@ export default function FcaPage() {
             </select>
 
             {/* Importar JSON em lote */}
-            <label className="btn-ghost cursor-pointer ml-auto">
-              {importando ? "Importando..." : "📤 Importar JSON"}
-              <input
-                type="file"
-                accept="application/json,.json"
-                className="hidden"
-                disabled={importando}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) importarJSON(f);
-                  e.target.value = ""; // reset pra permitir re-upload do mesmo arquivo
-                }}
-              />
-            </label>
+            <button
+              className="btn-ghost ml-auto"
+              onClick={() => setShowImportPanel((v) => !v)}
+            >
+              {showImportPanel ? "✕ Fechar importação" : "📤 Importar JSON"}
+            </button>
           </div>
+
+          {/* Painel de importação */}
+          {showImportPanel && (
+            <div className="mb-4 rounded-lg border border-brand/30 bg-brand-panel/50 p-4 space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold mb-2">📤 Importar FCAs em lote via JSON</h3>
+                <p className="text-xs text-brand-muted">
+                  Dá pra importar várias avaliações de uma vez. Baixa o modelo abaixo, preenche com os dados dos clientes e cola ou envia aqui.
+                </p>
+              </div>
+
+              {/* Botões de ajuda */}
+              <div className="flex flex-wrap gap-2">
+                <button className="btn-ghost text-xs" onClick={baixarModelo}>
+                  💾 Baixar modelo (.json)
+                </button>
+                <button className="btn-ghost text-xs" onClick={copiarExemplo}>
+                  📋 Copiar exemplo
+                </button>
+                <label className="btn-ghost text-xs cursor-pointer">
+                  📁 Enviar arquivo
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    className="hidden"
+                    disabled={importando}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) importarJSON(f);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+
+              {/* Modelo visível */}
+              <details className="rounded-md border border-white/10 bg-black/20">
+                <summary className="cursor-pointer p-2 text-xs text-brand-muted hover:text-white">
+                  👁️ Ver modelo do JSON (clica pra expandir)
+                </summary>
+                <pre className="p-3 text-[11px] text-emerald-200 overflow-x-auto max-h-64 overflow-y-auto">
+{MODELO_JSON}
+                </pre>
+              </details>
+
+              {/* Explicação dos campos */}
+              <details className="rounded-md border border-white/10 bg-black/20">
+                <summary className="cursor-pointer p-2 text-xs text-brand-muted hover:text-white">
+                  📖 O que cada campo significa
+                </summary>
+                <div className="p-3 text-[11px] space-y-1">
+                  <p><span className="text-brand font-semibold">cliente_nome</span> — nome exato do cliente (igual ao cadastrado). <span className="text-amber-300">Obrigatório</span>.</p>
+                  <p><span className="text-brand font-semibold">data_referencia</span> — sexta-feira da semana no formato <code className="bg-white/10 px-1 rounded">YYYY-MM-DD</code>. Se omitir, usa a semana selecionada no filtro.</p>
+                  <p><span className="text-brand font-semibold">nota_resultado</span>, <span className="text-brand font-semibold">nota_operacao_trafego</span>, <span className="text-brand font-semibold">nota_prazo</span>, <span className="text-brand font-semibold">nota_qualidade</span>, <span className="text-brand font-semibold">nota_relacionamento</span>, <span className="text-brand font-semibold">nota_roi</span> — notas de 0 a 10 (aceita decimal, ex: 7.5).</p>
+                  <p><span className="text-brand font-semibold">fato</span> — o que aconteceu na semana.</p>
+                  <p><span className="text-brand font-semibold">causa</span> — por que aconteceu.</p>
+                  <p><span className="text-brand font-semibold">acao</span> — o que vamos fazer.</p>
+                  <p><span className="text-brand font-semibold">observacoes</span> — opcional.</p>
+                  <p><span className="text-brand font-semibold">status</span> — <code className="bg-white/10 px-1 rounded">rascunho</code>, <code className="bg-white/10 px-1 rounded">aguardando_validacao</code> ou <code className="bg-white/10 px-1 rounded">validado</code>. Default: rascunho.</p>
+                  <p className="mt-2 text-brand-muted italic">💡 Se já existe FCA pro mesmo cliente+semana, ele é atualizado. Senão, cria novo.</p>
+                </div>
+              </details>
+
+              {/* Textarea pra colar */}
+              <div>
+                <label className="label">Ou cola o JSON aqui:</label>
+                <textarea
+                  className="input font-mono text-xs"
+                  rows={10}
+                  placeholder='Cola o JSON aqui. Ex: [{"cliente_nome": "ABC", "nota_resultado": 8, ...}]'
+                  value={jsonText}
+                  onChange={(e) => setJsonText(e.target.value)}
+                />
+                <button
+                  className="btn mt-2"
+                  disabled={importando || !jsonText.trim()}
+                  onClick={importarDoTexto}
+                >
+                  {importando ? "⏳ Importando..." : "✓ Importar JSON colado"}
+                </button>
+              </div>
+            </div>
+          )}
 
           {importResult && (
             <div className="mb-4 rounded-lg border border-brand/30 bg-brand-panel/50 p-3">
