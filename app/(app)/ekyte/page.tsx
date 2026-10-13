@@ -102,6 +102,9 @@ export default function EkytePage() {
   const [customFim, setCustomFim] = useState<string>(hojeStr);
   const [filtroSquad, setFiltroSquad] = useState<string>("");
   const [pessoaSel, setPessoaSel] = useState<string>("");
+  // Filtros da tabela do Investidor 1:1
+  const [filtroStatusPessoa, setFiltroStatusPessoa] = useState<"todas" | "atrasadas" | "em_andamento" | "concluidas">("todas");
+  const [ordenacaoPessoa, setOrdenacaoPessoa] = useState<"atrasadas_primeiro" | "prazo_proximo" | "prazo_distante" | "concluidas_primeiro">("atrasadas_primeiro");
 
   async function carregar() {
     const [{ data: ls }, { data: ts }, { data: ps }, { data: sq }, { data: sm }] = await Promise.all([
@@ -488,7 +491,71 @@ export default function EkytePage() {
               })()}
 
               <div className="card p-4 overflow-x-auto">
-                <h3 className="mb-3 font-semibold">Tasks desta pessoa</h3>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="font-semibold">Tasks desta pessoa</h3>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <label className="text-xs text-brand-muted">Mostrar:</label>
+                    <select
+                      className="input text-xs py-1 max-w-[180px]"
+                      value={filtroStatusPessoa}
+                      onChange={(e) => setFiltroStatusPessoa(e.target.value as any)}
+                    >
+                      <option value="todas">Todas</option>
+                      <option value="atrasadas">🔴 Só atrasadas</option>
+                      <option value="em_andamento">🟡 Em andamento</option>
+                      <option value="concluidas">✅ Concluídas</option>
+                    </select>
+                    <label className="text-xs text-brand-muted">Ordenar:</label>
+                    <select
+                      className="input text-xs py-1 max-w-[220px]"
+                      value={ordenacaoPessoa}
+                      onChange={(e) => setOrdenacaoPessoa(e.target.value as any)}
+                    >
+                      <option value="atrasadas_primeiro">🔴 Atrasadas primeiro</option>
+                      <option value="prazo_proximo">⏰ Prazo mais próximo</option>
+                      <option value="prazo_distante">📅 Prazo mais distante</option>
+                      <option value="concluidas_primeiro">✅ Concluídas primeiro</option>
+                    </select>
+                  </div>
+                </div>
+                {(() => {
+                  // Aplica filtro de status
+                  let lista = [...tasksDaPessoa];
+                  if (filtroStatusPessoa === "atrasadas") {
+                    lista = lista.filter((t) => t.esta_atrasada && !t.resolved_date);
+                  } else if (filtroStatusPessoa === "em_andamento") {
+                    lista = lista.filter((t) => !t.resolved_date && !t.esta_atrasada);
+                  } else if (filtroStatusPessoa === "concluidas") {
+                    lista = lista.filter((t) => !!t.resolved_date);
+                  }
+                  // Aplica ordenação
+                  const hoje = new Date().getTime();
+                  const prazoMs = (t: Task) => t.current_due_date ? new Date(t.current_due_date).getTime() : Number.MAX_SAFE_INTEGER;
+                  if (ordenacaoPessoa === "atrasadas_primeiro") {
+                    // Atrasadas > em andamento > concluídas, dentro de cada grupo prazo mais próximo primeiro
+                    lista.sort((a, b) => {
+                      const sa = a.resolved_date ? 3 : (a.esta_atrasada ? 1 : 2);
+                      const sb = b.resolved_date ? 3 : (b.esta_atrasada ? 1 : 2);
+                      if (sa !== sb) return sa - sb;
+                      return prazoMs(a) - prazoMs(b);
+                    });
+                  } else if (ordenacaoPessoa === "prazo_proximo") {
+                    lista.sort((a, b) => prazoMs(a) - prazoMs(b));
+                  } else if (ordenacaoPessoa === "prazo_distante") {
+                    lista.sort((a, b) => prazoMs(b) - prazoMs(a));
+                  } else if (ordenacaoPessoa === "concluidas_primeiro") {
+                    lista.sort((a, b) => {
+                      const sa = a.resolved_date ? 0 : 1;
+                      const sb = b.resolved_date ? 0 : 1;
+                      if (sa !== sb) return sa - sb;
+                      // Dentro de concluídas: mais recente primeiro
+                      if (a.resolved_date && b.resolved_date) {
+                        return new Date(b.resolved_date).getTime() - new Date(a.resolved_date).getTime();
+                      }
+                      return prazoMs(a) - prazoMs(b);
+                    });
+                  }
+                  return (
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-white/10 text-left text-xs uppercase text-brand-muted">
@@ -501,7 +568,7 @@ export default function EkytePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {tasksDaPessoa.sort((a, b) => (b.current_due_date ?? "").localeCompare(a.current_due_date ?? "")).map((t) => (
+                    {lista.map((t) => (
                       <tr key={t.id} className="border-b border-white/5 last:border-0">
                         <td className="px-2 py-2 max-w-md">
                           <a href={`https://app.ekyte.com/#/tasks/list/${t.id}/edit`} target="_blank" rel="noopener" className="hover:text-brand">
@@ -530,6 +597,8 @@ export default function EkytePage() {
                     ))}
                   </tbody>
                 </table>
+                  );
+                })()}
                 {tasksDaPessoa.length === 0 && <p className="py-8 text-center text-brand-muted text-sm">Nenhuma task da pessoa no período.</p>}
               </div>
             </>
