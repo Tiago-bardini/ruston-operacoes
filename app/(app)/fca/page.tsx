@@ -880,6 +880,8 @@ function FcaModal({ cliente, avaliacao, dataRef, historicoCliente, onFechar, onS
   const podeValidar = isGerente || isCoordenador;
   const [form, setForm] = useState(emptyAvaliacao);
   const [saving, setSaving] = useState(false);
+  const [temOportunidade, setTemOportunidade] = useState(false);
+  const [opForm, setOpForm] = useState({ titulo: "", valor_mrr: "", valor_onetime: "", descricao: "" });
 
   useEffect(() => {
     if (avaliacao) {
@@ -899,6 +901,8 @@ function FcaModal({ cliente, avaliacao, dataRef, historicoCliente, onFechar, onS
     } else {
       setForm(emptyAvaliacao);
     }
+    setTemOportunidade(false);
+    setOpForm({ titulo: "", valor_mrr: "", valor_onetime: "", descricao: "" });
   }, [avaliacao]);
 
   const notaCalculada = useMemo(() => {
@@ -943,6 +947,21 @@ function FcaModal({ cliente, avaliacao, dataRef, historicoCliente, onFechar, onS
     } else {
       await supabase.from("ruston_fca").insert(payload);
     }
+
+    // Criar oportunidade de monetizacao se marcada
+    if (temOportunidade && opForm.titulo.trim()) {
+      await supabase.from("ruston_monetizacao_oportunidades").insert({
+        cliente_id: cliente.id,
+        titulo: opForm.titulo.trim(),
+        descricao: opForm.descricao.trim() || null,
+        estagio: "ideia",
+        valor_mrr_estimado: opForm.valor_mrr ? Number(opForm.valor_mrr) : 0,
+        valor_onetime_estimado: opForm.valor_onetime ? Number(opForm.valor_onetime) : 0,
+        probabilidade: 30,
+        observacoes: `Identificado no FCA de ${dataRef}`,
+      });
+    }
+
     setSaving(false);
     onSalvo();
   }
@@ -1060,6 +1079,48 @@ function FcaModal({ cliente, avaliacao, dataRef, historicoCliente, onFechar, onS
           <label className="label">Observações (opcional)</label>
           <input className="input" value={form.observacoes}
             onChange={(e) => setForm({ ...form, observacoes: e.target.value })} />
+        </div>
+
+        {/* Monetização */}
+        <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
+          <div className="flex items-center gap-3 mb-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={temOportunidade} onChange={(e) => setTemOportunidade(e.target.checked)}
+                className="rounded border-zinc-600 bg-zinc-800 text-amber-500 focus:ring-amber-500" />
+              <span className="text-sm font-semibold text-amber-300">Oportunidade de monetizacao identificada</span>
+            </label>
+          </div>
+          {temOportunidade && (
+            <div className="space-y-2 mt-2">
+              <div>
+                <label className="label text-xs">O que pode ser vendido / expandido?</label>
+                <input className="input text-sm" value={opForm.titulo}
+                  onChange={(e) => setOpForm({ ...opForm, titulo: e.target.value })}
+                  placeholder="Ex: Expansao de trafego pago, LP extra, Social Media" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label text-xs">Valor MRR estimado (R$/mes)</label>
+                  <input className="input text-sm" type="number" value={opForm.valor_mrr}
+                    onChange={(e) => setOpForm({ ...opForm, valor_mrr: e.target.value })}
+                    placeholder="0" />
+                </div>
+                <div>
+                  <label className="label text-xs">Valor one-time estimado (R$)</label>
+                  <input className="input text-sm" type="number" value={opForm.valor_onetime}
+                    onChange={(e) => setOpForm({ ...opForm, valor_onetime: e.target.value })}
+                    placeholder="0" />
+                </div>
+              </div>
+              <div>
+                <label className="label text-xs">Contexto / detalhes (opcional)</label>
+                <textarea className="input text-sm" rows={2} value={opForm.descricao}
+                  onChange={(e) => setOpForm({ ...opForm, descricao: e.target.value })}
+                  placeholder="Ex: Cliente mencionou interesse em redes sociais durante reuniao" />
+              </div>
+              <p className="text-[10px] text-amber-300/60">Ao salvar o FCA, essa oportunidade sera criada automaticamente no pipeline de monetizacao (estagio: ideia).</p>
+            </div>
+          )}
         </div>
 
         {/* Botões */}
