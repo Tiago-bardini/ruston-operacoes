@@ -133,12 +133,22 @@ export default function FcaPage() {
 
       for (const it of itens) {
         try {
-          // Resolver cliente_id
+          // Resolver cliente_id — match flexível por nome
           let clienteId = it.cliente_id as string | undefined;
           if (!clienteId && it.cliente_nome) {
-            const nomeBusca = String(it.cliente_nome).trim().toLowerCase();
-            const match = clientes.find((c) => c.nome.toLowerCase() === nomeBusca)
-                       ?? clientes.find((c) => c.nome.toLowerCase().includes(nomeBusca));
+            const normalizar = (s: string) => s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            const nomeBusca = normalizar(String(it.cliente_nome));
+            // 1) Match exato
+            const match = clientes.find((c) => normalizar(c.nome) === nomeBusca)
+            // 2) Nome cadastrado contem o buscado (ex: "Anotashow / Nubba" contem "anotashow")
+                       ?? clientes.find((c) => normalizar(c.nome).includes(nomeBusca))
+            // 3) Nome buscado contem o cadastrado (ex: "anotashow nubba" contem "anotashow")
+                       ?? clientes.find((c) => nomeBusca.includes(normalizar(c.nome)))
+            // 4) Alguma parte do nome (split por / , - |) bate
+                       ?? clientes.find((c) => {
+                            const partes = normalizar(c.nome).split(/[\s]*[\/\|\-,][\s]*/);
+                            return partes.some((p) => p.length > 2 && (nomeBusca.includes(p) || p.includes(nomeBusca)));
+                          });
             clienteId = match?.id;
           }
           if (!clienteId) {
