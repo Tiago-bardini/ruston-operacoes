@@ -540,3 +540,54 @@ export const STATUS_VENCIMENTO_COLOR: Record<StatusVencimento, string> = {
   ok:       "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
   sem_data: "bg-white/5 text-brand-muted border-white/10",
 };
+
+// =====================================================================
+// Entregas
+// =====================================================================
+
+export type CategoriaEntrega = "recorrente" | "pontual" | "setup";
+
+export const CATEGORIA_ENTREGA_LABEL: Record<CategoriaEntrega, string> = {
+  recorrente: "Recorrente",
+  pontual: "Pontual",
+  setup: "Setup",
+};
+
+export const CATEGORIA_ENTREGA_COR: Record<CategoriaEntrega, string> = {
+  recorrente: "bg-blue-500/20 text-blue-300",
+  pontual: "bg-amber-500/20 text-amber-300",
+  setup: "bg-emerald-500/20 text-emerald-300",
+};
+
+export type TipoEntrega = {
+  id: string;
+  nome: string;
+  categoria: CategoriaEntrega;
+  descricao: string | null;
+  unidade_padrao: string | null;
+  ativo: boolean;
+  ordem: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EntregaPrevistaView = {
+  id: string;
+  cliente_id: string;
+  cliente_nome: string | null;
+  cliente_squad_id: string | null;
+  cliente_account_id: string | null;
+  tipo_entrega_id: string;
+  tipo_entrega_nome: string | null;
+  tipo_entrega_categoria: CategoriaEntrega | null;
+  tipo_entrega_descricao: string | null;
+  unidade_padrao: string | null;
+  quantidade_mensal: number | null;
+  quantidade_texto: string | null;
+  percentual_alocacao: number | null;
+  valor_mensal: number | null;
+  observacoes: string | null;
+  ativo: boolean;
+  created_at: string;
+  updated_at: string;
+};
