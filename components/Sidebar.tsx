@@ -14,6 +14,7 @@ type NavItem = {
 };
 
 const NAV_ACTIVE: NavItem[] = [
+  { href: "/painel-gerente", label: "Painel Gerente", icon: "◈", soGerente: true },
   { href: "/cockpit", label: "Cockpit", icon: "★" },
   { href: "/health-score", label: "Health Score", icon: "♥", soGerenteCoord: true },
   { href: "/clientes", label: "Clientes", icon: "◎" },
