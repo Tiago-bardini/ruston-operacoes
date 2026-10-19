@@ -55,11 +55,14 @@ type HealthData = {
   wa_dias_sem_contato: number | null;
   wa_msgs: number | null;
   tarefas_taxa: number | null;
-  // Score final
+  // Score final (0-10, mesma escala do FCA)
   score: number;
-  nivel: "critico" | "alerta" | "estavel" | "saudavel";
+  nivel: "verde" | "amarelo" | "vermelho" | "sem_dado";
 };
 
+// Health Score 0-10 — baseado no FCA com ajustes do WhatsApp e Tarefas
+// FCA ja calcula nota ponderada (resultado x7, roi x8, trafego x5, prazo x5, qualidade x4, relacionamento x4)
+// Health Score = FCA base +/- ajustes de WhatsApp e Tarefas
 function calcScore(d: {
   fca_nota: number | null;
   wa_temperatura: string | null;
@@ -68,57 +71,49 @@ function calcScore(d: {
   wa_dias_sem_contato: number | null;
   tarefas_taxa: number | null;
 }): number {
-  let score = 50; // base
+  // Se tem FCA, usa como base (70% do score)
+  // Se nao tem, usa 5 (neutro)
+  let base = d.fca_nota ?? 5;
 
-  // FCA (peso 35) — nota de 0-10 vira 0-35
-  if (d.fca_nota != null) {
-    score = score - 17.5 + (d.fca_nota / 10) * 35;
-  }
+  // Ajuste WhatsApp (max +/- 1.5 pontos)
+  let ajusteWa = 0;
+  if (d.wa_sentimento === "positivo") ajusteWa += 0.5;
+  else if (d.wa_sentimento === "negativo") ajusteWa -= 0.5;
 
-  // WhatsApp Sentimento (peso 15)
-  if (d.wa_sentimento === "positivo") score += 15;
-  else if (d.wa_sentimento === "neutro") score += 7;
-  else if (d.wa_sentimento === "negativo") score -= 10;
+  if (d.wa_risco_churn === "baixo") ajusteWa += 0.5;
+  else if (d.wa_risco_churn === "alto") ajusteWa -= 1.0;
+  else if (d.wa_risco_churn === "medio") ajusteWa -= 0.3;
 
-  // WhatsApp Temperatura (peso 10)
-  if (d.wa_temperatura === "quente") score += 10;
-  else if (d.wa_temperatura === "morna") score += 3;
-  else if (d.wa_temperatura === "fria") score -= 5;
-
-  // Risco Churn (peso 20)
-  if (d.wa_risco_churn === "baixo") score += 15;
-  else if (d.wa_risco_churn === "medio") score -= 5;
-  else if (d.wa_risco_churn === "alto") score -= 20;
-
-  // Dias sem contato (peso 10)
   if (d.wa_dias_sem_contato != null) {
-    if (d.wa_dias_sem_contato <= 1) score += 10;
-    else if (d.wa_dias_sem_contato <= 3) score += 5;
-    else if (d.wa_dias_sem_contato <= 7) score -= 0;
-    else if (d.wa_dias_sem_contato <= 14) score -= 5;
-    else score -= 10;
+    if (d.wa_dias_sem_contato > 14) ajusteWa -= 0.5;
+    else if (d.wa_dias_sem_contato > 7) ajusteWa -= 0.2;
+    else if (d.wa_dias_sem_contato <= 2) ajusteWa += 0.3;
   }
 
-  // Tarefas (peso 10) — taxa de cumprimento
+  // Ajuste Tarefas (max +/- 0.5 pontos)
+  let ajusteTarefas = 0;
   if (d.tarefas_taxa != null) {
-    score += (d.tarefas_taxa / 100) * 10 - 5;
+    if (d.tarefas_taxa >= 90) ajusteTarefas = 0.5;
+    else if (d.tarefas_taxa >= 70) ajusteTarefas = 0.2;
+    else if (d.tarefas_taxa < 50) ajusteTarefas = -0.5;
   }
 
-  return Math.max(0, Math.min(100, Math.round(score)));
+  const score = base + ajusteWa + ajusteTarefas;
+  return Math.max(0, Math.min(10, Math.round(score * 10) / 10));
 }
 
-function scoreNivel(s: number): "critico" | "alerta" | "estavel" | "saudavel" {
-  if (s >= 75) return "saudavel";
-  if (s >= 55) return "estavel";
-  if (s >= 35) return "alerta";
-  return "critico";
+// Bandeira igual ao FCA: verde (>=8), amarelo (>=6), vermelho (<6)
+function scoreNivel(s: number): "verde" | "amarelo" | "vermelho" | "sem_dado" {
+  if (s >= 8) return "verde";
+  if (s >= 6) return "amarelo";
+  return "vermelho";
 }
 
 const NIVEL_CONFIG = {
-  saudavel: { label: "Saudavel", color: "text-emerald-400", bg: "bg-emerald-500", border: "border-emerald-500/40" },
-  estavel: { label: "Estavel", color: "text-blue-400", bg: "bg-blue-500", border: "border-blue-500/40" },
-  alerta: { label: "Alerta", color: "text-yellow-400", bg: "bg-yellow-500", border: "border-yellow-500/40" },
-  critico: { label: "Critico", color: "text-red-400", bg: "bg-red-500", border: "border-red-500/40" },
+  verde: { label: "Safe", color: "text-emerald-400", bg: "bg-emerald-500", border: "border-emerald-500/40" },
+  amarelo: { label: "Care", color: "text-yellow-400", bg: "bg-yellow-500", border: "border-yellow-500/40" },
+  vermelho: { label: "Danger", color: "text-red-400", bg: "bg-red-500", border: "border-red-500/40" },
+  sem_dado: { label: "Sem dado", color: "text-zinc-500", bg: "bg-zinc-600", border: "border-zinc-600/40" },
 };
 
 export default function HealthScorePage() {
@@ -222,10 +217,10 @@ export default function HealthScorePage() {
   }, [clientes, fcas, radar, taskStats, filtroSquad, filtroNivel, ordenar]);
 
   const resumo = useMemo(() => {
-    const r = { saudavel: 0, estavel: 0, alerta: 0, critico: 0, media: 0 };
+    const r = { verde: 0, amarelo: 0, vermelho: 0, sem_dado: 0, media: 0 };
     if (!healthData.length) return r;
     for (const d of healthData) r[d.nivel]++;
-    r.media = Math.round(healthData.reduce((a, b) => a + b.score, 0) / healthData.length);
+    r.media = Math.round((healthData.reduce((a, b) => a + b.score, 0) / healthData.length) * 10) / 10;
     return r;
   }, [healthData]);
 
@@ -251,7 +246,7 @@ export default function HealthScorePage() {
 
       {/* Cards resumo por nivel */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {(["saudavel", "estavel", "alerta", "critico"] as const).map((nivel) => {
+        {(["verde", "amarelo", "vermelho", "sem_dado"] as const).map((nivel) => {
           const cfg = NIVEL_CONFIG[nivel];
           return (
             <button
@@ -310,10 +305,10 @@ export default function HealthScorePage() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${cfg.color} border ${cfg.border}`}>
-                        {d.score}
+                        {d.score.toFixed(1)}
                       </div>
                       <div className="w-16 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full ${cfg.bg}`} style={{ width: `${d.score}%` }} />
+                        <div className={`h-full rounded-full ${cfg.bg}`} style={{ width: `${d.score * 10}%` }} />
                       </div>
                     </div>
                   </td>
@@ -382,7 +377,8 @@ export default function HealthScorePage() {
 
       {/* Legenda */}
       <div className="flex flex-wrap gap-4 text-xs text-zinc-500 mt-2">
-        <span>Score = FCA (35%) + Sentimento WhatsApp (15%) + Temperatura (10%) + Risco Churn (20%) + Contato (10%) + Tarefas (10%)</span>
+        <span>Score 0-10 = Nota FCA (base) +/- ajustes WhatsApp (sentimento, churn, contato) e Tarefas (cumprimento prazo)</span>
+        <span>Verde: 8+ (Safe) | Amarelo: 6-7.9 (Care) | Vermelho: &lt;6 (Danger)</span>
       </div>
     </div>
   );
