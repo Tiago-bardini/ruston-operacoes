@@ -1,0 +1,16 @@
+name: Relatorio Semanal WhatsApp
+
+on:
+  schedule:
+    - cron: '0 12 * * 1'  # 12h UTC = 9h BRT, toda segunda-feira
+  workflow_dispatch:
+
+jobs:
+  relatorio:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enviar relatorio semanal
+        run: |
+          curl -s -X GET "https://ruston-operacoes.vercel.app/api/relatorio-semanal" \
+            -H "Content-Type: application/json" \
+            --max-time 30
