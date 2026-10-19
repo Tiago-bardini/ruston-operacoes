@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/types";
+import type { EkyteTask } from "@/lib/ekyte/visaoGerencial";
+import VisaoGerencial from "@/components/ekyte/VisaoGerencial";
 
 type SyncLog = {
   id: string;
@@ -14,29 +16,7 @@ type SyncLog = {
   erro: string | null;
 };
 
-type Task = {
-  id: number;
-  title: string | null;
-  executor: string | null;
-  executor_email: string | null;
-  executor_id: string | null;
-  workspace: string | null;
-  project: string | null;
-  phase: string | null;
-  current_due_date: string | null;
-  original_due_date: string | null;
-  resolved_date: string | null;
-  creation_date: string | null;
-  actual_time: number | null;
-  estimated_time: number | null;
-  esta_atrasada: boolean;
-  foi_prorrogada: boolean;
-  cliente_nome: string | null;
-  pessoa_nome: string | null;
-  pessoa_id: string | null;
-  cliente_id: string | null;
-  pessoa_ativa: boolean | null;
-};
+type Task = EkyteTask;
 
 type Pessoa = { id: string; nome: string; cargo: string | null; squad_id: string | null; ativo: boolean };
 type Squad = { id: string; nome: string };
@@ -93,7 +73,7 @@ export default function EkytePage() {
   const [squads, setSquads] = useState<Squad[]>([]);
   const [sincronizando, setSincronizando] = useState(false);
   const [mensagem, setMensagem] = useState<string | null>(null);
-  const [tab, setTab] = useState<"resumo" | "ranking" | "squad" | "pessoa" | "vinculos">("resumo");
+  const [tab, setTab] = useState<"gerencial" | "resumo" | "ranking" | "squad" | "pessoa" | "vinculos">("gerencial");
   const [semMatch, setSemMatch] = useState<{executor_id: string|null; executor: string; executor_email: string|null; qtd_tasks: number}[]>([]);
   const [periodo, setPeriodo] = useState<Periodo>("aberto");
   const hojeStr = new Date().toISOString().slice(0, 10);
@@ -145,18 +125,20 @@ export default function EkytePage() {
 
   useEffect(() => { carregar(); }, []);
 
-  async function sincronizar() {
+  // incremental = abertas + concluídas recentes + apontamentos de 21 dias (rápido)
+  // completo = tudo desde 2023 + apontamentos de 120 dias (pode precisar rodar mais de uma vez)
+  async function sincronizar(modo: "incremental" | "completo" = "incremental") {
     setSincronizando(true);
-    setMensagem("Sincronizando com Ekyte...");
+    setMensagem(modo === "completo" ? "Sincronização completa com Ekyte..." : "Sincronizando com Ekyte...");
     try {
       const res = await fetch("/api/ekyte-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ modo }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error ?? "Erro");
-      setMensagem(`✓ ${j.tasks_upserted} tasks sincronizadas em ${j.pages} páginas. Match: ${j.match?.pessoas} pessoas, ${j.match?.clientes} clientes.`);
+      setMensagem(`✓ ${j.tasks_upserted} tasks e ${j.apontamentos_upserted ?? 0} apontamentos sincronizados em ${j.pages} páginas. Match: ${j.match?.pessoas} pessoas, ${j.match?.clientes} clientes.${j.parcial ? " ⚠ Parcial (tempo limite): rode de novo pra continuar." : ""}`);
       await carregar();
     } catch (e: any) {
       setMensagem(`✗ ${e.message}`);
@@ -270,6 +252,27 @@ export default function EkytePage() {
     return Array.from(map.values()).sort((a, b) => b.horas - a.horas);
   }, [porPessoa, squadMap]);
 
+  // Filtro de squad aplicado nas tasks (stats do topo e Visão Gerencial)
+  const pessoasDoSquad = useMemo(
+    () => (filtroSquad ? pessoas.filter((p) => p.squad_id === filtroSquad) : pessoas),
+    [pessoas, filtroSquad],
+  );
+  const tasksDoSquad = useMemo(() => {
+    if (!filtroSquad) return tasks;
+    const ids = new Set(pessoasDoSquad.map((p) => p.id));
+    return tasks.filter((t) => t.pessoa_id && ids.has(t.pessoa_id));
+  }, [tasks, filtroSquad, pessoasDoSquad]);
+  const tasksPeriodoDoSquad = useMemo(() => {
+    if (!filtroSquad) return tasksPeriodo;
+    const ids = new Set(pessoasDoSquad.map((p) => p.id));
+    return tasksPeriodo.filter((t) => t.pessoa_id && ids.has(t.pessoa_id));
+  }, [tasksPeriodo, filtroSquad, pessoasDoSquad]);
+  // "Tudo em aberto" não tem janela de tempo: na Visão Gerencial vira últimos 30 dias
+  const intervaloGerencial = useMemo(
+    () => (periodo === "aberto" ? { ini: new Date(Date.now() - 30 * 86400000), fim } : { ini, fim }),
+    [periodo, ini, fim],
+  );
+
   // Pessoa individual selecionada
   const tasksDaPessoa = useMemo(() => {
     if (!pessoaSel) return [];
@@ -280,14 +283,16 @@ export default function EkytePage() {
 
   // Stats globais
   const stats = useMemo(() => {
+    // Pessoas ativas do squad sem nenhum minuto no período — inclui quem nem tem task
+    const comApontamento = new Set(porPessoa.filter((p) => p.minutos_apontados > 0 && p.pessoa_id).map((p) => p.pessoa_id));
     return {
-      total: tasksPeriodo.length,
-      concluidas: tasksPeriodo.filter((t) => t.resolved_date).length,
-      atrasadas: tasksPeriodo.filter((t) => t.esta_atrasada).length,
-      prorrogadas: tasksPeriodo.filter((t) => t.foi_prorrogada).length,
-      semApontar: porPessoa.filter((p) => p.minutos_apontados === 0).length,
+      total: tasksPeriodoDoSquad.length,
+      concluidas: tasksPeriodoDoSquad.filter((t) => t.resolved_date).length,
+      atrasadas: tasksPeriodoDoSquad.filter((t) => t.esta_atrasada).length,
+      prorrogadas: tasksPeriodoDoSquad.filter((t) => t.foi_prorrogada).length,
+      semApontar: pessoasDoSquad.filter((p) => !comApontamento.has(p.id)).length,
     };
-  }, [tasksPeriodo, porPessoa]);
+  }, [tasksPeriodoDoSquad, porPessoa, pessoasDoSquad]);
 
   // Semáforo: horas apontadas (ex: <10h ruim, 10-30h ok, >30h bom)
   function semaforoHoras(min: number): string {
@@ -327,8 +332,12 @@ export default function EkytePage() {
             <option value="">Todos os squads</option>
             {squads.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
           </select>
-          <button className="btn bg-brand hover:bg-emerald-600" onClick={sincronizar} disabled={sincronizando}>
+          <button className="btn bg-brand hover:bg-emerald-600" onClick={() => sincronizar()} disabled={sincronizando}>
             {sincronizando ? "⏳ Sincronizando..." : "🔄 Sincronizar"}
+          </button>
+          <button className="btn-ghost text-xs" onClick={() => sincronizar("completo")} disabled={sincronizando}
+            title="Puxa todas as tasks desde 2023 e 120 dias de apontamentos. Use na primeira vez ou pra corrigir dados.">
+            Sync completo
           </button>
         </div>
       </div>
@@ -346,12 +355,25 @@ export default function EkytePage() {
 
       {/* TABS */}
       <div className="flex gap-2 border-b border-white/10 pb-2 text-sm overflow-x-auto">
+        <TabBtn ativo={tab === "gerencial"} onClick={() => setTab("gerencial")}>🧭 Visão Gerencial</TabBtn>
         <TabBtn ativo={tab === "resumo"} onClick={() => setTab("resumo")}>📋 Resumo</TabBtn>
         <TabBtn ativo={tab === "ranking"} onClick={() => setTab("ranking")}>👥 Ranking por Pessoa</TabBtn>
         <TabBtn ativo={tab === "squad"} onClick={() => setTab("squad")}>🏢 Por Squad</TabBtn>
         <TabBtn ativo={tab === "pessoa"} onClick={() => setTab("pessoa")}>🔍 Investidor (1:1)</TabBtn>
         <TabBtn ativo={tab === "vinculos"} onClick={() => setTab("vinculos")}>🔗 Vínculos ({semMatch.length})</TabBtn>
       </div>
+
+      {/* VISÃO GERENCIAL */}
+      {tab === "gerencial" && (
+        <VisaoGerencial
+          tasks={tasksDoSquad}
+          pessoas={pessoasDoSquad}
+          squads={filtroSquad ? squads.filter((s) => s.id === filtroSquad) : squads}
+          filtroSquad={filtroSquad}
+          intervalo={intervaloGerencial}
+          periodoLabel={periodo === "aberto" ? "últimos 30 dias" : PERIODO_LABEL[periodo]}
+        />
+      )}
 
       {/* RESUMO */}
       {tab === "resumo" && (
