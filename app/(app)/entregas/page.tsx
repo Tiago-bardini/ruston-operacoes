@@ -607,7 +607,7 @@ function TabCatalogo({
                           <input
                             type="text"
                             className="input py-1 text-xs"
-                            defaultValue={t.unidade_padrao}
+                            defaultValue={t.unidade_padrao ?? ""}
                             onBlur={(e) => {
                               if (e.target.value !== t.unidade_padrao)
                                 atualizar(t, "unidade_padrao", e.target.value);
