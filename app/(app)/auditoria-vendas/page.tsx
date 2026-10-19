@@ -26,8 +26,7 @@ type TipoEntrega = { id: string; nome: string; categoria: string };
 export default function AuditoriaVendasPage() {
   const supabase = createClient();
   const [clienteNome, setClienteNome] = useState("");
-  const [arquivos, setArquivos] = useState<File[]>([]);
-  const [transcricaoTexto, setTranscricaoTexto] = useState("");
+  const [calls, setCalls] = useState<string[]>([""]);
   const [contrato, setContrato] = useState("");
   const [contratoPdf, setContratoPdf] = useState<File | null>(null);
   const [contratoLink, setContratoLink] = useState("");
@@ -113,11 +112,18 @@ export default function AuditoriaVendasPage() {
     }
   }
 
+  function addCall() { setCalls([...calls, ""]); }
+  function removeCall(i: number) { setCalls(calls.filter((_, idx) => idx !== i)); }
+  function updateCall(i: number, val: string) { setCalls(calls.map((c, idx) => idx === i ? val : c)); }
+
+  const callsPreenchidas = calls.filter((c) => c.trim().length > 50);
+
   async function analisar() {
-    if ((!arquivos.length && !transcricaoTexto.trim()) || !clienteNome.trim()) return;
+    if (!callsPreenchidas.length || !clienteNome.trim()) return;
     setAnalisando(true);
     setResultado(null);
     setErro(null);
+    setProgresso("Analisando transcricoes...");
 
     const formData = new FormData();
     formData.append("cliente_nome", clienteNome);
@@ -125,23 +131,8 @@ export default function AuditoriaVendasPage() {
     if (contratoPdf) formData.append("contrato_pdf", contratoPdf);
     if (contratoLink.trim()) formData.append("contrato_link", contratoLink);
 
-    // Se tem transcricao colada, envia direto (pula o Whisper)
-    if (transcricaoTexto.trim()) {
-      formData.append("transcricao_texto", transcricaoTexto);
-    }
-
-    // Se tem audios, processa cada um
-    for (const arq of arquivos) {
-      formData.append("audio", arq);
-    }
-
-    if (arquivos.length > 1) {
-      setProgresso(`Transcrevendo ${arquivos.length} audios...`);
-    } else if (arquivos.length === 1) {
-      setProgresso("Transcrevendo audio...");
-    } else {
-      setProgresso("Analisando transcricao...");
-    }
+    const transcricaoCompleta = callsPreenchidas.map((c, i) => `[Call ${i + 1}]\n${c.trim()}`).join("\n\n---\n\n");
+    formData.append("transcricao_texto", transcricaoCompleta);
 
     try {
       const res = await fetch("/api/auditoria-vendas", { method: "POST", body: formData });
@@ -165,25 +156,35 @@ export default function AuditoriaVendasPage() {
       <p className="text-zinc-400 text-sm">Suba o audio da call de vendas. A IA extrai o que foi vendido, confronta com o contrato e gera insights para o time operacional.</p>
 
       <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs text-zinc-400 mb-1">Nome do Cliente / Lead</label>
-            <input type="text" className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700"
-              value={clienteNome} onChange={(e) => setClienteNome(e.target.value)} placeholder="Ex: Empresa ABC" />
-          </div>
-          <div>
-            <label className="block text-xs text-zinc-400 mb-1">Audios das Calls (pode selecionar varios)</label>
-            <input type="file" accept="audio/*,video/*,.webm,.mp4,.m4a,.ogg,.wav,.mp3" multiple
-              className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700 file:mr-2 file:bg-zinc-700 file:text-zinc-200 file:border-0 file:rounded file:px-2 file:py-1 file:text-xs"
-              onChange={(e) => setArquivos(Array.from(e.target.files ?? []))} />
-            {arquivos.length > 0 && <span className="text-zinc-500 text-xs">{arquivos.length} arquivo(s) selecionado(s)</span>}
-          </div>
-        </div>
         <div>
-          <label className="block text-xs text-zinc-400 mb-1">Ou cole a transcricao direto (se ja tiver pronta)</label>
-          <textarea className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700 font-mono" rows={4}
-            value={transcricaoTexto} onChange={(e) => setTranscricaoTexto(e.target.value)}
-            placeholder="Cole aqui a transcricao das calls. Pode juntar varias transcricoes no mesmo campo — separe com '---' entre cada call." />
+          <label className="block text-xs text-zinc-400 mb-1">Nome do Cliente / Lead</label>
+          <input type="text" className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700"
+            value={clienteNome} onChange={(e) => setClienteNome(e.target.value)} placeholder="Ex: Empresa ABC" />
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="block text-xs text-zinc-400">Transcricoes das Calls de Vendas</label>
+            <button type="button" className="text-xs text-blue-400 hover:text-blue-300" onClick={addCall}>+ Adicionar outra call</button>
+          </div>
+          {calls.map((call, i) => (
+            <div key={i}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] text-zinc-500 font-medium">Call {i + 1}</span>
+                {calls.length > 1 && (
+                  <button type="button" className="text-[10px] text-red-400 hover:text-red-300" onClick={() => removeCall(i)}>remover</button>
+                )}
+              </div>
+              <textarea
+                className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700"
+                rows={5}
+                value={call}
+                onChange={(e) => updateCall(i, e.target.value)}
+                placeholder={`Cole aqui a transcricao da call ${i + 1}...`}
+              />
+            </div>
+          ))}
+          <p className="text-[10px] text-zinc-600">{callsPreenchidas.length} call(s) com transcricao</p>
         </div>
 
         <div className="space-y-3">
@@ -212,7 +213,7 @@ export default function AuditoriaVendasPage() {
         </div>
         <div className="flex items-center gap-3">
           <button className="bg-blue-600 hover:bg-blue-700 text-white rounded px-6 py-2 text-sm font-medium disabled:opacity-50"
-            disabled={analisando || (!arquivos.length && !transcricaoTexto.trim()) || !clienteNome.trim()} onClick={analisar}>
+            disabled={analisando || !callsPreenchidas.length || !clienteNome.trim()} onClick={analisar}>
             {analisando ? "Analisando..." : "Auditar Call"}
           </button>
           {progresso && <span className="text-blue-400 text-xs animate-pulse">{progresso}</span>}
