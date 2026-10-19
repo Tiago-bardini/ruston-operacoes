@@ -138,7 +138,7 @@ function TabPorCliente({
     pontual_ter: [],
     componente: [],
   };
-  entregasDoCliente.forEach((e) => agrupado[e.tipo_entrega_categoria]?.push(e));
+  entregasDoCliente.forEach((e) => { if (e.tipo_entrega_categoria) agrupado[e.tipo_entrega_categoria]?.push(e); });
 
   return (
     <div>
