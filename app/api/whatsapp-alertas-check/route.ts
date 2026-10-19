@@ -13,6 +13,7 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireUserOrCron } from "@/lib/auth/requireUserOrCron";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -53,6 +54,9 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
+  const auth = await requireUserOrCron(req);
+  if (auth instanceof Response) return auth;
+
   const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SB_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SB_URL || !SB_SERVICE) {

@@ -16,6 +16,7 @@ jobs:
           RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" \
             -X POST \
             -H "x-vercel-protection-bypass: ${{ secrets.VERCEL_BYPASS_TOKEN }}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             "${{ secrets.VERCEL_APP_URL }}/api/whatsapp-analise-ia?limit=100")
           echo "Resposta:"
           echo "$RESPONSE"
