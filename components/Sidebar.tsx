@@ -32,6 +32,7 @@ const NAV_ACTIVE: NavItem[] = [
   { href: "/headcount", label: "Headcount", icon: "☰", soGerenteCoord: true },
   { href: "/forecast", label: "Forecast", icon: "↗", soGerenteCoord: true },
   { href: "/reunioes", label: "Reuniões", icon: "☎" },
+  { href: "/analise-reunioes", label: "Analise Reunioes IA", icon: "🎙", soGerenteCoord: true },
   { href: "/usuarios", label: "Usuários", icon: "⚿", soGerente: true },
 ];
 
