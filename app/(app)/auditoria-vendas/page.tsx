@@ -28,6 +28,8 @@ export default function AuditoriaVendasPage() {
   const [clienteNome, setClienteNome] = useState("");
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [contrato, setContrato] = useState("");
+  const [contratoPdf, setContratoPdf] = useState<File | null>(null);
+  const [contratoLink, setContratoLink] = useState("");
   const [analisando, setAnalisando] = useState(false);
   const [progresso, setProgresso] = useState("");
   const [resultado, setResultado] = useState<Analise | null>(null);
@@ -121,6 +123,8 @@ export default function AuditoriaVendasPage() {
     formData.append("audio", arquivo);
     formData.append("cliente_nome", clienteNome);
     if (contrato.trim()) formData.append("contrato", contrato);
+    if (contratoPdf) formData.append("contrato_pdf", contratoPdf);
+    if (contratoLink.trim()) formData.append("contrato_link", contratoLink);
 
     try {
       const res = await fetch("/api/auditoria-vendas", { method: "POST", body: formData });
@@ -157,11 +161,29 @@ export default function AuditoriaVendasPage() {
               onChange={(e) => setArquivo(e.target.files?.[0] ?? null)} />
           </div>
         </div>
-        <div>
-          <label className="block text-xs text-zinc-400 mb-1">Contrato (opcional — cole o texto do contrato para confrontar)</label>
-          <textarea className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700" rows={4}
-            value={contrato} onChange={(e) => setContrato(e.target.value)}
-            placeholder="Cole aqui o texto do contrato ou as clausulas principais. Se nao tiver, deixe vazio — a IA analisa so a call." />
+        <div className="space-y-3">
+          <label className="block text-xs text-zinc-400">Contrato (opcional — para confrontar com o que foi vendido)</label>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-[10px] text-zinc-500 mb-1">Upload PDF do contrato</label>
+              <input type="file" accept=".pdf,application/pdf"
+                className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700 file:mr-2 file:bg-zinc-700 file:text-zinc-200 file:border-0 file:rounded file:px-2 file:py-1 file:text-xs"
+                onChange={(e) => setContratoPdf(e.target.files?.[0] ?? null)} />
+              {contratoPdf && <span className="text-zinc-500 text-xs">{contratoPdf.name}</span>}
+            </div>
+            <div>
+              <label className="block text-[10px] text-zinc-500 mb-1">Ou link do contrato (Google Drive, etc.)</label>
+              <input type="url" className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700"
+                value={contratoLink} onChange={(e) => setContratoLink(e.target.value)}
+                placeholder="https://drive.google.com/..." />
+            </div>
+            <div>
+              <label className="block text-[10px] text-zinc-500 mb-1">Ou cole o texto</label>
+              <textarea className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700" rows={2}
+                value={contrato} onChange={(e) => setContrato(e.target.value)}
+                placeholder="Cole clausulas principais..." />
+            </div>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <button className="bg-blue-600 hover:bg-blue-700 text-white rounded px-6 py-2 text-sm font-medium disabled:opacity-50"
