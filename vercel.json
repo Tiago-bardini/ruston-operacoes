@@ -1,10 +1,6 @@
 {
   "crons": [
     {
-      "path": "/api/whatsapp-alertas-check?tipo=sla_30min",
-      "schedule": "*/15 * * * *"
-    },
-    {
       "path": "/api/whatsapp-alertas-check?tipo=silencio",
       "schedule": "0 15 * * 1-5"
     }
