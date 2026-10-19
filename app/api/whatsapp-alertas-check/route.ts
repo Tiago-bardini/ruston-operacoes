@@ -18,6 +18,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const Z_URL = "https://api.z-api.io";
+const GRUPO_NOTIFICACOES = process.env.ZAPI_GRUPO_NOTIFICACOES ?? "120363428129920467-group";
 
 async function zapiEnviarTexto(phone: string, message: string): Promise<{ok: boolean; erro?: string}> {
   const inst = process.env.ZAPI_INSTANCE_ID;
@@ -64,18 +65,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const tipo = url.searchParams.get("tipo") ?? "todos";
 
-  // Pega gerente (quem recebe TODOS os alertas) — procura perfil "gerente" ativo
-  const { data: gerentes } = await supabase
-    .from("ruston_pessoas")
-    .select("id, nome, whatsapp")
-    .eq("ativo", true)
-    .eq("cargo", "gerente");
-
-  const gerentesWhats = (gerentes ?? [])
-    .filter((g) => g.whatsapp)
-    .map((g) => ({ id: g.id, nome: g.nome, whatsapp: (g.whatsapp as string).replace(/\D/g, "") }));
-
-  // Função helper pra despachar alerta
+  // Função helper pra despachar alerta no grupo "Notificações Clientes"
   async function despachar(opts: {
     tipo: string;
     conversa_id: string;
@@ -86,32 +76,22 @@ export async function GET(req: Request) {
     detalhes: string;
     mensagem_texto: string;
   }) {
-    // Busca coordenador
-    let coordWhats: { id: string; nome: string; whatsapp: string } | null = null;
+    // Busca nome do coordenador pra mencionar no alerta
+    let coordNome = "Não definido";
     if (opts.coordenador_id) {
       const { data: coord } = await supabase
         .from("ruston_pessoas")
-        .select("id, nome, whatsapp")
+        .select("nome")
         .eq("id", opts.coordenador_id)
         .single();
-      if (coord && coord.whatsapp) {
-        coordWhats = { id: coord.id, nome: coord.nome as string, whatsapp: (coord.whatsapp as string).replace(/\D/g, "") };
-      }
+      if (coord?.nome) coordNome = coord.nome as string;
     }
 
-    // Envia pros destinatários (coordenador + todos gerentes)
-    const envios: Array<Promise<{ok: boolean; erro?: string; tipo: "coord"|"gerente"; telefone: string}>> = [];
+    // Monta mensagem com nome do coordenador responsável
+    const msgComCoord = `${opts.mensagem_texto}\n\nCoordenador responsável: *${coordNome}*`;
 
-    if (coordWhats?.whatsapp) {
-      envios.push(zapiEnviarTexto(coordWhats.whatsapp, opts.mensagem_texto).then((r) => ({ ...r, tipo: "coord" as const, telefone: coordWhats!.whatsapp })));
-    }
-    for (const g of gerentesWhats) {
-      envios.push(zapiEnviarTexto(g.whatsapp, opts.mensagem_texto).then((r) => ({ ...r, tipo: "gerente" as const, telefone: g.whatsapp })));
-    }
-
-    const resultados = await Promise.all(envios);
-    const sucesso = resultados.some((r) => r.ok);
-    const erros = resultados.filter((r) => !r.ok).map((r) => `${r.tipo}:${r.erro}`).join("; ");
+    // Envia pro grupo centralizado de notificações
+    const resultado = await zapiEnviarTexto(GRUPO_NOTIFICACOES, msgComCoord);
 
     // Registra o alerta pra não repetir
     await supabase.from("ruston_whatsapp_alertas").insert({
@@ -120,10 +100,10 @@ export async function GET(req: Request) {
       cliente_id: opts.cliente_id,
       mensagem_id: opts.mensagem_id ?? null,
       detalhes: opts.detalhes,
-      enviado_para_coord_whatsapp: coordWhats?.whatsapp ?? null,
-      enviado_para_gerente_whatsapp: gerentesWhats.map((g) => g.whatsapp).join(","),
-      envio_sucesso: sucesso,
-      envio_erro: erros || null,
+      enviado_para_coord_whatsapp: coordNome,
+      enviado_para_gerente_whatsapp: GRUPO_NOTIFICACOES,
+      envio_sucesso: resultado.ok,
+      envio_erro: resultado.erro ?? null,
     });
   }
 
