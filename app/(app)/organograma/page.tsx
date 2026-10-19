@@ -12,6 +12,7 @@ type OrgPessoa = {
   destaque: boolean; linha: number; coluna: number; ordem: number;
   ativo: boolean; tem_carteira: boolean;
   ruston_pessoa_id: string | null;
+  capacidade: number | null;
 };
 type Carteira = { id: string; pessoa_id: string; cliente_nome: string; tags: string[]; ordem: number; ativo: boolean };
 type PessoaCadastro = { id: string; nome: string; ativo: boolean };
@@ -237,6 +238,11 @@ export default function OrganogramaPage() {
     return <p className="text-brand-muted">Carregando organograma...</p>;
   }
 
+  async function salvarCapacidade(pessoaId: string, valor: number | null) {
+    await supabase.from("ruston_org_pessoas").update({ capacidade: valor }).eq("id", pessoaId);
+    setPessoas((prev) => prev.map((p) => p.id === pessoaId ? { ...p, capacidade: valor } : p));
+  }
+
   const commonProps = {
     podeEditar,
     onEditar: setEditando,
@@ -248,6 +254,7 @@ export default function OrganogramaPage() {
     subsecoes,
     mrrPorPessoa,
     qtdClientesPorPessoa,
+    onCapacidadeChange: salvarCapacidade,
   };
 
   return (
@@ -323,7 +330,7 @@ export default function OrganogramaPage() {
       )}
       {novaPessoa && (
         <ModalPessoa
-          pessoa={{ id: "", area_id: novaPessoa.area_id, subsecao_id: novaPessoa.subsecao_id, nome: "", cargo: "", foto_url: null, destaque: false, linha: 0, coluna: 0, ordem: 0, ativo: true, tem_carteira: false, ruston_pessoa_id: null }}
+          pessoa={{ id: "", area_id: novaPessoa.area_id, subsecao_id: novaPessoa.subsecao_id, nome: "", cargo: "", foto_url: null, destaque: false, linha: 0, coluna: 0, ordem: 0, ativo: true, tem_carteira: false, ruston_pessoa_id: null, capacidade: null }}
           areas={areas} subsecoes={subsecoes} pessoasCadastro={pessoasCadastro}
           onFechar={() => setNovaPessoa(null)}
           onSalvo={() => { setNovaPessoa(null); load(); }}
@@ -490,13 +497,14 @@ function AreaCard({ area, pessoas, carteiras, clientesAuto, fcaStatus, mostrarCa
   );
 }
 
-function LinhasContainer({ pessoas, areaId, subsecaoId, podeEditar, onEditar, arrastando, setArrastando, moverPessoa, moverPessoaNovaLinha, mrrPorPessoa, qtdClientesPorPessoa }: {
+function LinhasContainer({ pessoas, areaId, subsecaoId, podeEditar, onEditar, arrastando, setArrastando, moverPessoa, moverPessoaNovaLinha, mrrPorPessoa, qtdClientesPorPessoa, onCapacidadeChange }: {
   pessoas: OrgPessoa[]; areaId: string; subsecaoId: string | null; podeEditar: boolean; onEditar: (p: OrgPessoa) => void;
   arrastando: string | null; setArrastando: (id: string | null) => void;
   moverPessoa: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; linha: number; colunaAlvo: number }) => Promise<void>;
   moverPessoaNovaLinha: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; insertLinha: number }) => Promise<void>;
   mrrPorPessoa: Map<string, number>;
   qtdClientesPorPessoa: Map<string, number>;
+  onCapacidadeChange?: (pessoaId: string, valor: number | null) => void;
 }) {
   const linhas: Record<number, OrgPessoa[]> = {};
   pessoas.forEach((p) => { if (!linhas[p.linha]) linhas[p.linha] = []; linhas[p.linha].push(p); });
@@ -508,7 +516,7 @@ function LinhasContainer({ pessoas, areaId, subsecaoId, podeEditar, onEditar, ar
       <RowGap insertLinha={linhaKeys[0] ?? 0} areaId={areaId} subsecaoId={subsecaoId} arrastando={arrastando} moverPessoaNovaLinha={moverPessoaNovaLinha} setArrastando={setArrastando} />
       {linhaKeys.map((linhaNum) => (
         <div key={linhaNum}>
-          <Row pessoas={linhas[linhaNum]} linha={linhaNum} areaId={areaId} subsecaoId={subsecaoId} podeEditar={podeEditar} onEditar={onEditar} arrastando={arrastando} setArrastando={setArrastando} moverPessoa={moverPessoa} mrrPorPessoa={mrrPorPessoa} qtdClientesPorPessoa={qtdClientesPorPessoa} />
+          <Row pessoas={linhas[linhaNum]} linha={linhaNum} areaId={areaId} subsecaoId={subsecaoId} podeEditar={podeEditar} onEditar={onEditar} arrastando={arrastando} setArrastando={setArrastando} moverPessoa={moverPessoa} mrrPorPessoa={mrrPorPessoa} qtdClientesPorPessoa={qtdClientesPorPessoa} onCapacidadeChange={onCapacidadeChange} />
           <RowGap insertLinha={linhaNum + 1} areaId={areaId} subsecaoId={subsecaoId} arrastando={arrastando} moverPessoaNovaLinha={moverPessoaNovaLinha} setArrastando={setArrastando} />
         </div>
       ))}
@@ -524,12 +532,13 @@ function LinhasContainer({ pessoas, areaId, subsecaoId, podeEditar, onEditar, ar
   );
 }
 
-function Row({ pessoas, linha, areaId, subsecaoId, podeEditar, onEditar, arrastando, setArrastando, moverPessoa, mrrPorPessoa, qtdClientesPorPessoa }: {
+function Row({ pessoas, linha, areaId, subsecaoId, podeEditar, onEditar, arrastando, setArrastando, moverPessoa, mrrPorPessoa, qtdClientesPorPessoa, onCapacidadeChange }: {
   pessoas: OrgPessoa[]; linha: number; areaId: string; subsecaoId: string | null; podeEditar: boolean; onEditar: (p: OrgPessoa) => void;
   arrastando: string | null; setArrastando: (id: string | null) => void;
   moverPessoa: (pessoaId: string, destino: { area_id: string; subsecao_id: string | null; linha: number; colunaAlvo: number }) => Promise<void>;
   mrrPorPessoa: Map<string, number>;
   qtdClientesPorPessoa: Map<string, number>;
+  onCapacidadeChange?: (pessoaId: string, valor: number | null) => void;
 }) {
   const [hover, setHover] = useState(false);
   const podeReceber = !!arrastando;
@@ -553,7 +562,7 @@ function Row({ pessoas, linha, areaId, subsecaoId, podeEditar, onEditar, arrasta
       className={`flex flex-wrap justify-center gap-6 rounded-xl px-3 py-4 transition ${podeReceber ? (hover ? "bg-emerald-500/15 outline outline-2 outline-emerald-400" : "outline outline-1 outline-white/5") : ""}`}
     >
       {pessoas.map((p) => (
-        <PessoaAvatar key={p.id} pessoa={p} podeEditar={podeEditar} onClick={() => onEditar(p)} arrastando={arrastando} setArrastando={setArrastando} mrrPorPessoa={mrrPorPessoa} qtdClientesPorPessoa={qtdClientesPorPessoa} />
+        <PessoaAvatar key={p.id} pessoa={p} podeEditar={podeEditar} onClick={() => onEditar(p)} arrastando={arrastando} setArrastando={setArrastando} mrrPorPessoa={mrrPorPessoa} qtdClientesPorPessoa={qtdClientesPorPessoa} onCapacidadeChange={onCapacidadeChange} />
       ))}
     </div>
   );
@@ -579,10 +588,11 @@ function RowGap({ insertLinha, areaId, subsecaoId, arrastando, moverPessoaNovaLi
   );
 }
 
-function PessoaAvatar({ pessoa, podeEditar, onClick, arrastando, setArrastando, mrrPorPessoa, qtdClientesPorPessoa }: {
+function PessoaAvatar({ pessoa, podeEditar, onClick, arrastando, setArrastando, mrrPorPessoa, qtdClientesPorPessoa, onCapacidadeChange }: {
   pessoa: OrgPessoa; podeEditar: boolean; onClick: () => void;
   arrastando: string | null; setArrastando: (id: string | null) => void; mrrPorPessoa: Map<string, number>;
   qtdClientesPorPessoa: Map<string, number>;
+  onCapacidadeChange?: (pessoaId: string, valor: number | null) => void;
 }) {
   const iniciais = pessoa.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
   const size = pessoa.destaque ? "h-24 w-24" : "h-16 w-16";
@@ -618,6 +628,27 @@ function PessoaAvatar({ pessoa, podeEditar, onClick, arrastando, setArrastando, 
         )}
         {qtd > 0 && (
           <p className="text-[10px] text-brand-muted">{qtd} {qtd === 1 ? "cliente" : "clientes"}</p>
+        )}
+        {(qtd > 0 || pessoa.capacidade != null) && podeEditar && (
+          <div className="flex items-center gap-1 mt-0.5" onClick={(e) => e.stopPropagation()}>
+            <span className="text-[9px] text-zinc-500">Cap:</span>
+            <input
+              type="number"
+              className="w-8 bg-transparent text-[9px] text-center text-amber-300 border-b border-zinc-700 focus:border-amber-400 outline-none"
+              defaultValue={pessoa.capacidade ?? ""}
+              placeholder="-"
+              onBlur={(e) => {
+                const val = e.target.value.trim() === "" ? null : Number(e.target.value);
+                if (val !== pessoa.capacidade && onCapacidadeChange) {
+                  onCapacidadeChange(pessoa.id, val);
+                }
+              }}
+              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+            />
+          </div>
+        )}
+        {(qtd > 0 || pessoa.capacidade != null) && !podeEditar && pessoa.capacidade != null && (
+          <p className="text-[9px] text-amber-300 mt-0.5">Cap: {pessoa.capacidade}</p>
         )}
         {pessoa.tem_carteira && mrr === 0 && qtd === 0 && <p className="mt-0.5 text-[9px] text-amber-300">📋</p>}
       </div>
