@@ -17,9 +17,25 @@ export async function POST(req: Request) {
     const formData = await req.formData();
     const audioFile = formData.get("audio") as File | null;
     const clienteNome = formData.get("cliente_nome") as string || "Cliente";
-    const contrato = formData.get("contrato") as string || "";
+    let contrato = formData.get("contrato") as string || "";
+    const contratoPdf = formData.get("contrato_pdf") as File | null;
+    const contratoLink = formData.get("contrato_link") as string || "";
 
     if (!audioFile) return NextResponse.json({ error: "Audio nao enviado" }, { status: 400 });
+
+    // Extrair texto do PDF se enviado
+    if (contratoPdf && contratoPdf.size > 0) {
+      try {
+        const pdfModule = await import("pdf-parse");
+        const pdfParse = (pdfModule as any).default ?? pdfModule;
+        const buffer = Buffer.from(await contratoPdf.arrayBuffer());
+        const pdfData = await pdfParse(buffer);
+        contrato = pdfData.text ?? "";
+      } catch (e: any) {
+        console.error("[auditoria] erro ao ler PDF:", e?.message);
+        contrato = "[Erro ao ler PDF - analise sem contrato]";
+      }
+    }
 
     // 1. Transcrever com Whisper
     const whisperForm = new FormData();
