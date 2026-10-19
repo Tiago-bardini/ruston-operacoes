@@ -15,13 +15,16 @@ export async function POST(req: Request) {
 
   try {
     const formData = await req.formData();
-    const audioFile = formData.get("audio") as File | null;
+    const audioFiles = formData.getAll("audio") as File[];
     const clienteNome = formData.get("cliente_nome") as string || "Cliente";
     let contrato = formData.get("contrato") as string || "";
     const contratoPdf = formData.get("contrato_pdf") as File | null;
     const contratoLink = formData.get("contrato_link") as string || "";
+    const transcricaoTexto = formData.get("transcricao_texto") as string || "";
 
-    if (!audioFile) return NextResponse.json({ error: "Audio nao enviado" }, { status: 400 });
+    if (!audioFiles.length && !transcricaoTexto.trim()) {
+      return NextResponse.json({ error: "Envie pelo menos um audio ou uma transcricao" }, { status: 400 });
+    }
 
     // Extrair texto do PDF se enviado
     if (contratoPdf && contratoPdf.size > 0) {
@@ -37,25 +40,40 @@ export async function POST(req: Request) {
       }
     }
 
-    // 1. Transcrever com Whisper
-    const whisperForm = new FormData();
-    whisperForm.append("file", audioFile, audioFile.name || "audio.webm");
-    whisperForm.append("model", "whisper-1");
-    whisperForm.append("language", "pt");
-    whisperForm.append("response_format", "verbose_json");
+    // 1. Transcrever audios com Whisper (se houver)
+    const transcricoes: string[] = [];
 
-    const whisperRes = await fetch(OPENAI_WHISPER_URL, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${OPENAI_KEY}` },
-      body: whisperForm,
-    });
-
-    if (!whisperRes.ok) {
-      return NextResponse.json({ error: `Whisper: ${await whisperRes.text()}` }, { status: 500 });
+    // Adiciona transcricao colada primeiro
+    if (transcricaoTexto.trim()) {
+      transcricoes.push(transcricaoTexto.trim());
     }
 
-    const whisperData = await whisperRes.json();
-    const transcricao = whisperData.text ?? "";
+    // Transcreve cada audio
+    for (let i = 0; i < audioFiles.length; i++) {
+      const audioFile = audioFiles[i];
+      if (!audioFile || audioFile.size === 0) continue;
+
+      const whisperForm = new FormData();
+      whisperForm.append("file", audioFile, audioFile.name || `audio_${i}.webm`);
+      whisperForm.append("model", "whisper-1");
+      whisperForm.append("language", "pt");
+      whisperForm.append("response_format", "verbose_json");
+
+      const whisperRes = await fetch(OPENAI_WHISPER_URL, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${OPENAI_KEY}` },
+        body: whisperForm,
+      });
+
+      if (whisperRes.ok) {
+        const whisperData = await whisperRes.json();
+        if (whisperData.text) {
+          transcricoes.push(`[Call ${i + 1}] ${whisperData.text}`);
+        }
+      }
+    }
+
+    const transcricao = transcricoes.join("\n\n---\n\n");
 
     if (transcricao.length < 50) {
       return NextResponse.json({ error: "Transcricao muito curta" }, { status: 400 });
