@@ -214,8 +214,8 @@ export default function ProdutividadePage() {
     return t;
   }, [stats]);
 
-  const cargosUnicos = useMemo(() => [...new Set(stats.map((s) => s.cargo).filter(Boolean))], [stats]);
-  const squadsUnicos = useMemo(() => [...new Set(stats.map((s) => s.squad_nome).filter(Boolean))], [stats]);
+  const cargosUnicos = useMemo(() => Array.from(new Set(stats.map((s) => s.cargo).filter(Boolean))), [stats]);
+  const squadsUnicos = useMemo(() => Array.from(new Set(stats.map((s) => s.squad_nome).filter(Boolean))), [stats]);
 
   if (loading) {
     return (

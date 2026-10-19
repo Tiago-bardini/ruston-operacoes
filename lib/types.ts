@@ -490,6 +490,7 @@ export interface ClienteView extends Cliente {
   gestor_trafego_nome: string | null;
   designer_nome: string | null;
   squad_nome: string | null;
+  plano_acao_monetizacao: string | null;
 }
 
 export function formatBRL(value: number | null | undefined): string {
