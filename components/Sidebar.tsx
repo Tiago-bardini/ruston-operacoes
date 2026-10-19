@@ -35,36 +35,6 @@ const NAV_ACTIVE: NavItem[] = [
   { href: "/usuarios", label: "Usuários", icon: "⚿", soGerente: true },
 ];
 
-type NavSoonItem = { label: string; icon: string; subitems?: string[] };
-const NAV_SOON: NavSoonItem[] = [
-  {
-    label: "Radar de Clientes",
-    icon: "◉",
-    subitems: [
-      "Temperatura de reunião (IA)",
-      "Sinais de risco de churn",
-      "Sinais de upsell",
-      "Integração Google Meet",
-    ],
-  },
-  {
-    label: "Playbooks",
-    icon: "▤",
-    subitems: [
-      "Playbook por cadeira",
-      "Templates de mensagem",
-      "Scripts de reunião",
-    ],
-  },
-  {
-    label: "Insights & Análises",
-    icon: "⚡",
-    subitems: [
-      "Motivos de churn agrupados",
-      "Análise de coorte",
-    ],
-  },
-];
 
 export default function Sidebar({ email }: { email?: string }) {
   const pathname = usePathname();
@@ -109,25 +79,6 @@ export default function Sidebar({ email }: { email?: string }) {
             </Link>
           );
         })}
-        <div className="my-4 border-t border-white/5" />
-        <p className="mb-2 px-3 text-[10px] uppercase tracking-wide text-brand-muted">Em breve</p>
-        {NAV_SOON.map((item) => (
-          <div key={item.label}>
-            <div className="flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2 text-sm text-brand-muted/50">
-              <span className="w-4 text-center">{item.icon}</span>
-              {item.label}
-            </div>
-            {item.subitems?.map((sub) => (
-              <div
-                key={sub}
-                className="ml-7 flex cursor-not-allowed items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-brand-muted/40"
-              >
-                <span className="text-[10px]">└</span>
-                {sub}
-              </div>
-            ))}
-          </div>
-        ))}
       </nav>
       <div className="mt-4 border-t border-white/5 pt-4">
         {email && (
