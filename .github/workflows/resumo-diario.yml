@@ -1,0 +1,16 @@
+name: Resumo Diario WhatsApp
+
+on:
+  schedule:
+    - cron: '0 11 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  resumo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enviar resumo diario
+        run: |
+          curl -s -X GET "https://ruston-operacoes.vercel.app/api/resumo-diario" \
+            -H "Content-Type: application/json" \
+            --max-time 30
