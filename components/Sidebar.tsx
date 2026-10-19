@@ -27,6 +27,7 @@ const NAV_ACTIVE: NavItem[] = [
   { href: "/fca", label: "FCA", icon: "▤" },
   { href: "/ekyte", label: "Ekyte", icon: "📊" },
   { href: "/produtividade", label: "Produtividade", icon: "⚡", soGerenteCoord: true },
+  { href: "/sla", label: "Controle SLA", icon: "⏱", soGerenteCoord: true },
   { href: "/radar-whatsapp", label: "Radar WhatsApp", icon: "📱", soGerenteCoord: true },
   { href: "/headcount", label: "Headcount", icon: "☰", soGerenteCoord: true },
   { href: "/forecast", label: "Forecast", icon: "↗", soGerenteCoord: true },
