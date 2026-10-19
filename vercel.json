@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/whatsapp-alertas-check?tipo=silencio",
-      "schedule": "0 20 * * 1-5"
+      "schedule": "0 15 * * 1-5"
     }
   ]
 }
