@@ -26,7 +26,8 @@ type TipoEntrega = { id: string; nome: string; categoria: string };
 export default function AuditoriaVendasPage() {
   const supabase = createClient();
   const [clienteNome, setClienteNome] = useState("");
-  const [calls, setCalls] = useState<string[]>([""]);
+  const [callFiles, setCallFiles] = useState<(File | null)[]>([null]);
+  const [callNames, setCallNames] = useState<string[]>([""]);
   const [contrato, setContrato] = useState("");
   const [contratoPdf, setContratoPdf] = useState<File | null>(null);
   const [contratoLink, setContratoLink] = useState("");
@@ -112,29 +113,58 @@ export default function AuditoriaVendasPage() {
     }
   }
 
-  function addCall() { setCalls([...calls, ""]); }
-  function removeCall(i: number) { setCalls(calls.filter((_, idx) => idx !== i)); }
-  function updateCall(i: number, val: string) { setCalls(calls.map((c, idx) => idx === i ? val : c)); }
+  function addCall() { setCallFiles([...callFiles, null]); setCallNames([...callNames, ""]); }
+  function removeCall(i: number) { setCallFiles(callFiles.filter((_, idx) => idx !== i)); setCallNames(callNames.filter((_, idx) => idx !== i)); }
+  function updateCallFile(i: number, file: File | null) {
+    setCallFiles(callFiles.map((f, idx) => idx === i ? file : f));
+    setCallNames(callNames.map((n, idx) => idx === i ? (file?.name ?? "") : n));
+  }
 
-  const callsPreenchidas = calls.filter((c) => c.trim().length > 50);
+  const callsComArquivo = callFiles.filter((f) => f !== null);
 
   async function analisar() {
-    if (!callsPreenchidas.length || !clienteNome.trim()) return;
+    if (!callsComArquivo.length || !clienteNome.trim()) return;
     setAnalisando(true);
     setResultado(null);
     setErro(null);
-    setProgresso("Analisando transcricoes...");
-
-    const formData = new FormData();
-    formData.append("cliente_nome", clienteNome);
-    if (contrato.trim()) formData.append("contrato", contrato);
-    if (contratoPdf) formData.append("contrato_pdf", contratoPdf);
-    if (contratoLink.trim()) formData.append("contrato_link", contratoLink);
-
-    const transcricaoCompleta = callsPreenchidas.map((c, i) => `[Call ${i + 1}]\n${c.trim()}`).join("\n\n---\n\n");
-    formData.append("transcricao_texto", transcricaoCompleta);
+    setProgresso(`Lendo ${callsComArquivo.length} transcricao(oes)...`);
 
     try {
+      // Ler texto de cada arquivo (PDF ou TXT)
+      const transcricoes: string[] = [];
+      for (let i = 0; i < callFiles.length; i++) {
+        const file = callFiles[i];
+        if (!file) continue;
+
+        if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+          // PDF — enviar pro backend extrair
+          const pdfForm = new FormData();
+          pdfForm.append("contrato_pdf", file);
+          pdfForm.append("cliente_nome", clienteNome);
+          // Usar o endpoint so pra extrair texto (hack temporario)
+          // Melhor: ler no client. Mas pdf-parse nao roda no browser.
+          // Vamos enviar tudo pro backend de uma vez
+          transcricoes.push(`[ARQUIVO PDF: ${file.name}]`);
+        } else {
+          // TXT/DOCX — ler como texto
+          const text = await file.text();
+          transcricoes.push(text);
+        }
+      }
+
+      setProgresso("Analisando com IA...");
+
+      const formData = new FormData();
+      formData.append("cliente_nome", clienteNome);
+      if (contrato.trim()) formData.append("contrato", contrato);
+      if (contratoPdf) formData.append("contrato_pdf", contratoPdf);
+      if (contratoLink.trim()) formData.append("contrato_link", contratoLink);
+
+      // Enviar arquivos de transcricao como "transcricao_files"
+      for (const file of callsComArquivo) {
+        formData.append("transcricao_files", file!);
+      }
+
       const res = await fetch("/api/auditoria-vendas", { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -164,27 +194,22 @@ export default function AuditoriaVendasPage() {
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <label className="block text-xs text-zinc-400">Transcricoes das Calls de Vendas</label>
+            <label className="block text-xs text-zinc-400">Transcricoes das Calls de Vendas (PDF ou TXT)</label>
             <button type="button" className="text-xs text-blue-400 hover:text-blue-300" onClick={addCall}>+ Adicionar outra call</button>
           </div>
-          {calls.map((call, i) => (
-            <div key={i}>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] text-zinc-500 font-medium">Call {i + 1}</span>
-                {calls.length > 1 && (
-                  <button type="button" className="text-[10px] text-red-400 hover:text-red-300" onClick={() => removeCall(i)}>remover</button>
-                )}
-              </div>
-              <textarea
-                className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700"
-                rows={5}
-                value={call}
-                onChange={(e) => updateCall(i, e.target.value)}
-                placeholder={`Cole aqui a transcricao da call ${i + 1}...`}
-              />
+          {callFiles.map((file, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <span className="text-[10px] text-zinc-500 font-medium whitespace-nowrap">Call {i + 1}</span>
+              <input type="file" accept=".pdf,.txt,.doc,.docx,text/plain,application/pdf"
+                className="flex-1 bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700 file:mr-2 file:bg-zinc-700 file:text-zinc-200 file:border-0 file:rounded file:px-2 file:py-1 file:text-xs"
+                onChange={(e) => updateCallFile(i, e.target.files?.[0] ?? null)} />
+              {file && <span className="text-zinc-500 text-[10px] truncate max-w-[120px]">{file.name}</span>}
+              {callFiles.length > 1 && (
+                <button type="button" className="text-[10px] text-red-400 hover:text-red-300 whitespace-nowrap" onClick={() => removeCall(i)}>remover</button>
+              )}
             </div>
           ))}
-          <p className="text-[10px] text-zinc-600">{callsPreenchidas.length} call(s) com transcricao</p>
+          <p className="text-[10px] text-zinc-600">{callsComArquivo.length} arquivo(s) selecionado(s)</p>
         </div>
 
         <div className="space-y-3">
@@ -213,7 +238,7 @@ export default function AuditoriaVendasPage() {
         </div>
         <div className="flex items-center gap-3">
           <button className="bg-blue-600 hover:bg-blue-700 text-white rounded px-6 py-2 text-sm font-medium disabled:opacity-50"
-            disabled={analisando || !callsPreenchidas.length || !clienteNome.trim()} onClick={analisar}>
+            disabled={analisando || !callsComArquivo.length || !clienteNome.trim()} onClick={analisar}>
             {analisando ? "Analisando..." : "Auditar Call"}
           </button>
           {progresso && <span className="text-blue-400 text-xs animate-pulse">{progresso}</span>}

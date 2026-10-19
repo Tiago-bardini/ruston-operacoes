@@ -15,15 +15,15 @@ export async function POST(req: Request) {
 
   try {
     const formData = await req.formData();
-    const audioFiles = formData.getAll("audio") as File[];
     const clienteNome = formData.get("cliente_nome") as string || "Cliente";
     let contrato = formData.get("contrato") as string || "";
     const contratoPdf = formData.get("contrato_pdf") as File | null;
     const contratoLink = formData.get("contrato_link") as string || "";
     const transcricaoTexto = formData.get("transcricao_texto") as string || "";
+    const transcricaoFiles = formData.getAll("transcricao_files") as File[];
 
-    if (!audioFiles.length && !transcricaoTexto.trim()) {
-      return NextResponse.json({ error: "Envie pelo menos um audio ou uma transcricao" }, { status: 400 });
+    if (!transcricaoFiles.length && !transcricaoTexto.trim()) {
+      return NextResponse.json({ error: "Envie pelo menos uma transcricao" }, { status: 400 });
     }
 
     // Extrair texto do PDF se enviado
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 1. Transcrever audios com Whisper (se houver)
+    // 1. Ler transcricoes dos arquivos enviados
     const transcricoes: string[] = [];
 
     // Adiciona transcricao colada primeiro
@@ -48,28 +48,25 @@ export async function POST(req: Request) {
       transcricoes.push(transcricaoTexto.trim());
     }
 
-    // Transcreve cada audio
-    for (let i = 0; i < audioFiles.length; i++) {
-      const audioFile = audioFiles[i];
-      if (!audioFile || audioFile.size === 0) continue;
+    // Ler cada arquivo de transcricao (PDF ou TXT)
+    for (let i = 0; i < transcricaoFiles.length; i++) {
+      const file = transcricaoFiles[i];
+      if (!file || file.size === 0) continue;
 
-      const whisperForm = new FormData();
-      whisperForm.append("file", audioFile, audioFile.name || `audio_${i}.webm`);
-      whisperForm.append("model", "whisper-1");
-      whisperForm.append("language", "pt");
-      whisperForm.append("response_format", "verbose_json");
-
-      const whisperRes = await fetch(OPENAI_WHISPER_URL, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${OPENAI_KEY}` },
-        body: whisperForm,
-      });
-
-      if (whisperRes.ok) {
-        const whisperData = await whisperRes.json();
-        if (whisperData.text) {
-          transcricoes.push(`[Call ${i + 1}] ${whisperData.text}`);
+      try {
+        if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+          const pdfModule = await import("pdf-parse");
+          const pdfParse = (pdfModule as any).default ?? pdfModule;
+          const buffer = Buffer.from(await file.arrayBuffer());
+          const pdfData = await pdfParse(buffer);
+          if (pdfData.text) transcricoes.push(`[Call ${i + 1} - ${file.name}]\n${pdfData.text}`);
+        } else {
+          const text = await file.text();
+          if (text.trim()) transcricoes.push(`[Call ${i + 1} - ${file.name}]\n${text}`);
         }
+      } catch (e: any) {
+        console.error(`[auditoria] erro ao ler arquivo ${file.name}:`, e?.message);
+        transcricoes.push(`[Call ${i + 1} - ${file.name}: erro ao ler arquivo]`);
       }
     }
 
