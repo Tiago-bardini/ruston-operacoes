@@ -26,7 +26,8 @@ type TipoEntrega = { id: string; nome: string; categoria: string };
 export default function AuditoriaVendasPage() {
   const supabase = createClient();
   const [clienteNome, setClienteNome] = useState("");
-  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [arquivos, setArquivos] = useState<File[]>([]);
+  const [transcricaoTexto, setTranscricaoTexto] = useState("");
   const [contrato, setContrato] = useState("");
   const [contratoPdf, setContratoPdf] = useState<File | null>(null);
   const [contratoLink, setContratoLink] = useState("");
@@ -113,18 +114,34 @@ export default function AuditoriaVendasPage() {
   }
 
   async function analisar() {
-    if (!arquivo || !clienteNome.trim()) return;
+    if ((!arquivos.length && !transcricaoTexto.trim()) || !clienteNome.trim()) return;
     setAnalisando(true);
     setResultado(null);
     setErro(null);
-    setProgresso("Transcrevendo audio da call...");
 
     const formData = new FormData();
-    formData.append("audio", arquivo);
     formData.append("cliente_nome", clienteNome);
     if (contrato.trim()) formData.append("contrato", contrato);
     if (contratoPdf) formData.append("contrato_pdf", contratoPdf);
     if (contratoLink.trim()) formData.append("contrato_link", contratoLink);
+
+    // Se tem transcricao colada, envia direto (pula o Whisper)
+    if (transcricaoTexto.trim()) {
+      formData.append("transcricao_texto", transcricaoTexto);
+    }
+
+    // Se tem audios, processa cada um
+    for (const arq of arquivos) {
+      formData.append("audio", arq);
+    }
+
+    if (arquivos.length > 1) {
+      setProgresso(`Transcrevendo ${arquivos.length} audios...`);
+    } else if (arquivos.length === 1) {
+      setProgresso("Transcrevendo audio...");
+    } else {
+      setProgresso("Analisando transcricao...");
+    }
 
     try {
       const res = await fetch("/api/auditoria-vendas", { method: "POST", body: formData });
@@ -155,12 +172,20 @@ export default function AuditoriaVendasPage() {
               value={clienteNome} onChange={(e) => setClienteNome(e.target.value)} placeholder="Ex: Empresa ABC" />
           </div>
           <div>
-            <label className="block text-xs text-zinc-400 mb-1">Audio da Call de Vendas</label>
-            <input type="file" accept="audio/*,video/*,.webm,.mp4,.m4a,.ogg,.wav,.mp3"
+            <label className="block text-xs text-zinc-400 mb-1">Audios das Calls (pode selecionar varios)</label>
+            <input type="file" accept="audio/*,video/*,.webm,.mp4,.m4a,.ogg,.wav,.mp3" multiple
               className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700 file:mr-2 file:bg-zinc-700 file:text-zinc-200 file:border-0 file:rounded file:px-2 file:py-1 file:text-xs"
-              onChange={(e) => setArquivo(e.target.files?.[0] ?? null)} />
+              onChange={(e) => setArquivos(Array.from(e.target.files ?? []))} />
+            {arquivos.length > 0 && <span className="text-zinc-500 text-xs">{arquivos.length} arquivo(s) selecionado(s)</span>}
           </div>
         </div>
+        <div>
+          <label className="block text-xs text-zinc-400 mb-1">Ou cole a transcricao direto (se ja tiver pronta)</label>
+          <textarea className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700 font-mono" rows={4}
+            value={transcricaoTexto} onChange={(e) => setTranscricaoTexto(e.target.value)}
+            placeholder="Cole aqui a transcricao das calls. Pode juntar varias transcricoes no mesmo campo — separe com '---' entre cada call." />
+        </div>
+
         <div className="space-y-3">
           <label className="block text-xs text-zinc-400">Contrato (opcional — para confrontar com o que foi vendido)</label>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -187,10 +212,9 @@ export default function AuditoriaVendasPage() {
         </div>
         <div className="flex items-center gap-3">
           <button className="bg-blue-600 hover:bg-blue-700 text-white rounded px-6 py-2 text-sm font-medium disabled:opacity-50"
-            disabled={analisando || !arquivo || !clienteNome.trim()} onClick={analisar}>
+            disabled={analisando || (!arquivos.length && !transcricaoTexto.trim()) || !clienteNome.trim()} onClick={analisar}>
             {analisando ? "Analisando..." : "Auditar Call"}
           </button>
-          {arquivo && <span className="text-zinc-500 text-xs">{arquivo.name} ({(arquivo.size / 1024 / 1024).toFixed(1)} MB)</span>}
           {progresso && <span className="text-blue-400 text-xs animate-pulse">{progresso}</span>}
         </div>
         {erro && <div className="bg-red-500/10 border border-red-500/30 rounded p-3 text-red-300 text-sm">{erro}</div>}
