@@ -1,25 +1,38 @@
 // =====================================================================
-// EKYTE SYNC — puxa tasks da API Ekyte e faz UPSERT no banco
+// EKYTE SYNC — puxa tasks e apontamentos da API Ekyte e faz UPSERT no banco
 // =====================================================================
-// Endpoint POST /api/ekyte-sync
-// Protegido: só pode ser chamado por usuário autenticado (gerente).
-// Variáveis de ambiente necessárias (Vercel → Settings → Env Vars):
-//   EKYTE_API_KEY = token do Ekyte
-//   NEXT_PUBLIC_SUPABASE_URL = url do Supabase
-//   SUPABASE_SERVICE_ROLE_KEY = service role key (secret! usada só no server)
+// POST /api/ekyte-sync  → disparo manual (usuário logado)
+//   body opcional: { modo?: "incremental" | "completo", createdFrom?: "YYYY-MM-DD",
+//                    apontamentosFrom?: "YYYY-MM-DD" }
+// GET  /api/ekyte-sync  → com "Authorization: Bearer CRON_SECRET" roda o sync
+//                         incremental (Vercel Cron diário); sem auth é só health check.
+//
+// Modos:
+//   incremental (padrão) — tasks abertas + concluídas nos últimos 35 dias
+//                          + apontamentos dos últimos 21 dias. Cabe nos 60s do Hobby.
+//   completo             — todas as tasks desde createdFrom (padrão 2023-01-01)
+//                          + apontamentos desde apontamentosFrom (padrão 120 dias).
+//
+// Variáveis de ambiente (Vercel → Settings → Env Vars):
+//   EKYTE_API_KEY, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, CRON_SECRET
+// Doc da API: https://developers.ekyte.com/docs/docs-bi/
 // =====================================================================
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { isCron, requireUserOrCron } from "@/lib/auth/requireUserOrCron";
 
 export const runtime = "nodejs";
-export const maxDuration = 300; // até 5min (Vercel Pro). Em Hobby = 60s.
+export const maxDuration = 60; // limite do plano Hobby
 
-const EKYTE_BASE = "https://api.ekyte.com/v1.1/tasks";
+const EKYTE_API = "https://api.ekyte.com";
 const PAGE_SIZE_GUESS = 100; // Ekyte retorna 100 por página
-const MAX_PAGES = 500; // suporta até 50k tasks por status
+const MAX_PAGES = 500;
+// Para antes do limite de 60s pra conseguir fechar o log e rodar o matching
+const ORCAMENTO_MS = 45_000;
 
-type EkyteTask = Record<string, any>;
+type EkyteRow = Record<string, any>;
+type Modo = "incremental" | "completo";
 
 function iso(d: any): string | null {
   if (!d) return null;
@@ -28,7 +41,11 @@ function iso(d: any): string | null {
   return isNaN(dt.getTime()) ? null : dt.toISOString();
 }
 
-function mapTask(t: EkyteTask) {
+function diasAtras(n: number): string {
+  return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+}
+
+function mapTask(t: EkyteRow) {
   return {
     id: t.id,
     title: t.title ?? null,
@@ -69,10 +86,35 @@ function mapTask(t: EkyteTask) {
   };
 }
 
-async function fetchEkytePage(apiKey: string, createdFrom: string, status: 0 | 1, page: number): Promise<EkyteTask[]> {
-  const url = `${EKYTE_BASE}?apiKey=${encodeURIComponent(apiKey)}&createdFrom=${createdFrom}&status=${status}&page=${page}`;
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!res.ok) throw new Error(`Ekyte ${res.status}: ${await res.text()}`);
+// Apontamento (time-tracking): effort em minutos, ctcTaskId = task do Ekyte
+function mapApontamento(a: EkyteRow) {
+  const inicio: string | null = a.startDate ?? a.createdIn ?? null;
+  return {
+    id: a.id,
+    task_id: a.ctcTaskId ?? null,
+    task_title: a.ctcTask ?? null,
+    executor_id: a.executorId != null ? String(a.executorId) : null,
+    executor: a.executor ?? null,
+    workspace_id: a.workspaceId ?? null,
+    workspace: a.workspace ?? null,
+    phase: a.phase ?? null,
+    status: a.status ?? null,
+    comment: a.comment ?? null,
+    // Data "de calendário" do apontamento, sem conversão de fuso
+    data: inicio ? String(inicio).slice(0, 10) : null,
+    start_date: iso(a.startDate),
+    end_date: iso(a.endDate),
+    created_in: iso(a.createdIn),
+    minutos: Number(a.effort ?? 0) || 0,
+    payload_raw: a,
+    synced_at: new Date().toISOString(),
+  };
+}
+
+async function fetchEkyte(path: string, params: Record<string, string | number>): Promise<EkyteRow[]> {
+  const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]));
+  const res = await fetch(`${EKYTE_API}${path}?${qs}`, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`Ekyte ${path} ${res.status}: ${await res.text()}`);
   const payload = await res.json();
   // Envelope resolver: tenta payload.data, depois payload direto
   if (Array.isArray(payload?.data)) return payload.data;
@@ -82,7 +124,7 @@ async function fetchEkytePage(apiKey: string, createdFrom: string, status: 0 | 1
   return [];
 }
 
-export async function POST(req: Request) {
+async function sincronizar(modo: Modo, opts: { createdFrom?: string; apontamentosFrom?: string; disparadoPorEmail: string | null }) {
   const EKYTE_API_KEY = process.env.EKYTE_API_KEY;
   const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SB_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -91,40 +133,72 @@ export async function POST(req: Request) {
   if (!SB_URL || !SB_SERVICE) return NextResponse.json({ error: "Supabase não configurado" }, { status: 500 });
 
   const supabase = createClient(SB_URL, SB_SERVICE, { auth: { persistSession: false } });
+  const inicio = Date.now();
+  const semTempo = () => Date.now() - inicio > ORCAMENTO_MS;
 
-  // Lê body opcional: { createdFrom?: "YYYY-MM-DD", disparado_por_email?: string }
-  let body: any = {};
-  try { body = await req.json(); } catch {}
   // Padrão: desde 2023-01-01 pra garantir que pega TODAS as tasks ainda abertas,
   // inclusive as criadas há muito tempo que o investidor nunca concluiu.
-  const createdFrom: string = body.createdFrom ?? "2023-01-01";
-  const disparadoPorEmail: string | null = body.disparado_por_email ?? null;
+  const createdFrom = opts.createdFrom ?? "2023-01-01";
+  const apontamentosFrom = opts.apontamentosFrom ?? diasAtras(modo === "completo" ? 120 : 21);
 
   // Abre log
   const { data: log } = await supabase.from("ruston_ekyte_sync_log")
-    .insert({ status: "running", disparado_por_email: disparadoPorEmail })
+    .insert({ status: "running", disparado_por_email: opts.disparadoPorEmail, modo })
     .select("id").single();
   const logId = log?.id;
 
   let totalUpserted = 0;
+  let apontamentosUpserted = 0;
   let pages = 0;
+  let parcial = false;
+
+  async function syncTasks(filtros: Record<string, string | number>) {
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      if (semTempo()) { parcial = true; return; }
+      const batch = await fetchEkyte("/v1.1/tasks", { apiKey: EKYTE_API_KEY!, ...filtros, page });
+      if (!batch.length) return;
+      pages++;
+
+      const rows = batch.map(mapTask);
+      const { error } = await supabase.from("ruston_ekyte_tasks").upsert(rows, { onConflict: "id" });
+      if (error) throw error;
+      totalUpserted += rows.length;
+
+      if (batch.length < PAGE_SIZE_GUESS) return; // provável última página
+    }
+  }
+
+  async function syncApontamentos() {
+    let primeiroIdAnterior: unknown = undefined;
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      if (semTempo()) { parcial = true; return; }
+      const batch = await fetchEkyte("/v1.0/time-trackings", {
+        apiKey: EKYTE_API_KEY!, createdFrom: apontamentosFrom, createdTo: diasAtras(-1), page,
+      });
+      // Se a API ignorar "page" e devolver a mesma página, para pra não duplicar/loopar
+      if (!batch.length || batch[0]?.id === primeiroIdAnterior) return;
+      primeiroIdAnterior = batch[0]?.id;
+      pages++;
+
+      const rows = batch.map(mapApontamento).filter((r) => r.id != null);
+      const { error } = await supabase.from("ruston_ekyte_apontamentos").upsert(rows, { onConflict: "id" });
+      if (error) throw error;
+      apontamentosUpserted += rows.length;
+
+      if (batch.length < PAGE_SIZE_GUESS) return;
+    }
+  }
 
   try {
-    // Puxa ativas (status=0) e concluídas recentes (status=1)
-    for (const status of [0, 1] as const) {
-      for (let page = 1; page <= MAX_PAGES; page++) {
-        const batch = await fetchEkytePage(EKYTE_API_KEY, createdFrom, status, page);
-        if (!batch.length) break;
-        pages++;
-
-        const rows = batch.map(mapTask);
-        const { error } = await supabase.from("ruston_ekyte_tasks").upsert(rows, { onConflict: "id" });
-        if (error) throw error;
-        totalUpserted += rows.length;
-
-        if (batch.length < PAGE_SIZE_GUESS) break; // provável última página
-      }
-    }
+    // Ordem por prioridade, pra um sync parcial já trazer o mais importante:
+    // 1) tasks ativas (status=0)
+    await syncTasks({ status: 0, createdFrom });
+    // 2) apontamentos — horas reais por dia/pessoa (time-trackings)
+    await syncApontamentos();
+    // 3) tasks concluídas (status=1); no incremental, só dos últimos 35 dias
+    await syncTasks(modo === "completo"
+      ? { status: 1, createdFrom }
+      : { status: 1, createdFrom, resolvedDateFrom: diasAtras(35) });
 
     // ----------- MATCHING AUTOMÁTICO -----------
     // 1) Match pessoa por email
@@ -140,10 +214,16 @@ export async function POST(req: Request) {
         finished_at: new Date().toISOString(),
         pages_processed: pages,
         tasks_upserted: totalUpserted,
+        apontamentos_upserted: apontamentosUpserted,
+        erro: parcial ? "Parcial: tempo limite atingido; o próximo sync continua." : null,
       }).eq("id", logId);
     }
 
-    return NextResponse.json({ ok: true, pages, tasks_upserted: totalUpserted, createdFrom, match: matchStats });
+    return NextResponse.json({
+      ok: true, modo, parcial, pages,
+      tasks_upserted: totalUpserted, apontamentos_upserted: apontamentosUpserted,
+      createdFrom, apontamentosFrom, match: matchStats,
+    });
   } catch (e: any) {
     if (logId) {
       await supabase.from("ruston_ekyte_sync_log").update({
@@ -151,6 +231,7 @@ export async function POST(req: Request) {
         finished_at: new Date().toISOString(),
         pages_processed: pages,
         tasks_upserted: totalUpserted,
+        apontamentos_upserted: apontamentosUpserted,
         erro: String(e?.message ?? e),
       }).eq("id", logId);
     }
@@ -158,7 +239,24 @@ export async function POST(req: Request) {
   }
 }
 
-// GET devolve status rápido pra testar que a rota tá viva
-export async function GET() {
+export async function POST(req: Request) {
+  const auth = await requireUserOrCron(req);
+  if (auth instanceof Response) return auth;
+
+  let body: any = {};
+  try { body = await req.json(); } catch {}
+  const modo: Modo = body.modo === "completo" ? "completo" : "incremental";
+  const disparadoPorEmail = auth.via === "usuario" ? auth.email : "cron";
+
+  return sincronizar(modo, {
+    createdFrom: body.createdFrom,
+    apontamentosFrom: body.apontamentosFrom,
+    disparadoPorEmail,
+  });
+}
+
+// Vercel Cron chama com GET + Authorization: Bearer CRON_SECRET
+export async function GET(req: Request) {
+  if (isCron(req)) return sincronizar("incremental", { disparadoPorEmail: "cron" });
   return NextResponse.json({ ok: true, msg: "Ekyte sync endpoint. Use POST pra sincronizar." });
 }
