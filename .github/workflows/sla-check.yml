@@ -1,0 +1,16 @@
+name: SLA 30min Check
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check-sla:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar SLA 30 min
+        run: |
+          curl -s -X GET "https://ruston-operacoes.vercel.app/api/whatsapp-alertas-check?tipo=sla_30min" \
+            -H "Content-Type: application/json" \
+            --max-time 30
