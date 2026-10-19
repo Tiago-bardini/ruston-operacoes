@@ -487,7 +487,7 @@ export default function CockpitPage() {
               {timelineDados.map((d) => (
                 <div key={d.label} className="flex flex-1 flex-col items-center gap-2">
                   <div className="w-full flex-1 flex items-end">
-                    <div className="w-full bg-brand/60 rounded-t" style={{ height: `${100}%` }} title={formatBRL(d.valor)} />
+                    <div className="w-full bg-brand/60 rounded-t-sm" style={{ height: `${100}%` }} title={formatBRL(d.valor)} />
                   </div>
                   <p className="text-[10px] text-brand-muted">{d.label}</p>
                 </div>

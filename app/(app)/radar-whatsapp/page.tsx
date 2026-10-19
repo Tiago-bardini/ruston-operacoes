@@ -200,14 +200,14 @@ export default function RadarWhatsappPage() {
                       {c.sinais_churn && c.sinais_churn.length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {c.sinais_churn.slice(0, 3).map((s, i) => (
-                            <span key={i} className="rounded bg-red-500/15 text-red-300 text-[9px] px-1.5 py-0.5">{s}</span>
+                            <span key={i} className="rounded-sm bg-red-500/15 text-red-300 text-[9px] px-1.5 py-0.5">{s}</span>
                           ))}
                         </div>
                       )}
                       {c.sinais_upsell && c.sinais_upsell.length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {c.sinais_upsell.slice(0, 3).map((s, i) => (
-                            <span key={i} className="rounded bg-emerald-500/15 text-emerald-300 text-[9px] px-1.5 py-0.5">{s}</span>
+                            <span key={i} className="rounded-sm bg-emerald-500/15 text-emerald-300 text-[9px] px-1.5 py-0.5">{s}</span>
                           ))}
                         </div>
                       )}
@@ -247,19 +247,19 @@ function TempBadge({ v }: { v: string | null }) {
   if (!v) return <span className="text-brand-muted">—</span>;
   const cfg = v === "quente" ? "bg-red-500/15 text-red-300" : v === "morna" ? "bg-amber-500/15 text-amber-300" : "bg-blue-500/15 text-blue-300";
   const emoji = v === "quente" ? "🔥" : v === "morna" ? "☀" : "❄";
-  return <span className={`rounded px-2 py-0.5 text-xs ${cfg}`}>{emoji} {v}</span>;
+  return <span className={`rounded-sm px-2 py-0.5 text-xs ${cfg}`}>{emoji} {v}</span>;
 }
 
 function ChurnBadge({ v }: { v: string | null }) {
   if (!v || v === "baixo") return <span className="text-emerald-300 text-xs">✓</span>;
   const cfg = v === "alto" ? "bg-red-500/20 text-red-300" : "bg-amber-500/20 text-amber-300";
-  return <span className={`rounded px-2 py-0.5 text-xs font-bold ${cfg}`}>{v}</span>;
+  return <span className={`rounded-sm px-2 py-0.5 text-xs font-bold ${cfg}`}>{v}</span>;
 }
 
 function UpsellBadge({ v }: { v: string | null }) {
   if (!v || v === "nenhuma") return <span className="text-brand-muted">—</span>;
   const cfg = v === "clara" ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300";
-  return <span className={`rounded px-2 py-0.5 text-xs font-bold ${cfg}`}>{v}</span>;
+  return <span className={`rounded-sm px-2 py-0.5 text-xs font-bold ${cfg}`}>{v}</span>;
 }
 
 function SilencioBadge({ dias }: { dias: number }) {

@@ -329,13 +329,13 @@ export default function FcaImportJson({ onDone }: { onDone?: () => void }) {
             </div>
             {showTemplate && (
               <div className="mb-3 rounded-lg border border-white/10 bg-black/30 p-3">
-                <pre className="overflow-x-auto rounded bg-black/50 p-3 text-xs text-emerald-300">{JSON.stringify(TEMPLATE_JSON, null, 2)}</pre>
+                <pre className="overflow-x-auto rounded-sm bg-black/50 p-3 text-xs text-emerald-300">{JSON.stringify(TEMPLATE_JSON, null, 2)}</pre>
                 <button className="btn-ghost mt-2 text-xs" onClick={() => { navigator.clipboard.writeText(JSON.stringify(TEMPLATE_JSON, null, 2)); alert("Copiado!"); }}>📋 Copiar</button>
               </div>
             )}
             {showPrompt && (
               <div className="mb-3 rounded-lg border border-white/10 bg-black/30 p-3">
-                <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-black/50 p-3 text-xs text-sky-300">{PROMPT_IA}</pre>
+                <pre className="overflow-x-auto whitespace-pre-wrap rounded-sm bg-black/50 p-3 text-xs text-sky-300">{PROMPT_IA}</pre>
                 <button className="btn-ghost mt-2 text-xs" onClick={() => { navigator.clipboard.writeText(PROMPT_IA); alert("Copiado!"); }}>📋 Copiar</button>
               </div>
             )}
@@ -381,7 +381,7 @@ export default function FcaImportJson({ onDone }: { onDone?: () => void }) {
                   </div>
                   {item.erro && <p className="text-xs text-red-300">⚠ {item.erro}</p>}
                   {item.candidatos && item.candidatos.length > 1 && (
-                    <div className="mt-2 rounded bg-black/30 p-2">
+                    <div className="mt-2 rounded-sm bg-black/30 p-2">
                       <p className="mb-1 text-[10px] text-brand-muted">Escolhe o cliente correto:</p>
                       <select className="input py-1 text-xs" value={item.cliente_id ?? ""}
                         onChange={async (e) => {
@@ -404,7 +404,7 @@ export default function FcaImportJson({ onDone }: { onDone?: () => void }) {
                   {!item.erro && (
                     <div className="grid grid-cols-6 gap-1 text-center text-xs">
                       {Object.entries(item.input.notas).map(([k, v]) => (
-                        <div key={k} className="rounded bg-white/5 p-1">
+                        <div key={k} className="rounded-sm bg-white/5 p-1">
                           <p className="text-[10px] text-brand-muted">{k.substring(0, 6)}</p>
                           <p className="font-bold">{v}</p>
                         </div>

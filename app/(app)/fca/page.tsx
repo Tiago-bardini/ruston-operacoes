@@ -361,13 +361,13 @@ export default function FcaPage() {
                 </summary>
                 <div className="p-3 text-[11px] space-y-1">
                   <p><span className="text-brand font-semibold">cliente_nome</span> — nome exato do cliente (igual ao cadastrado). <span className="text-amber-300">Obrigatório</span>.</p>
-                  <p><span className="text-brand font-semibold">data_referencia</span> — sexta-feira da semana no formato <code className="bg-white/10 px-1 rounded">YYYY-MM-DD</code>. Se omitir, usa a semana selecionada no filtro.</p>
+                  <p><span className="text-brand font-semibold">data_referencia</span> — sexta-feira da semana no formato <code className="bg-white/10 px-1 rounded-sm">YYYY-MM-DD</code>. Se omitir, usa a semana selecionada no filtro.</p>
                   <p><span className="text-brand font-semibold">nota_resultado</span>, <span className="text-brand font-semibold">nota_operacao_trafego</span>, <span className="text-brand font-semibold">nota_prazo</span>, <span className="text-brand font-semibold">nota_qualidade</span>, <span className="text-brand font-semibold">nota_relacionamento</span>, <span className="text-brand font-semibold">nota_roi</span> — notas de 0 a 10 (aceita decimal, ex: 7.5).</p>
                   <p><span className="text-brand font-semibold">fato</span> — o que aconteceu na semana.</p>
                   <p><span className="text-brand font-semibold">causa</span> — por que aconteceu.</p>
                   <p><span className="text-brand font-semibold">acao</span> — o que vamos fazer.</p>
                   <p><span className="text-brand font-semibold">observacoes</span> — opcional.</p>
-                  <p><span className="text-brand font-semibold">status</span> — <code className="bg-white/10 px-1 rounded">rascunho</code>, <code className="bg-white/10 px-1 rounded">aguardando_validacao</code> ou <code className="bg-white/10 px-1 rounded">validado</code>. Default: rascunho.</p>
+                  <p><span className="text-brand font-semibold">status</span> — <code className="bg-white/10 px-1 rounded-sm">rascunho</code>, <code className="bg-white/10 px-1 rounded-sm">aguardando_validacao</code> ou <code className="bg-white/10 px-1 rounded-sm">validado</code>. Default: rascunho.</p>
                   <p className="mt-2 text-brand-muted italic">💡 Se já existe FCA pro mesmo cliente+semana, ele é atualizado. Senão, cria novo.</p>
                 </div>
               </details>
@@ -614,7 +614,7 @@ function TabDetalhes({ dataRef, sextas, setDataRef, clientes, getAvaliacao, onAb
                 {CRITERIOS_FCA.map((crit) => {
                   const nota = (av as any)[crit.chave] as number | null;
                   return (
-                    <div key={crit.chave} className="rounded bg-white/5 p-2 text-center">
+                    <div key={crit.chave} className="rounded-sm bg-white/5 p-2 text-center">
                       <p className="text-[9px] uppercase tracking-wide text-brand-muted">{crit.label}</p>
                       <p className={`text-lg font-bold ${
                         nota == null ? "text-brand-muted" :
@@ -632,19 +632,19 @@ function TabDetalhes({ dataRef, sextas, setDataRef, clientes, getAvaliacao, onAb
 
               {/* Fato, Causa, Ação */}
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div className="rounded bg-white/5 p-3">
+                <div className="rounded-sm bg-white/5 p-3">
                   <p className="mb-1 text-[9px] uppercase tracking-wide text-brand-muted">📌 Fato</p>
                   <p className="text-xs whitespace-pre-wrap">
                     {av.fato || <span className="italic text-brand-muted/60">Não preenchido</span>}
                   </p>
                 </div>
-                <div className="rounded bg-white/5 p-3">
+                <div className="rounded-sm bg-white/5 p-3">
                   <p className="mb-1 text-[9px] uppercase tracking-wide text-brand-muted">❓ Causa</p>
                   <p className="text-xs whitespace-pre-wrap">
                     {av.causa || <span className="italic text-brand-muted/60">Não preenchido</span>}
                   </p>
                 </div>
-                <div className="rounded bg-white/5 p-3">
+                <div className="rounded-sm bg-white/5 p-3">
                   <p className="mb-1 text-[9px] uppercase tracking-wide text-brand-muted">✅ Ação</p>
                   <p className="text-xs whitespace-pre-wrap">
                     {av.acao || <span className="italic text-brand-muted/60">Não preenchido</span>}
@@ -653,7 +653,7 @@ function TabDetalhes({ dataRef, sextas, setDataRef, clientes, getAvaliacao, onAb
               </div>
 
               {av.observacoes && (
-                <div className="mt-3 rounded bg-white/5 p-3">
+                <div className="mt-3 rounded-sm bg-white/5 p-3">
                   <p className="mb-1 text-[9px] uppercase tracking-wide text-brand-muted">📝 Observações</p>
                   <p className="text-xs whitespace-pre-wrap">{av.observacoes}</p>
                 </div>
@@ -966,7 +966,7 @@ function FcaModal({ cliente, avaliacao, dataRef, historicoCliente, onFechar, onS
             <div className="flex flex-wrap gap-1">
               {historicoCliente.slice(0, 12).reverse().map((h) => (
                 <div key={h.id} title={`${formatSemanaFca(h.data_referencia)} · Nota ${h.nota_final?.toFixed(2) ?? "—"}`}
-                  className={`h-6 w-16 rounded flex items-center justify-center text-[9px] font-semibold ${
+                  className={`h-6 w-16 rounded-sm flex items-center justify-center text-[9px] font-semibold ${
                     h.bandeira === "verde"    ? "bg-emerald-500/40 text-emerald-100" :
                     h.bandeira === "amarelo"  ? "bg-amber-500/40 text-amber-100" :
                     h.bandeira === "vermelho" ? "bg-red-500/40 text-red-100" :

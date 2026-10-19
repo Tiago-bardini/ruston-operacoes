@@ -420,13 +420,13 @@ export default function EkytePage() {
                   </td>
                   <td className="px-2 py-2 text-xs text-brand-muted">{l.squad_nome}</td>
                   <td className="px-2 py-2 text-center">
-                    <span className={`inline-block rounded px-2 py-0.5 border ${semaforoHoras(l.minutos_apontados)}`}>
+                    <span className={`inline-block rounded-sm px-2 py-0.5 border ${semaforoHoras(l.minutos_apontados)}`}>
                       {(l.minutos_apontados / 60).toFixed(1)}h
                     </span>
                   </td>
                   <td className="px-2 py-2 text-center text-emerald-300">{l.tasks_concluidas}</td>
                   <td className="px-2 py-2 text-center">
-                    <span className={`inline-block rounded px-2 py-0.5 border ${semaforoAtrasadas(l.tasks_atrasadas)}`}>{l.tasks_atrasadas}</span>
+                    <span className={`inline-block rounded-sm px-2 py-0.5 border ${semaforoAtrasadas(l.tasks_atrasadas)}`}>{l.tasks_atrasadas}</span>
                   </td>
                   <td className="px-2 py-2 text-center text-amber-300">{l.tasks_prorrogadas}</td>
                   <td className="px-2 py-2 text-center text-brand-muted">{l.tasks_total}</td>

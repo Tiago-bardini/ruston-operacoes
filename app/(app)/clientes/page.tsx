@@ -946,7 +946,7 @@ function ClienteCard({
         if (status === "ok" || status === "sem_data") return null;
         const dias = diasParaVencimento(c.data_vencimento_contrato);
         return (
-          <div className={`mt-2 rounded border px-2 py-1 text-[10px] ${STATUS_VENCIMENTO_COLOR[status]}`}>
+          <div className={`mt-2 rounded-sm border px-2 py-1 text-[10px] ${STATUS_VENCIMENTO_COLOR[status]}`}>
             {status === "vencido"
               ? `⚠ Vencido há ${-(dias ?? 0)} dias`
               : `⏱ Vence em ${dias} dias (${formatDate(c.data_vencimento_contrato)})`}

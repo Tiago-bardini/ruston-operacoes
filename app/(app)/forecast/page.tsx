@@ -189,7 +189,7 @@ export default function ForecastPage() {
                       <span>{MESES_LABEL[f.mes - 1]}/{String(ano).slice(-2)}</span>
                       <button
                         onClick={() => toggleFechado(f)}
-                        className={`text-[9px] rounded px-1.5 py-0.5 border ${
+                        className={`text-[9px] rounded-sm px-1.5 py-0.5 border ${
                           f.fechado
                             ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
                             : "bg-white/5 text-brand-muted border-white/10 hover:text-gray-200"

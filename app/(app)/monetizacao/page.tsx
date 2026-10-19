@@ -448,8 +448,8 @@ function Kanban({ ops, clientesAMonetizar, arrastando, setArrastando, moverEstag
                 )}
                 {podeEditar && (
                   <div className="mt-2 flex gap-1">
-                    <button onClick={() => onNovaOpDoCliente(c)} className="flex-1 text-[10px] rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 py-1 border border-emerald-500/30">+ Op</button>
-                    <button onClick={() => onEditarPlano(c)} className={`flex-1 text-[10px] rounded py-1 border ${semPlano ? "bg-red-500/20 text-red-300 hover:bg-red-500/30 border-red-500/30" : "bg-white/5 text-brand-muted hover:bg-white/10 border-white/10"}`}>📝 {semPlano ? "Sem plano" : "Plano"}</button>
+                    <button onClick={() => onNovaOpDoCliente(c)} className="flex-1 text-[10px] rounded-sm bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 py-1 border border-emerald-500/30">+ Op</button>
+                    <button onClick={() => onEditarPlano(c)} className={`flex-1 text-[10px] rounded-sm py-1 border ${semPlano ? "bg-red-500/20 text-red-300 hover:bg-red-500/30 border-red-500/30" : "bg-white/5 text-brand-muted hover:bg-white/10 border-white/10"}`}>📝 {semPlano ? "Sem plano" : "Plano"}</button>
                   </div>
                 )}
               </div>
@@ -515,9 +515,9 @@ function CardOp({ op, podeEditar, onEditar, onRemover, setArrastando, arrastando
       </div>
       <p className="text-[10px] text-brand-muted mt-1">{op.cliente_nome}</p>
       <div className="mt-2 flex flex-wrap gap-1">
-        {op.valor_mrr_estimado > 0 && <span className="rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-300">{formatBRL(op.valor_mrr_estimado)}/mês</span>}
-        {op.valor_onetime_estimado > 0 && <span className="rounded border border-purple-500/40 bg-purple-500/10 px-1.5 py-0.5 text-[9px] font-bold text-purple-300">{formatBRL(op.valor_onetime_estimado)} 1x</span>}
-        <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-brand-muted">{op.probabilidade}%</span>
+        {op.valor_mrr_estimado > 0 && <span className="rounded-sm border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-300">{formatBRL(op.valor_mrr_estimado)}/mês</span>}
+        {op.valor_onetime_estimado > 0 && <span className="rounded-sm border border-purple-500/40 bg-purple-500/10 px-1.5 py-0.5 text-[9px] font-bold text-purple-300">{formatBRL(op.valor_onetime_estimado)} 1x</span>}
+        <span className="rounded-sm border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-brand-muted">{op.probabilidade}%</span>
       </div>
       <div className="mt-2 flex items-center justify-between text-[9px] text-brand-muted">
         <span>{op.responsavel_nome ?? op.gp_nome ?? "—"}</span>
@@ -565,7 +565,7 @@ function PorCliente({ clientes, ops, podeEditar, onNovaOp, onEditar, onRemover, 
               {podeEditar && <button onClick={() => onNovaOp(c)} className="btn text-[10px] py-1 px-2">+ Op</button>}
             </div>
             {semOp && ehEE && (
-              <div className="mb-2 rounded bg-red-500/10 border border-red-500/30 p-2">
+              <div className="mb-2 rounded-sm bg-red-500/10 border border-red-500/30 p-2">
                 <p className="text-[11px] text-red-300">🚨 Estruturação Estratégica sem oportunidade</p>
                 {c.plano_acao_monetizacao && <p className="mt-1 text-[10px] text-amber-200 italic">📝 {c.plano_acao_monetizacao}</p>}
                 {podeEditar && (
@@ -580,7 +580,7 @@ function PorCliente({ clientes, ops, podeEditar, onNovaOp, onEditar, onRemover, 
                 const est = ESTAGIOS.find((e) => e.key === o.estagio)!;
                 return (
                   <button key={o.id} onClick={() => onEditar(o)}
-                    className={`w-full text-left rounded border p-2 hover:border-brand transition ${est.corBg}`}>
+                    className={`w-full text-left rounded-sm border p-2 hover:border-brand transition ${est.corBg}`}>
                     <div className="flex items-start justify-between">
                       <p className="text-xs font-medium">{o.titulo}</p>
                       <span className={`text-[9px] font-bold ${est.cor}`}>{est.label}</span>

@@ -712,13 +712,13 @@ function ClienteAutoRow({ cliente, fca }: { cliente: ClienteAuto; fca?: FcaStatu
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className={`inline-block h-3 w-3 rounded-full flex-shrink-0 ${bolinhaClasses[bandeira]}`}
+            <span className={`inline-block h-3 w-3 rounded-full shrink-0 ${bolinhaClasses[bandeira]}`}
               title={`${bolinhaLabel[bandeira]}${fca?.nota_final != null ? ` · Nota ${fca.nota_final.toFixed(2)}` : ""}${fca ? ` · Última: ${fca.data_referencia}` : ""}`} />
             <p className="text-xs font-semibold uppercase text-white truncate">{cliente.nome}</p>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1 ml-5">
-            {mrr && <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[8px] font-bold text-emerald-300">{mrr}</span>}
-            {tags.map((t, i) => <span key={i} className={`rounded border ${t.cor} px-1.5 py-0.5 text-[8px] font-bold`}>{t.texto}</span>)}
+            {mrr && <span className="rounded-sm border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[8px] font-bold text-emerald-300">{mrr}</span>}
+            {tags.map((t, i) => <span key={i} className={`rounded-sm border ${t.cor} px-1.5 py-0.5 text-[8px] font-bold`}>{t.texto}</span>)}
           </div>
         </div>
       </div>
@@ -751,7 +751,7 @@ function ClienteRow({ carteira, podeEditar, onChanged }: { carteira: Carteira; p
             <p className="text-xs font-semibold uppercase text-white truncate">{carteira.cliente_nome}</p>
             {carteira.tags && carteira.tags.length > 0 && (
               <div className="mt-1 flex flex-wrap gap-1">
-                {carteira.tags.map((t) => <span key={t} className="rounded border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[8px] font-bold text-red-300">{t}</span>)}
+                {carteira.tags.map((t) => <span key={t} className="rounded-sm border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[8px] font-bold text-red-300">{t}</span>)}
               </div>
             )}
           </div>
@@ -772,7 +772,7 @@ function ClienteRow({ carteira, podeEditar, onChanged }: { carteira: Carteira; p
         <label className="text-[9px] text-brand-muted uppercase">Tags</label>
         <div className="flex flex-wrap gap-1 mb-1">
           {tags.map((t) => (
-            <span key={t} className="inline-flex items-center gap-1 rounded border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[9px] font-bold text-red-300">
+            <span key={t} className="inline-flex items-center gap-1 rounded-sm border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[9px] font-bold text-red-300">
               {t}<button onClick={() => removerTag(t)} className="text-red-400 hover:text-red-200">×</button>
             </span>
           ))}
