@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 type Analise = {
   promessas_vendidas: { item: string; valor: string | null; prazo: string | null }[];
@@ -18,7 +19,12 @@ type Analise = {
   alertas: string[];
 };
 
+type Squad = { id: string; nome: string };
+type Pessoa = { id: string; nome: string; cargo: string | null; squad_id: string | null };
+type TipoEntrega = { id: string; nome: string; categoria: string };
+
 export default function AuditoriaVendasPage() {
+  const supabase = createClient();
   const [clienteNome, setClienteNome] = useState("");
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [contrato, setContrato] = useState("");
@@ -26,6 +32,83 @@ export default function AuditoriaVendasPage() {
   const [progresso, setProgresso] = useState("");
   const [resultado, setResultado] = useState<Analise | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  const [squads, setSquads] = useState<Squad[]>([]);
+  const [pessoas, setPessoas] = useState<Pessoa[]>([]);
+  const [tiposEntrega, setTiposEntrega] = useState<TipoEntrega[]>([]);
+  const [squadId, setSquadId] = useState("");
+  const [coordId, setCoordId] = useState("");
+  const [accountId, setAccountId] = useState("");
+  const [mrr, setMrr] = useState("");
+  const [cadastrando, setCadastrando] = useState(false);
+  const [cadastroOk, setCadastroOk] = useState(false);
+
+  useEffect(() => {
+    async function load() {
+      const [{ data: sq }, { data: ps }, { data: te }] = await Promise.all([
+        supabase.from("ruston_squads").select("id, nome").eq("ativo", true).order("nome"),
+        supabase.from("ruston_pessoas").select("id, nome, cargo, squad_id").eq("ativo", true).order("nome"),
+        supabase.from("ruston_tipos_entrega").select("id, nome, categoria").eq("ativo", true).order("ordem"),
+      ]);
+      setSquads((sq ?? []) as Squad[]);
+      setPessoas((ps ?? []) as Pessoa[]);
+      setTiposEntrega((te ?? []) as TipoEntrega[]);
+    }
+    load();
+  }, []);
+
+  const coordenadores = pessoas.filter((p) => p.cargo === "coordenador" || p.cargo === "gerente");
+  const gestores = pessoas.filter((p) => p.cargo === "gestor_projetos");
+
+  async function cadastrarCliente() {
+    if (!resultado || !clienteNome.trim() || !squadId) return;
+    setCadastrando(true);
+    try {
+      // 1. Criar cliente
+      const { data: cliente, error: cErr } = await supabase.from("ruston_clientes").insert({
+        nome: clienteNome.trim().toUpperCase(),
+        etapa: "onboarding",
+        mrr: mrr ? Number(mrr) : null,
+        squad_id: squadId,
+        coordenador_id: coordId || null,
+        account_id: accountId || null,
+        ativo: true,
+        data_assinatura: new Date().toISOString().slice(0, 10),
+      }).select("id").single();
+
+      if (cErr || !cliente) throw new Error(cErr?.message ?? "Erro ao criar cliente");
+
+      // 2. Match servicos vendidos com tipos de entrega e criar entregas
+      const servicosVendidos = resultado.servicos_mencionados ?? [];
+      const normalizar = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+      const entregasCriadas: string[] = [];
+      for (const servico of servicosVendidos) {
+        const sNorm = normalizar(servico);
+        const match = tiposEntrega.find((t) => {
+          const tNorm = normalizar(t.nome);
+          return tNorm.includes(sNorm) || sNorm.includes(tNorm)
+            || sNorm.split(/\s+/).some((p) => p.length > 3 && tNorm.includes(p));
+        });
+        if (match) {
+          await supabase.from("ruston_entregas_previstas").insert({
+            cliente_id: cliente.id,
+            tipo_entrega_id: match.id,
+            ativo: true,
+            observacoes: `Identificado na call de vendas: "${servico}"`,
+          });
+          entregasCriadas.push(match.nome);
+        }
+      }
+
+      setCadastroOk(true);
+      setErro(null);
+      alert(`Cliente "${clienteNome}" cadastrado com ${entregasCriadas.length} entregaveis!\n\n${entregasCriadas.length > 0 ? "Entregas: " + entregasCriadas.join(", ") : "Nenhum servico mapeado automaticamente — verifique manualmente na aba Entregas."}`);
+    } catch (e: any) {
+      setErro(`Erro ao cadastrar: ${e?.message}`);
+    } finally {
+      setCadastrando(false);
+    }
+  }
 
   async function analisar() {
     if (!arquivo || !clienteNome.trim()) return;
@@ -220,6 +303,57 @@ export default function AuditoriaVendasPage() {
             <h3 className="text-emerald-400 font-semibold mb-2">Insights para o Time Operacional</h3>
             <ul className="space-y-1">{resultado.insights_operacionais.map((i, idx) => <li key={idx} className="text-zinc-300 text-sm">💡 {i}</li>)}</ul>
           </div>
+
+          {/* Cadastrar Cliente + Entregas */}
+          {!cadastroOk && (
+            <div className="bg-zinc-900 border-2 border-blue-500/30 rounded-lg p-6">
+              <h3 className="text-white font-bold text-lg mb-1">Cadastrar Cliente no Sistema</h3>
+              <p className="text-zinc-400 text-sm mb-4">Cria o cliente em onboarding e os entregaveis automaticamente na aba Entregas.</p>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Squad</label>
+                  <select className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700"
+                    value={squadId} onChange={(e) => setSquadId(e.target.value)}>
+                    <option value="">Selecione</option>
+                    {squads.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Coordenador</label>
+                  <select className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700"
+                    value={coordId} onChange={(e) => setCoordId(e.target.value)}>
+                    <option value="">Selecione</option>
+                    {coordenadores.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Gestor de Projetos</label>
+                  <select className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700"
+                    value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+                    <option value="">Selecione</option>
+                    {gestores.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">MRR (R$)</label>
+                  <input type="number" className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700"
+                    value={mrr} onChange={(e) => setMrr(e.target.value)} placeholder={resultado.valores_mencionados.mrr ?? "0"} />
+                </div>
+              </div>
+              <button className="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-6 py-2 text-sm font-medium disabled:opacity-50"
+                disabled={cadastrando || !squadId}
+                onClick={cadastrarCliente}>
+                {cadastrando ? "Cadastrando..." : "Cadastrar Cliente + Entregas"}
+              </button>
+            </div>
+          )}
+
+          {cadastroOk && (
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4 text-center">
+              <p className="text-emerald-400 font-bold text-lg">Cliente cadastrado com sucesso!</p>
+              <p className="text-zinc-400 text-sm">Verifique na aba Clientes (onboarding) e na aba Entregas.</p>
+            </div>
+          )}
         </div>
       )}
     </div>
