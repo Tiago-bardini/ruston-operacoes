@@ -545,18 +545,20 @@ export const STATUS_VENCIMENTO_COLOR: Record<StatusVencimento, string> = {
 // Entregas
 // =====================================================================
 
-export type CategoriaEntrega = "recorrente" | "pontual" | "setup";
+export type CategoriaEntrega = "recorrente" | "pontual_saber" | "pontual_ter" | "componente";
 
 export const CATEGORIA_ENTREGA_LABEL: Record<CategoriaEntrega, string> = {
   recorrente: "Recorrente",
-  pontual: "Pontual",
-  setup: "Setup",
+  pontual_saber: "Pontual (Diagnostico)",
+  pontual_ter: "Pontual (Implementacao)",
+  componente: "Componente / Comissao",
 };
 
 export const CATEGORIA_ENTREGA_COR: Record<CategoriaEntrega, string> = {
   recorrente: "bg-blue-500/20 text-blue-300",
-  pontual: "bg-amber-500/20 text-amber-300",
-  setup: "bg-emerald-500/20 text-emerald-300",
+  pontual_saber: "bg-amber-500/20 text-amber-300",
+  pontual_ter: "bg-purple-500/20 text-purple-300",
+  componente: "bg-emerald-500/20 text-emerald-300",
 };
 
 export type TipoEntrega = {
