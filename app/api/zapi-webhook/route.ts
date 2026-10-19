@@ -93,10 +93,23 @@ export async function POST(req: Request) {
   const rawTs = payload.momment ?? payload.messageTimestamp ?? Date.now();
   const tsMs = typeof rawTs === "number" ? (rawTs >= 1e12 ? rawTs : rawTs * 1000) : Date.now();
   const enviada_em = new Date(tsMs).toISOString();
-  const de_mim = payload.fromMe === true;
+  let de_mim = payload.fromMe === true;
 
   const autor_numero = clean(isGroup ? (payload.participantPhone ?? payload.senderPhone) : (de_mim ? payload.connectedPhone : chatPhone));
   const autor_nome = payload.participantName ?? payload.senderName ?? chatName;
+
+  // Se não é fromMe mas o autor é alguém do time Ruston, marca como de_mim
+  if (!de_mim && autor_numero) {
+    const { data: pessoaTime } = await supabase
+      .from("ruston_pessoas")
+      .select("id")
+      .eq("ativo", true)
+      .like("whatsapp", `%${autor_numero.slice(-10)}%`)
+      .limit(1);
+    if (pessoaTime && pessoaTime.length > 0) {
+      de_mim = true;
+    }
+  }
 
   try {
     // 1) UPSERT conversa (chat_id como chave)
