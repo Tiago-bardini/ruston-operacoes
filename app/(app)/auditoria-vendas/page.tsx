@@ -121,6 +121,21 @@ export default function AuditoriaVendasPage() {
 
   const callsComArquivo = callFiles.filter((f) => f !== null);
 
+  async function extractTextFromPdf(file: File): Promise<string> {
+    const pdfjsLib = await import("pdfjs-dist");
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const pages: string[] = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const text = content.items.map((item: any) => item.str).join(" ");
+      pages.push(text);
+    }
+    return pages.join("\n");
+  }
+
   async function analisar() {
     if (!callsComArquivo.length || !clienteNome.trim()) return;
     setAnalisando(true);
@@ -129,40 +144,38 @@ export default function AuditoriaVendasPage() {
     setProgresso(`Lendo ${callsComArquivo.length} transcricao(oes)...`);
 
     try {
-      // Ler texto de cada arquivo (PDF ou TXT)
+      // Extrair texto de cada arquivo no client-side
       const transcricoes: string[] = [];
       for (let i = 0; i < callFiles.length; i++) {
         const file = callFiles[i];
         if (!file) continue;
+        setProgresso(`Lendo arquivo ${i + 1} de ${callsComArquivo.length}...`);
 
         if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
-          // PDF — enviar pro backend extrair
-          const pdfForm = new FormData();
-          pdfForm.append("contrato_pdf", file);
-          pdfForm.append("cliente_nome", clienteNome);
-          // Usar o endpoint so pra extrair texto (hack temporario)
-          // Melhor: ler no client. Mas pdf-parse nao roda no browser.
-          // Vamos enviar tudo pro backend de uma vez
-          transcricoes.push(`[ARQUIVO PDF: ${file.name}]`);
+          const text = await extractTextFromPdf(file);
+          transcricoes.push(`[Call ${i + 1} - ${file.name}]\n${text}`);
         } else {
-          // TXT/DOCX — ler como texto
           const text = await file.text();
-          transcricoes.push(text);
+          transcricoes.push(`[Call ${i + 1} - ${file.name}]\n${text}`);
         }
       }
 
       setProgresso("Analisando com IA...");
 
+      // Enviar texto extraido (nao os arquivos)
       const formData = new FormData();
       formData.append("cliente_nome", clienteNome);
-      if (contrato.trim()) formData.append("contrato", contrato);
-      if (contratoPdf) formData.append("contrato_pdf", contratoPdf);
-      if (contratoLink.trim()) formData.append("contrato_link", contratoLink);
+      formData.append("transcricao_texto", transcricoes.join("\n\n---\n\n"));
 
-      // Enviar arquivos de transcricao como "transcricao_files"
-      for (const file of callsComArquivo) {
-        formData.append("transcricao_files", file!);
+      // Contrato
+      if (contratoPdf) {
+        setProgresso("Lendo contrato PDF...");
+        const contratoText = await extractTextFromPdf(contratoPdf);
+        formData.append("contrato", contratoText);
+      } else if (contrato.trim()) {
+        formData.append("contrato", contrato);
       }
+      if (contratoLink.trim()) formData.append("contrato_link", contratoLink);
 
       const res = await fetch("/api/auditoria-vendas", { method: "POST", body: formData });
       const data = await res.json();

@@ -10,72 +10,26 @@ export async function POST(req: Request) {
   const OPENAI_KEY = process.env.OPENAI_API_KEY;
   const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 
-  if (!OPENAI_KEY) return NextResponse.json({ error: "OPENAI_API_KEY nao configurada" }, { status: 500 });
   if (!ANTHROPIC_KEY) return NextResponse.json({ error: "ANTHROPIC_API_KEY nao configurada" }, { status: 500 });
 
   try {
     const formData = await req.formData();
     const clienteNome = formData.get("cliente_nome") as string || "Cliente";
-    let contrato = formData.get("contrato") as string || "";
-    const contratoPdf = formData.get("contrato_pdf") as File | null;
-    const contratoLink = formData.get("contrato_link") as string || "";
+    const contrato = formData.get("contrato") as string || "";
     const transcricaoTexto = formData.get("transcricao_texto") as string || "";
-    const transcricaoFiles = formData.getAll("transcricao_files") as File[];
 
-    if (!transcricaoFiles.length && !transcricaoTexto.trim()) {
-      return NextResponse.json({ error: "Envie pelo menos uma transcricao" }, { status: 400 });
+    if (!transcricaoTexto.trim()) {
+      return NextResponse.json({ error: "Transcricao vazia" }, { status: 400 });
     }
 
-    // Extrair texto do PDF se enviado
-    if (contratoPdf && contratoPdf.size > 0) {
-      try {
-        const pdfModule = await import("pdf-parse");
-        const pdfParse = (pdfModule as any).default ?? pdfModule;
-        const buffer = Buffer.from(await contratoPdf.arrayBuffer());
-        const pdfData = await pdfParse(buffer);
-        contrato = pdfData.text ?? "";
-      } catch (e: any) {
-        console.error("[auditoria] erro ao ler PDF:", e?.message);
-        contrato = "[Erro ao ler PDF - analise sem contrato]";
-      }
-    }
-
-    // 1. Ler transcricoes dos arquivos enviados
-    const transcricoes: string[] = [];
-
-    // Adiciona transcricao colada primeiro
-    if (transcricaoTexto.trim()) {
-      transcricoes.push(transcricaoTexto.trim());
-    }
-
-    // Ler cada arquivo de transcricao (PDF ou TXT)
-    for (let i = 0; i < transcricaoFiles.length; i++) {
-      const file = transcricaoFiles[i];
-      if (!file || file.size === 0) continue;
-
-      try {
-        if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
-          const pdfParse = require("pdf-parse");
-          const buffer = Buffer.from(await file.arrayBuffer());
-          const pdfData = await pdfParse(buffer);
-          if (pdfData.text) transcricoes.push(`[Call ${i + 1} - ${file.name}]\n${pdfData.text}`);
-        } else {
-          const text = await file.text();
-          if (text.trim()) transcricoes.push(`[Call ${i + 1} - ${file.name}]\n${text}`);
-        }
-      } catch (e: any) {
-        console.error(`[auditoria] erro ao ler arquivo ${file.name}:`, e?.message);
-        transcricoes.push(`[Call ${i + 1} - ${file.name}: erro ao ler arquivo]`);
-      }
-    }
-
-    const transcricao = transcricoes.join("\n\n---\n\n");
+    // Texto ja vem extraido do client-side (PDF parse no browser via pdfjs-dist)
+    const transcricao = transcricaoTexto.trim();
 
     if (transcricao.length < 50) {
       return NextResponse.json({ error: "Transcricao muito curta" }, { status: 400 });
     }
 
-    // 2. Analise com Claude
+    // Analise com Claude
     const prompt = `Voce e um auditor senior de vendas da agencia de marketing Ruston & Co (franquia V4 Company).
 
 CONTEXTO: Na Ruston, o time comercial (closers) faz calls de vendas com potenciais clientes. Nessas calls, o closer geralmente:
