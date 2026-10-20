@@ -4,19 +4,18 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 type Analise = {
-  promessas_vendidas: { item: string; valor: string | null; prazo: string | null }[];
-  servicos_mencionados: string[];
-  valores_mencionados: { mrr: string | null; setup: string | null; investimento_midia: string | null };
-  condicoes_especiais: string[];
-  auditoria_contrato?: { conformidades: string[]; divergencias: string[]; extras_contrato: string[]; risco: string };
-  concorrentes_mencionados: { nome: string; contexto: string }[];
-  dores_cliente: string[];
-  metas_cliente: string[];
-  metricas_cliente: { faturamento: string | null; ticket_medio: string | null; qtd_clientes: string | null; investimento_atual: string | null };
-  insights_operacionais: string[];
-  pesquisa_concorrentes: { nome: string; o_que_pesquisar: string }[];
-  brief_operacional: string;
-  alertas: string[];
+  dados_cliente?: { nome_empresa?: string; segmento?: string; regiao?: string; site?: string; redes_sociais?: string[]; tempo_mercado?: string; porte?: string };
+  diagnostico_closer?: { analise_site?: string; analise_anuncios?: string; analise_redes_sociais?: string; analise_seo?: string; pontos_fortes?: string[]; pontos_fracos?: string[]; dados_apresentados?: string[] };
+  o_que_foi_vendido?: { servico: string; descricao?: string; valor_mensal?: string; valor_setup?: string; prazo_entrega?: string; frequencia?: string }[];
+  valores?: { mrr_total?: string; setup_total?: string; investimento_midia?: string; desconto_aplicado?: string; prazo_contrato?: string; forma_pagamento?: string };
+  condicoes_especiais?: string[];
+  dores_cliente?: string[];
+  metas_cliente?: string[];
+  metricas_cliente?: { faturamento?: string; ticket_medio?: string; qtd_clientes_atuais?: string; investimento_atual_marketing?: string; custo_aquisicao_cliente?: string; taxa_conversao?: string };
+  concorrentes?: { mencionados_na_call?: { nome: string; contexto: string; url_site?: string }[]; sugeridos_pela_ia?: { nome: string; motivo: string; o_que_pesquisar: string }[] };
+  insights_operacionais?: string[];
+  brief_operacional?: string;
+  alertas?: string[];
 };
 
 type Squad = { id: string; nome: string };
@@ -81,7 +80,7 @@ export default function AuditoriaVendasPage() {
       if (cErr || !cliente) throw new Error(cErr?.message ?? "Erro ao criar cliente");
 
       // 2. Match servicos vendidos com tipos de entrega e criar entregas
-      const servicosVendidos = resultado.servicos_mencionados ?? [];
+      const servicosVendidos = (resultado.o_que_foi_vendido ?? []).map((s) => s.servico);
       const normalizar = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
       const entregasCriadas: string[] = [];
@@ -249,131 +248,130 @@ export default function AuditoriaVendasPage() {
       {resultado && (
         <div className="space-y-4">
           {/* Brief Operacional */}
-          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-            <h3 className="text-blue-400 font-semibold mb-2">Brief Operacional</h3>
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-5">
+            <h3 className="text-blue-400 font-bold text-lg mb-2">Brief Operacional</h3>
             <p className="text-zinc-200 text-sm">{resultado.brief_operacional}</p>
           </div>
 
           {/* Alertas */}
-          {resultado.alertas.length > 0 && (
+          {(resultado.alertas ?? []).length > 0 && (
             <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
               <h3 className="text-red-400 font-semibold mb-2">Alertas</h3>
-              <ul className="space-y-1">{resultado.alertas.map((a, i) => <li key={i} className="text-zinc-300 text-sm">⚠ {a}</li>)}</ul>
+              <ul className="space-y-1">{(resultado.alertas ?? []).map((a, i) => <li key={i} className="text-zinc-300 text-sm">⚠ {a}</li>)}</ul>
+            </div>
+          )}
+
+          {/* Dados do Cliente */}
+          {resultado.dados_cliente && (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+              <h3 className="text-white font-semibold mb-2">Dados do Cliente</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                {resultado.dados_cliente.segmento && <div><span className="text-zinc-500">Segmento:</span> <span className="text-zinc-200">{resultado.dados_cliente.segmento}</span></div>}
+                {resultado.dados_cliente.regiao && <div><span className="text-zinc-500">Regiao:</span> <span className="text-zinc-200">{resultado.dados_cliente.regiao}</span></div>}
+                {resultado.dados_cliente.porte && <div><span className="text-zinc-500">Porte:</span> <span className="text-zinc-200">{resultado.dados_cliente.porte}</span></div>}
+                {resultado.dados_cliente.site && <div><span className="text-zinc-500">Site:</span> <span className="text-blue-300">{resultado.dados_cliente.site}</span></div>}
+                {resultado.dados_cliente.tempo_mercado && <div><span className="text-zinc-500">Tempo:</span> <span className="text-zinc-200">{resultado.dados_cliente.tempo_mercado}</span></div>}
+              </div>
+              {(resultado.dados_cliente.redes_sociais ?? []).length > 0 && <div className="mt-2 flex gap-2 flex-wrap">{resultado.dados_cliente.redes_sociais!.map((r, i) => <span key={i} className="bg-zinc-800 text-zinc-300 rounded-full px-2 py-0.5 text-xs">{r}</span>)}</div>}
+            </div>
+          )}
+
+          {/* Diagnostico do Closer */}
+          {resultado.diagnostico_closer && (
+            <div className="bg-purple-500/5 border border-purple-500/20 rounded-lg p-4">
+              <h3 className="text-purple-400 font-bold mb-3">Diagnostico do Closer (Cliente Oculto)</h3>
+              <div className="space-y-3 text-sm">
+                {resultado.diagnostico_closer.analise_site && <div><span className="text-zinc-400 font-medium">Site:</span> <span className="text-zinc-200">{resultado.diagnostico_closer.analise_site}</span></div>}
+                {resultado.diagnostico_closer.analise_anuncios && <div><span className="text-zinc-400 font-medium">Anuncios:</span> <span className="text-zinc-200">{resultado.diagnostico_closer.analise_anuncios}</span></div>}
+                {resultado.diagnostico_closer.analise_redes_sociais && <div><span className="text-zinc-400 font-medium">Redes Sociais:</span> <span className="text-zinc-200">{resultado.diagnostico_closer.analise_redes_sociais}</span></div>}
+                {resultado.diagnostico_closer.analise_seo && <div><span className="text-zinc-400 font-medium">SEO:</span> <span className="text-zinc-200">{resultado.diagnostico_closer.analise_seo}</span></div>}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                {(resultado.diagnostico_closer.pontos_fortes ?? []).length > 0 && <div>{resultado.diagnostico_closer.pontos_fortes!.map((p, i) => <p key={i} className="text-emerald-300 text-sm">✅ {p}</p>)}</div>}
+                {(resultado.diagnostico_closer.pontos_fracos ?? []).length > 0 && <div>{resultado.diagnostico_closer.pontos_fracos!.map((p, i) => <p key={i} className="text-red-300 text-sm">❌ {p}</p>)}</div>}
+              </div>
+              {(resultado.diagnostico_closer.dados_apresentados ?? []).length > 0 && <div className="mt-2 pt-2 border-t border-zinc-800"><p className="text-zinc-500 text-xs mb-1">Dados apresentados:</p>{resultado.diagnostico_closer.dados_apresentados!.map((d, i) => <p key={i} className="text-zinc-300 text-xs">📊 {d}</p>)}</div>}
             </div>
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* O que foi vendido */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-              <h3 className="text-white font-semibold mb-2">O que foi Vendido</h3>
-              {resultado.promessas_vendidas.map((p, i) => (
-                <div key={i} className="flex gap-2 text-sm py-1 border-b border-zinc-800 last:border-0">
-                  <span className="text-emerald-400">✓</span>
-                  <div>
-                    <span className="text-zinc-200">{p.item}</span>
-                    {p.valor && <span className="text-amber-300 ml-2">({p.valor})</span>}
-                    {p.prazo && <span className="text-zinc-500 ml-2">Prazo: {p.prazo}</span>}
+              <h3 className="text-white font-bold mb-2">O que foi Vendido</h3>
+              {(resultado.o_que_foi_vendido ?? []).map((s, i) => (
+                <div key={i} className="py-2 border-b border-zinc-800 last:border-0 text-sm">
+                  <div className="flex gap-2"><span className="text-emerald-400">✓</span><span className="text-zinc-200 font-medium">{s.servico}</span></div>
+                  {s.descricao && <p className="text-zinc-400 text-xs ml-5">{s.descricao}</p>}
+                  <div className="flex gap-3 ml-5 mt-1 text-xs">
+                    {s.valor_mensal && <span className="text-emerald-300">{s.valor_mensal}/mes</span>}
+                    {s.valor_setup && <span className="text-amber-300">Setup: {s.valor_setup}</span>}
+                    {s.prazo_entrega && <span className="text-zinc-500">Prazo: {s.prazo_entrega}</span>}
+                    {s.frequencia && <span className="text-zinc-500">{s.frequencia}</span>}
                   </div>
                 </div>
               ))}
-              {resultado.valores_mencionados.mrr && <div className="mt-2 text-sm text-zinc-400">MRR: <span className="text-emerald-400 font-medium">{resultado.valores_mencionados.mrr}</span></div>}
-              {resultado.valores_mencionados.setup && <div className="text-sm text-zinc-400">Setup: <span className="text-amber-300">{resultado.valores_mencionados.setup}</span></div>}
-              {resultado.valores_mencionados.investimento_midia && <div className="text-sm text-zinc-400">Midia: <span className="text-blue-300">{resultado.valores_mencionados.investimento_midia}</span></div>}
-            </div>
-
-            {/* Auditoria Contrato */}
-            {resultado.auditoria_contrato ? (
-              <div className={`bg-zinc-900 border rounded-lg p-4 ${resultado.auditoria_contrato.risco === "alto" ? "border-red-500/40" : resultado.auditoria_contrato.risco === "medio" ? "border-yellow-500/40" : "border-emerald-500/40"}`}>
-                <h3 className="text-white font-semibold mb-2">Auditoria do Contrato
-                  <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${resultado.auditoria_contrato.risco === "alto" ? "bg-red-500/20 text-red-300" : resultado.auditoria_contrato.risco === "medio" ? "bg-yellow-500/20 text-yellow-300" : "bg-emerald-500/20 text-emerald-300"}`}>
-                    Risco {resultado.auditoria_contrato.risco}
-                  </span>
-                </h3>
-                {resultado.auditoria_contrato.divergencias.length > 0 && (
-                  <div className="mb-2">
-                    <p className="text-red-400 text-xs font-semibold mb-1">Vendido mas NAO esta no contrato:</p>
-                    {resultado.auditoria_contrato.divergencias.map((d, i) => <p key={i} className="text-zinc-300 text-sm">🔴 {d}</p>)}
-                  </div>
-                )}
-                {resultado.auditoria_contrato.conformidades.length > 0 && (
-                  <div className="mb-2">
-                    <p className="text-emerald-400 text-xs font-semibold mb-1">Conforme:</p>
-                    {resultado.auditoria_contrato.conformidades.map((c, i) => <p key={i} className="text-zinc-300 text-sm">🟢 {c}</p>)}
-                  </div>
-                )}
-                {resultado.auditoria_contrato.extras_contrato.length > 0 && (
-                  <div>
-                    <p className="text-zinc-400 text-xs font-semibold mb-1">No contrato mas nao mencionado na call:</p>
-                    {resultado.auditoria_contrato.extras_contrato.map((e, i) => <p key={i} className="text-zinc-400 text-sm">⚪ {e}</p>)}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-                <h3 className="text-white font-semibold mb-2">Servicos Mencionados</h3>
-                <div className="flex flex-wrap gap-2">{resultado.servicos_mencionados.map((s, i) => <span key={i} className="bg-zinc-800 text-zinc-300 rounded-full px-3 py-1 text-xs">{s}</span>)}</div>
-                {resultado.condicoes_especiais.length > 0 && (
-                  <div className="mt-3"><p className="text-amber-400 text-xs font-semibold mb-1">Condicoes especiais:</p>
-                    {resultado.condicoes_especiais.map((c, i) => <p key={i} className="text-zinc-300 text-sm">⭐ {c}</p>)}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Concorrentes */}
-            <div className="bg-zinc-900 border border-amber-500/20 rounded-lg p-4">
-              <h3 className="text-amber-400 font-semibold mb-2">Concorrentes Identificados</h3>
-              {resultado.concorrentes_mencionados.length > 0 ? (
-                <div className="space-y-2">
-                  {resultado.concorrentes_mencionados.map((c, i) => (
-                    <div key={i} className="text-sm">
-                      <span className="text-zinc-200 font-medium">{c.nome}</span>
-                      <p className="text-zinc-400 text-xs">{c.contexto}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : <p className="text-zinc-500 text-sm">Nenhum concorrente mencionado</p>}
-              {resultado.pesquisa_concorrentes.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-zinc-800">
-                  <p className="text-xs text-zinc-400 font-semibold mb-1">O que pesquisar:</p>
-                  {resultado.pesquisa_concorrentes.map((p, i) => (
-                    <div key={i} className="text-sm mt-1">
-                      <span className="text-zinc-300">{p.nome}:</span>
-                      <span className="text-zinc-500 ml-1">{p.o_que_pesquisar}</span>
-                    </div>
-                  ))}
+              {resultado.valores && (
+                <div className="mt-3 pt-2 border-t border-zinc-700 space-y-1 text-sm">
+                  {resultado.valores.mrr_total && <div className="text-zinc-400">MRR Total: <span className="text-emerald-400 font-bold">{resultado.valores.mrr_total}</span></div>}
+                  {resultado.valores.setup_total && <div className="text-zinc-400">Setup: <span className="text-amber-300">{resultado.valores.setup_total}</span></div>}
+                  {resultado.valores.investimento_midia && <div className="text-zinc-400">Midia: <span className="text-blue-300">{resultado.valores.investimento_midia}</span></div>}
+                  {resultado.valores.prazo_contrato && <div className="text-zinc-400">Contrato: <span className="text-zinc-200">{resultado.valores.prazo_contrato}</span></div>}
+                  {resultado.valores.desconto_aplicado && <div className="text-zinc-400">Desconto: <span className="text-amber-300">{resultado.valores.desconto_aplicado}</span></div>}
                 </div>
               )}
             </div>
 
             {/* Dores e Metas */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-              <h3 className="text-white font-semibold mb-2">Dores do Cliente</h3>
-              {resultado.dores_cliente.map((d, i) => <p key={i} className="text-zinc-300 text-sm">💢 {d}</p>)}
-              {resultado.metas_cliente.length > 0 && (
+              <h3 className="text-white font-bold mb-2">Dores do Cliente</h3>
+              {(resultado.dores_cliente ?? []).map((d, i) => <p key={i} className="text-zinc-300 text-sm">💢 {d}</p>)}
+              {(resultado.metas_cliente ?? []).length > 0 && (
                 <div className="mt-3 pt-3 border-t border-zinc-800">
                   <p className="text-white font-semibold text-sm mb-1">Metas</p>
-                  {resultado.metas_cliente.map((m, i) => <p key={i} className="text-zinc-300 text-sm">🎯 {m}</p>)}
+                  {resultado.metas_cliente!.map((m, i) => <p key={i} className="text-zinc-300 text-sm">🎯 {m}</p>)}
                 </div>
               )}
-              {Object.values(resultado.metricas_cliente).some(Boolean) && (
+              {resultado.metricas_cliente && Object.values(resultado.metricas_cliente).some(Boolean) && (
                 <div className="mt-3 pt-3 border-t border-zinc-800">
                   <p className="text-white font-semibold text-sm mb-1">Metricas</p>
                   {resultado.metricas_cliente.faturamento && <p className="text-zinc-300 text-sm">Faturamento: {resultado.metricas_cliente.faturamento}</p>}
                   {resultado.metricas_cliente.ticket_medio && <p className="text-zinc-300 text-sm">Ticket medio: {resultado.metricas_cliente.ticket_medio}</p>}
-                  {resultado.metricas_cliente.qtd_clientes && <p className="text-zinc-300 text-sm">Qtd clientes: {resultado.metricas_cliente.qtd_clientes}</p>}
-                  {resultado.metricas_cliente.investimento_atual && <p className="text-zinc-300 text-sm">Investimento atual: {resultado.metricas_cliente.investimento_atual}</p>}
+                  {resultado.metricas_cliente.qtd_clientes_atuais && <p className="text-zinc-300 text-sm">Clientes: {resultado.metricas_cliente.qtd_clientes_atuais}</p>}
+                  {resultado.metricas_cliente.investimento_atual_marketing && <p className="text-zinc-300 text-sm">Investimento: {resultado.metricas_cliente.investimento_atual_marketing}</p>}
                 </div>
               )}
             </div>
           </div>
 
+          {/* Concorrentes */}
+          <div className="bg-zinc-900 border border-amber-500/20 rounded-lg p-4">
+            <h3 className="text-amber-400 font-bold mb-3">Concorrentes</h3>
+            {(resultado.concorrentes?.mencionados_na_call ?? []).length > 0 && (
+              <div className="mb-3">
+                <p className="text-zinc-400 text-xs font-semibold mb-1">Mencionados na call:</p>
+                {resultado.concorrentes!.mencionados_na_call!.map((c, i) => (
+                  <div key={i} className="text-sm py-1"><span className="text-zinc-200 font-medium">{c.nome}</span> {c.url_site && <span className="text-blue-300 text-xs">({c.url_site})</span>}<p className="text-zinc-400 text-xs">{c.contexto}</p></div>
+                ))}
+              </div>
+            )}
+            {(resultado.concorrentes?.sugeridos_pela_ia ?? []).length > 0 && (
+              <div className="pt-3 border-t border-zinc-800">
+                <p className="text-amber-300 text-xs font-semibold mb-1">Sugeridos pela IA (pesquisar):</p>
+                {resultado.concorrentes!.sugeridos_pela_ia!.map((c, i) => (
+                  <div key={i} className="text-sm py-1 border-b border-zinc-800/50 last:border-0">
+                    <span className="text-zinc-200 font-medium">{c.nome}</span>
+                    <p className="text-zinc-500 text-xs">{c.motivo}</p>
+                    <p className="text-amber-300/70 text-xs">🔍 {c.o_que_pesquisar}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Insights Operacionais */}
           <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-4">
-            <h3 className="text-emerald-400 font-semibold mb-2">Insights para o Time Operacional</h3>
-            <ul className="space-y-1">{resultado.insights_operacionais.map((i, idx) => <li key={idx} className="text-zinc-300 text-sm">💡 {i}</li>)}</ul>
+            <h3 className="text-emerald-400 font-bold mb-2">Insights para o Time Operacional</h3>
+            <ul className="space-y-1">{(resultado.insights_operacionais ?? []).map((ins, idx) => <li key={idx} className="text-zinc-300 text-sm">💡 {ins}</li>)}</ul>
           </div>
 
           {/* Cadastrar Cliente + Entregas */}
@@ -409,7 +407,7 @@ export default function AuditoriaVendasPage() {
                 <div>
                   <label className="block text-xs text-zinc-400 mb-1">MRR (R$)</label>
                   <input type="number" className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700"
-                    value={mrr} onChange={(e) => setMrr(e.target.value)} placeholder={resultado.valores_mencionados.mrr ?? "0"} />
+                    value={mrr} onChange={(e) => setMrr(e.target.value)} placeholder={resultado.valores?.mrr_total ?? "0"} />
                 </div>
               </div>
               <button className="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-6 py-2 text-sm font-medium disabled:opacity-50"
