@@ -79,44 +79,81 @@ export async function POST(req: Request) {
     // 2. Analise com Claude
     const prompt = `Voce e um auditor senior de vendas da agencia de marketing Ruston & Co (franquia V4 Company).
 
+CONTEXTO: Na Ruston, o time comercial (closers) faz calls de vendas com potenciais clientes. Nessas calls, o closer geralmente:
+- Faz CLIENTE OCULTO antes da call (analisa site, redes sociais, anuncios do cliente)
+- Apresenta um PRE-DIAGNOSTICO ao cliente (pontos fortes e fracos do marketing digital atual)
+- Analisa o site do cliente, seus anuncios no Google/Meta, suas redes sociais
+- Propoe servicos da Ruston baseado nas dores encontradas
+- Negocia valores (MRR mensal, setup, investimento em midia)
+
 Analise esta transcricao de call de vendas com o cliente "${clienteNome}" e retorne APENAS um JSON valido (sem markdown) com esta estrutura:
 
 {
-  "promessas_vendidas": [
-    {"item": "descricao do que foi prometido", "valor": "valor mencionado ou null", "prazo": "prazo mencionado ou null"}
+  "dados_cliente": {
+    "nome_empresa": "nome da empresa do cliente",
+    "segmento": "segmento/nicho de atuacao",
+    "regiao": "cidade/estado/regiao que atende",
+    "site": "URL do site se mencionado",
+    "redes_sociais": ["redes sociais mencionadas com @"],
+    "tempo_mercado": "se mencionado",
+    "porte": "micro/pequeno/medio/grande — inferir pelo contexto"
+  },
+  "diagnostico_closer": {
+    "analise_site": "o que o closer falou sobre o site do cliente (pontos positivos e negativos)",
+    "analise_anuncios": "o que o closer encontrou nos anuncios digitais (Google Ads, Meta Ads)",
+    "analise_redes_sociais": "o que o closer observou nas redes sociais",
+    "analise_seo": "se mencionou SEO, posicionamento no Google",
+    "pontos_fortes": ["pontos positivos identificados pelo closer"],
+    "pontos_fracos": ["problemas e oportunidades de melhoria identificados"],
+    "dados_apresentados": ["dados, numeros e metricas que o closer mostrou ao cliente"]
+  },
+  "o_que_foi_vendido": [
+    {"servico": "nome exato do servico vendido", "descricao": "detalhes do que inclui", "valor_mensal": "R$ X ou null", "valor_setup": "R$ X ou null", "prazo_entrega": "prazo mencionado ou null", "frequencia": "mensal/semanal/pontual"}
   ],
-  "servicos_mencionados": ["lista de servicos/entregas mencionados na call"],
-  "valores_mencionados": {"mrr": "valor mensal mencionado ou null", "setup": "valor setup ou null", "investimento_midia": "valor midia ou null"},
+  "valores": {
+    "mrr_total": "valor mensal total combinado",
+    "setup_total": "valor de setup/implantacao",
+    "investimento_midia": "verba de midia mencionada",
+    "desconto_aplicado": "se houve desconto, qual",
+    "prazo_contrato": "duracao do contrato mencionada",
+    "forma_pagamento": "se mencionou forma de pagamento"
+  },
   "condicoes_especiais": ["descontos, bonus, condicoes especiais prometidas"],
-  ${contrato ? `"auditoria_contrato": {
-    "conformidades": ["itens que batem entre call e contrato"],
-    "divergencias": ["itens prometidos na call mas ausentes no contrato"],
-    "extras_contrato": ["itens no contrato nao mencionados na call"],
-    "risco": "baixo" | "medio" | "alto"
-  },` : ""}
-  "concorrentes_mencionados": [
-    {"nome": "nome do concorrente", "contexto": "o que o cliente falou sobre ele"}
+  "dores_cliente": ["TODAS as dores e problemas que o cliente mencionou"],
+  "metas_cliente": ["metas e objetivos que o cliente quer atingir"],
+  "metricas_cliente": {
+    "faturamento": "se mencionado",
+    "ticket_medio": "se mencionado",
+    "qtd_clientes_atuais": "se mencionado",
+    "investimento_atual_marketing": "se mencionado",
+    "custo_aquisicao_cliente": "se mencionado",
+    "taxa_conversao": "se mencionado"
+  },
+  "concorrentes": {
+    "mencionados_na_call": [
+      {"nome": "nome do concorrente", "contexto": "o que foi dito sobre ele", "url_site": "se mencionado"}
+    ],
+    "sugeridos_pela_ia": [
+      {"nome": "nome provavel de concorrente", "motivo": "por que seria concorrente (mesmo segmento, mesma regiao)", "o_que_pesquisar": "site, Google Ads, Meta Ads, redes sociais — descreva o que o time deve investigar"}
+    ]
+  },
+  "insights_operacionais": [
+    "insights ACIONAVEIS e ESPECIFICOS para o time de marketing usar desde o primeiro dia. Baseie-se no diagnostico do closer e nas dores do cliente. Ex: 'Cliente nao tem Landing Page — priorizar criacao de LP de captura antes de subir campanhas', 'Site sem tag do Google — instalar GTM e pixels antes de iniciar trafego'"
   ],
-  "dores_cliente": ["lista de dores/problemas mencionados pelo cliente"],
-  "metas_cliente": ["metas e objetivos mencionados"],
-  "metricas_cliente": {"faturamento": "se mencionado", "ticket_medio": "se mencionado", "qtd_clientes": "se mencionado", "investimento_atual": "se mencionado"},
-  "insights_operacionais": ["insights prontos pro time operacional usar ao iniciar o trabalho"],
-  "pesquisa_concorrentes": [
-    {"nome": "nome do concorrente", "o_que_pesquisar": "site, redes, anuncios, posicionamento - descreva o que o time deve investigar"}
-  ],
-  "brief_operacional": "paragrafo de 3-5 linhas resumindo tudo que o time precisa saber para comecar a trabalhar com esse cliente",
-  "alertas": ["qualquer ponto de atencao - promessas dificeis de cumprir, expectativas irreais, etc"]
+  "brief_operacional": "paragrafo de 5-8 linhas resumindo TUDO que o time precisa saber para comecar: quem e o cliente, o que faz, qual a dor principal, o que foi vendido, quais sao as prioridades, e o que o closer prometeu",
+  "alertas": ["promessas dificeis de cumprir, expectativas irreais do cliente, prazos apertados, divergencias entre o que foi dito e o que normalmente se entrega"]
 }
 
-Regras:
-- Extraia TUDO que foi prometido, mesmo implicitamente
-- Identifique TODOS os concorrentes mencionados, mesmo de passagem
-- Seja especifico nos valores e prazos
-- Insights devem ser acionaveis pro time
-- Use portugues brasileiro
+REGRAS IMPORTANTES:
+1. DIAGNOSTICO DO CLOSER: Extraia TUDO que o closer apresentou como analise previa (cliente oculto). Isso e ouro pro time operacional.
+2. O QUE FOI VENDIDO: Seja PRECISO. Liste cada servico com valor, prazo e frequencia. O time precisa saber exatamente o que entregar.
+3. CONCORRENTES: Se o cliente NAO mencionou concorrentes, use os dados que voce tem (segmento, regiao, porte) para SUGERIR provaveis concorrentes. Descreva o que o time deve pesquisar em cada um (site, Google Ads, Meta Ads, redes sociais, posicionamento).
+4. INSIGHTS: Devem ser especificos e acionaveis. Nada generico como "melhorar o marketing". Diga EXATAMENTE o que fazer.
+5. Contrato: ${contrato ? "Compare o que foi vendido com o contrato abaixo." : "Nao ha contrato para comparar — foque na analise da call."}
+6. Use portugues brasileiro.
 
 ${contrato ? `\nConteudo do contrato:\n${contrato.slice(0, 30000)}\n` : ""}
-Transcricao da call:
+Transcricao da(s) call(s):
 ${transcricao.slice(0, 100000)}`;
 
     const claudeRes = await fetch(ANTHROPIC_URL, {
