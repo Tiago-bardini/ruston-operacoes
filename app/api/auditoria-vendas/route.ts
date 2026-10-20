@@ -55,8 +55,7 @@ export async function POST(req: Request) {
 
       try {
         if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
-          const pdfModule = await import("pdf-parse");
-          const pdfParse = (pdfModule as any).default ?? pdfModule;
+          const pdfParse = require("pdf-parse");
           const buffer = Buffer.from(await file.arrayBuffer());
           const pdfData = await pdfParse(buffer);
           if (pdfData.text) transcricoes.push(`[Call ${i + 1} - ${file.name}]\n${pdfData.text}`);
