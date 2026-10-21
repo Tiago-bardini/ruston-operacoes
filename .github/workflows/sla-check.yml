@@ -13,4 +13,5 @@ jobs:
         run: |
           curl -s -X GET "https://ruston-operacoes.vercel.app/api/whatsapp-alertas-check?tipo=sla_30min" \
             -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             --max-time 30

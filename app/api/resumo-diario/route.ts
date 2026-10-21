@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { exigirCron } from "@/lib/apiAuth";
 import { createClient } from "@supabase/supabase-js";
 import { calcHealthScore, taxaTarefasPorCliente } from "@/lib/healthScore";
 
@@ -7,7 +8,9 @@ export const maxDuration = 30;
 
 const Z_URL = "https://api.z-api.io";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const negado = exigirCron(req);
+  if (negado) return negado;
   const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SB_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const INST = process.env.ZAPI_INSTANCE_ID;
@@ -100,4 +103,4 @@ export async function GET() {
   }
 }
 
-export async function POST() { return GET(); }
+export async function POST(req: Request) { return GET(req); }

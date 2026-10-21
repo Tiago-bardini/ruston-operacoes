@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { exigirUsuario } from "@/lib/apiAuth";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -10,6 +11,8 @@ const MODELO_WHISPER = "whisper-1";
 const MODELO_LLM = "claude-sonnet-4-5-20250929";
 
 export async function POST(req: Request) {
+  const negado = await exigirUsuario();
+  if (negado) return negado;
   const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SB_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const OPENAI_KEY = process.env.OPENAI_API_KEY;

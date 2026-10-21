@@ -5,65 +5,59 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 import { PERFIL_LABEL } from "@/lib/types";
+import { podeAcessar } from "@/lib/permissoes";
 
-type NavItem = {
-  href: string;
-  label: string;
-  icon: string;
-  soGerente?: boolean;
-  soGerenteCoord?: boolean;
-};
+// Quem vê cada item vem de lib/permissoes.ts (a mesma regra bloqueia a URL no middleware)
+type NavItem = { href: string; label: string };
 
 type NavGroup = { label: string; icon: string; items: NavItem[] };
 
 const NAV_GROUPS: NavGroup[] = [
   {
     label: "Início", icon: "🏠", items: [
-      { href: "/painel-gerente", label: "Painel Gerente", icon: "◈", soGerente: true },
-      { href: "/cockpit", label: "Cockpit", icon: "★" },
+      { href: "/cockpit", label: "Cockpit" },
     ],
   },
   {
     label: "Clientes", icon: "◎", items: [
-      { href: "/clientes", label: "Carteira", icon: "◎" },
-      { href: "/churn", label: "Churn", icon: "↘" },
-      { href: "/reunioes", label: "Reuniões", icon: "☎" },
-      { href: "/entregas", label: "Entregas", icon: "✎" },
+      { href: "/clientes", label: "Carteira" },
+      { href: "/churn", label: "Churn" },
+      { href: "/reunioes", label: "Reuniões" },
+      { href: "/entregas", label: "Entregas" },
     ],
   },
   {
     label: "Saúde da Carteira", icon: "♥", items: [
-      { href: "/health-score", label: "Health Score", icon: "♥", soGerenteCoord: true },
-      { href: "/sla", label: "Controle SLA", icon: "⏱", soGerenteCoord: true },
-      { href: "/radar-whatsapp", label: "Radar WhatsApp", icon: "📱", soGerenteCoord: true },
-      { href: "/fca", label: "FCA", icon: "▤" },
+      { href: "/health-score", label: "Health Score · SLA" },
+      { href: "/radar-whatsapp", label: "Radar WhatsApp" },
+      { href: "/fca", label: "FCA" },
     ],
   },
   {
     label: "Receita", icon: "💰", items: [
-      { href: "/monetizacao", label: "Monetização", icon: "💰" },
-      { href: "/forecast", label: "Forecast", icon: "↗", soGerenteCoord: true },
-      { href: "/metas", label: "Metas", icon: "◈" },
+      { href: "/monetizacao", label: "Monetização" },
+      { href: "/forecast", label: "Forecast" },
+      { href: "/metas", label: "Metas" },
     ],
   },
   {
     label: "Operação", icon: "⚡", items: [
-      { href: "/ekyte", label: "Ekyte", icon: "📊" },
-      { href: "/produtividade", label: "Produtividade", icon: "⚡", soGerenteCoord: true },
+      { href: "/ekyte", label: "Ekyte" },
+      { href: "/produtividade", label: "Produtividade" },
     ],
   },
   {
     label: "Time", icon: "👥", items: [
-      { href: "/pessoas", label: "Pessoas", icon: "◆" },
-      { href: "/squads", label: "Squads", icon: "◇" },
-      { href: "/organograma", label: "Organograma", icon: "👥" },
-      { href: "/headcount", label: "Headcount", icon: "☰", soGerenteCoord: true },
+      { href: "/pessoas", label: "Pessoas" },
+      { href: "/squads", label: "Squads" },
+      { href: "/organograma", label: "Organograma" },
+      { href: "/headcount", label: "Headcount" },
     ],
   },
   {
     label: "Comercial", icon: "🔍", items: [
-      { href: "/auditoria-vendas", label: "Auditoria de Vendas", icon: "🔍", soGerenteCoord: true },
-      { href: "/analise-reunioes", label: "Análise Reuniões IA", icon: "🎙", soGerenteCoord: true },
+      { href: "/auditoria-vendas", label: "Auditoria de Vendas" },
+      { href: "/analise-reunioes", label: "Análise Reuniões IA" },
     ],
   },
 ];
@@ -74,7 +68,7 @@ export default function Sidebar({ email }: { email?: string }) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
-  const { tipo, isGerente, isCoordenador } = useUsuarioPerfil();
+  const { tipo, isGerente } = useUsuarioPerfil();
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -83,9 +77,7 @@ export default function Sidebar({ email }: { email?: string }) {
   }
 
   function permitido(it: NavItem) {
-    if (it.soGerente && !isGerente) return false;
-    if (it.soGerenteCoord && !(isGerente || isCoordenador)) return false;
-    return true;
+    return podeAcessar(it.href, tipo);
   }
 
   const grupos = NAV_GROUPS
@@ -125,6 +117,21 @@ export default function Sidebar({ email }: { email?: string }) {
         {grupos.map((g) => {
           const aberto = abertos.includes(g.label);
           const grupoAtivo = g.items.some((it) => pathname.startsWith(it.href));
+          // Grupo com um item só vira link direto
+          if (g.items.length === 1) {
+            return (
+              <Link
+                key={g.label}
+                href={g.items[0].href}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                  grupoAtivo ? "bg-brand/15 text-white" : "text-gray-300 hover:bg-white/5"
+                }`}
+              >
+                <span className="w-4 text-center">{g.icon}</span>
+                {g.label}
+              </Link>
+            );
+          }
           return (
             <div key={g.label}>
               <button

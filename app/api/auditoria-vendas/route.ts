@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { exigirUsuario } from "@/lib/apiAuth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -7,6 +8,8 @@ const OPENAI_WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
 export async function POST(req: Request) {
+  const negado = await exigirUsuario();
+  if (negado) return negado;
   const OPENAI_KEY = process.env.OPENAI_API_KEY;
   const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 

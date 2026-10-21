@@ -10,6 +10,7 @@
 // =====================================================================
 
 import { NextResponse } from "next/server";
+import { exigirUsuario } from "@/lib/apiAuth";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -83,6 +84,8 @@ async function fetchEkytePage(apiKey: string, createdFrom: string, status: 0 | 1
 }
 
 export async function POST(req: Request) {
+  const negado = await exigirUsuario();
+  if (negado) return negado;
   const EKYTE_API_KEY = process.env.EKYTE_API_KEY;
   const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SB_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;

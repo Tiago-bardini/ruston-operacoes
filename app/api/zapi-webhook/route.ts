@@ -11,6 +11,7 @@
 // =====================================================================
 
 import { NextResponse } from "next/server";
+import { exigirTokenWebhook } from "@/lib/apiAuth";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -37,6 +38,8 @@ function extrairConteudo(m: ZapiMessage): { tipo: string; conteudo: string | nul
 }
 
 export async function POST(req: Request) {
+  const negado = exigirTokenWebhook(req);
+  if (negado) return negado;
   const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SB_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 

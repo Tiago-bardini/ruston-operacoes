@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { calcHealthScore, healthScoreNivel } from "@/lib/healthScore";
+import SubAbas from "@/components/SubAbas";
+import ControleSla from "@/components/saude/ControleSla";
 
 type ClienteBase = {
   id: string;
@@ -72,7 +74,7 @@ const NIVEL_CONFIG = {
   sem_dado: { label: "Sem dado", color: "text-zinc-500", bg: "bg-zinc-600", border: "border-zinc-600/40" },
 };
 
-export default function HealthScorePage() {
+function HealthScoreConteudo() {
   const supabase = createClient();
   const [clientes, setClientes] = useState<ClienteBase[]>([]);
   const [fcas, setFcas] = useState<FcaRow[]>([]);
@@ -183,14 +185,12 @@ export default function HealthScorePage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-zinc-400 text-lg">Calculando Health Score...</div>
-      </div>
+      <p className="text-brand-muted">Calculando Health Score...</p>
     );
   }
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto space-y-6">
+    <div className="max-w-[1600px] space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white">Health Score dos Clientes</h1>
         <div className="text-right">
@@ -335,6 +335,22 @@ export default function HealthScorePage() {
         <span>Score 0-10 = Nota FCA (base) +/- ajustes WhatsApp (sentimento, churn, contato) e Tarefas (cumprimento prazo)</span>
         <span>Verde: 8+ (Safe) | Amarelo: 6-7.9 (Care) | Vermelho: &lt;6 (Danger)</span>
       </div>
+    </div>
+  );
+}
+
+/* ============================== SAÚDE: Health Score + Controle SLA ============================== */
+
+export default function HealthScorePage() {
+  const [aba, setAba] = useState<"score" | "sla">("score");
+  return (
+    <div>
+      <SubAbas
+        abas={[{ v: "score", label: "Health Score" }, { v: "sla", label: "Controle SLA" }]}
+        ativa={aba}
+        onChange={setAba}
+      />
+      {aba === "sla" ? <ControleSla /> : <HealthScoreConteudo />}
     </div>
   );
 }

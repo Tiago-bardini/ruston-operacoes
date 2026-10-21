@@ -12,6 +12,7 @@
 // =====================================================================
 
 import { NextResponse } from "next/server";
+import { exigirCron } from "@/lib/apiAuth";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -54,6 +55,8 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
+  const negado = exigirCron(req);
+  if (negado) return negado;
   const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SB_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SB_URL || !SB_SERVICE) {

@@ -131,7 +131,7 @@ export default function ChurnPage() {
     if (!confirm(`Travar o MRR de ${MESES_LABEL[mes - 1]}/${ano} em ${formatBRL(v)}? Depois de travado não dá pra alterar pelo painel.`)) return;
     const { error } = await supabase.from("ruston_churn_mrr_base")
       .insert({ ano, mes, mrr_base: v, origem: "manual", travado_em: new Date().toISOString() });
-    if (error) { alert(error.message); return; }
+    if (error) return; // o AvisoErro já mostra a falha
     load();
   }
 
@@ -227,7 +227,7 @@ export default function ChurnPage() {
           onFechar={() => setConfirmando(null)}
           onConfirmar={async (payload) => {
             const error = await efetivarChurn(supabase, clienteConfirmando, payload, confirmando.id);
-            if (error) { alert(error.message); return; }
+            if (error) return; // o AvisoErro já mostra a falha
             setConfirmando(null);
             load();
           }}

@@ -10,6 +10,8 @@ import {
   NIVEL_LABEL, V_LABEL, CARGO_LABEL,
 } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
+import SubAbas from "@/components/SubAbas";
+import PainelGerente from "@/components/inicio/PainelGerente";
 
 interface OkrMetricaLite { id: string; cargo: string; nome: string; unidade: string; }
 interface OkrMetaLite { metrica_id: string; nivel: string; versao_v: string; valor_meta: number | null; }
@@ -33,7 +35,7 @@ function isSquadExcluidoDoRanking(nome: string): boolean {
   return prefixo === "iss" || prefixo === "isa";
 }
 
-export default function CockpitPage() {
+function CockpitConteudo() {
   const supabase = createClient();
   const [clientes, setClientes] = useState<ClienteView[]>([]);
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
@@ -610,5 +612,24 @@ function AlertCard({ titulo, n, lista, cor, href }: {
         {lista.length > 4 ? ` · +${lista.length - 4}` : ""}
       </p>
     </a>
+  );
+}
+
+/* ============================== INÍCIO: Cockpit + Painel do Gerente ============================== */
+
+export default function CockpitPage() {
+  const { isGerente } = useUsuarioPerfil();
+  const [aba, setAba] = useState<"cockpit" | "gerente">("cockpit");
+  return (
+    <div>
+      {isGerente && (
+        <SubAbas
+          abas={[{ v: "cockpit", label: "Cockpit" }, { v: "gerente", label: "Painel do Gerente" }]}
+          ativa={aba}
+          onChange={setAba}
+        />
+      )}
+      {isGerente && aba === "gerente" ? <PainelGerente /> : <CockpitConteudo />}
+    </div>
   );
 }

@@ -1,5 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { podeAcessar, rotaRestrita } from "@/lib/permissoes";
+import type { PerfilUsuario } from "@/lib/types";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -42,6 +44,23 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/clientes";
     return NextResponse.redirect(url);
+  }
+
+  // Página restrita por perfil: bloqueia também o acesso direto pela URL
+  if (user && rotaRestrita(path)) {
+    const { data } = await supabase
+      .from("ruston_usuario_perfil")
+      .select("perfil")
+      .eq("email", user.email ?? "")
+      .maybeSingle();
+    // Sem perfil cadastrado = investidor (mais restritivo), igual ao useUsuarioPerfil
+    const perfil = (data?.perfil ?? "investidor") as PerfilUsuario;
+    if (!podeAcessar(path, perfil)) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/cockpit";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
   }
 
   return supabaseResponse;

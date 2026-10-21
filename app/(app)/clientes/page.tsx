@@ -490,7 +490,7 @@ export default function ClientesPage() {
           onFechar={() => setChurnModal(null)}
           onConfirmar={async (payload) => {
             const error = await efetivarChurn(supabase, churnModal, payload);
-            if (error) { alert(error.message); return; }
+            if (error) return; // o AvisoErro já mostra a falha
             setChurnModal(null);
             load();
           }}
