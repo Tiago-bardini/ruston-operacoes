@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatBRL } from "@/lib/types";
+import { calcHealthScore, taxaTarefasPorCliente } from "@/lib/healthScore";
 
 type ClienteBase = {
   id: string; nome: string; etapa: string; mrr: number | null;
@@ -16,14 +17,6 @@ type RadarRow = {
 type AlertaRow = { id: string; tipo: string; cliente_id: string; detalhes: string; criado_em: string };
 type TaskAgg = { pessoa_nome: string; pessoa_cargo: string | null; total: number; atrasadas: number };
 
-function healthScore(fca: number | null, churn: string | null, sent: string | null, dias: number | null): number {
-  let s = fca ?? 5;
-  if (sent === "positivo") s += 0.5; else if (sent === "negativo") s -= 0.5;
-  if (churn === "baixo") s += 0.5; else if (churn === "alto") s -= 1.0; else if (churn === "medio") s -= 0.3;
-  if (dias != null) { if (dias > 14) s -= 0.5; else if (dias <= 2) s += 0.3; }
-  return Math.max(0, Math.min(10, Math.round(s * 10) / 10));
-}
-
 export default function PainelGerentePage() {
   const supabase = createClient();
   const [clientes, setClientes] = useState<ClienteBase[]>([]);
@@ -31,18 +24,20 @@ export default function PainelGerentePage() {
   const [radar, setRadar] = useState<RadarRow[]>([]);
   const [alertas, setAlertas] = useState<AlertaRow[]>([]);
   const [taskAgg, setTaskAgg] = useState<TaskAgg[]>([]);
+  const [taxaTarefas, setTaxaTarefas] = useState<ReturnType<typeof taxaTarefasPorCliente>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       const hoje = new Date().toISOString().slice(0, 10);
-      const [{ data: c }, { data: f }, { data: r }, { data: a }, { data: t }] = await Promise.all([
+      const [{ data: c }, { data: f }, { data: r }, { data: a }, { data: t }, { data: tc }] = await Promise.all([
         supabase.from("ruston_clientes_view").select("id, nome, etapa, mrr, coordenador_nome, squad_nome, ativo").eq("ativo", true),
         supabase.from("ruston_fca_view").select("cliente_id, nota_final, bandeira, data_referencia").order("data_referencia", { ascending: false }),
         supabase.from("ruston_whatsapp_radar_view").select("cliente_id, temperatura, sentimento, risco_churn, dias_sem_contato, resumo_curto"),
         supabase.from("ruston_whatsapp_alertas").select("id, tipo, cliente_id, detalhes, criado_em").gte("criado_em", hoje + "T00:00:00").order("criado_em", { ascending: false }).limit(20),
         supabase.from("ruston_ekyte_tasks_view").select("pessoa_nome, pessoa_cargo, situation, esta_atrasada").not("pessoa_id", "is", null),
+        supabase.from("ruston_ekyte_tasks_view").select("cliente_id, situation, esta_atrasada").not("cliente_id", "is", null),
       ]);
       setClientes((c ?? []) as ClienteBase[]);
       setFcas((f ?? []) as FcaRow[]);
@@ -57,12 +52,13 @@ export default function PainelGerentePage() {
         if (tk.esta_atrasada) map[key].atrasadas++;
       }
       setTaskAgg(Object.values(map));
+      setTaxaTarefas(taxaTarefasPorCliente((tc ?? []) as any[]));
       setLoading(false);
     }
     load();
   }, []);
 
-  const clientesRisco = useMemo(() => {
+  const clientesScore = useMemo(() => {
     const fcaMap: Record<string, FcaRow> = {};
     for (const f of fcas) { if (!fcaMap[f.cliente_id]) fcaMap[f.cliente_id] = f; }
     const radarMap = Object.fromEntries(radar.map((r) => [r.cliente_id, r]));
@@ -71,12 +67,18 @@ export default function PainelGerentePage() {
       .filter((c) => c.etapa !== "cancelado" && c.etapa !== "suspenso")
       .map((c) => {
         const f = fcaMap[c.id]; const w = radarMap[c.id];
-        const score = healthScore(f?.nota_final ?? null, w?.risco_churn ?? null, w?.sentimento ?? null, w?.dias_sem_contato ?? null);
+        const score = calcHealthScore({
+          fca_nota: f?.nota_final ?? null,
+          wa_sentimento: w?.sentimento ?? null,
+          wa_risco_churn: w?.risco_churn ?? null,
+          wa_dias_sem_contato: w?.dias_sem_contato ?? null,
+          tarefas_taxa: taxaTarefas[c.id]?.taxa ?? null,
+        });
         return { ...c, score, risco_churn: w?.risco_churn, sentimento: w?.sentimento, dias_sem_contato: w?.dias_sem_contato, resumo: w?.resumo_curto, fca: f?.nota_final };
       })
-      .sort((a, b) => a.score - b.score)
-      .slice(0, 10);
-  }, [clientes, fcas, radar]);
+      .sort((a, b) => a.score - b.score);
+  }, [clientes, fcas, radar, taxaTarefas]);
+  const clientesRisco = useMemo(() => clientesScore.slice(0, 10), [clientesScore]);
 
   const coordPendencias = useMemo(() => {
     return taskAgg.filter((t) => t.atrasadas > 0).sort((a, b) => b.atrasadas - a.atrasadas).slice(0, 10);
@@ -84,9 +86,9 @@ export default function PainelGerentePage() {
 
   const mrrInfo = useMemo(() => {
     const total = clientes.reduce((a, c) => a + (c.mrr ?? 0), 0);
-    const emRisco = clientesRisco.filter((c) => c.score < 6).reduce((a, c) => a + (c.mrr ?? 0), 0);
+    const emRisco = clientesScore.filter((c) => c.score < 6).reduce((a, c) => a + (c.mrr ?? 0), 0);
     return { total, emRisco };
-  }, [clientes, clientesRisco]);
+  }, [clientes, clientesScore]);
 
   if (loading) {
     return <div className="flex items-center justify-center h-screen"><div className="text-zinc-400 text-lg">Carregando painel...</div></div>;

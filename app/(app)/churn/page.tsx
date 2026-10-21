@@ -7,6 +7,8 @@ import {
   formatBRL, formatDate, MESES_LABEL, MOTIVOS_CHURN,
   STATUS_CHURN_LABEL, STATUS_CHURN_COLOR,
 } from "@/lib/types";
+import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
+import { ChurnList, ModalSubirChurn, efetivarChurn } from "@/components/churn/ChurnEfetivado";
 
 const STATUS_LIST: StatusChurn[] = ["solicitado", "em_retencao", "revertido", "confirmado"];
 
@@ -39,6 +41,14 @@ export default function ChurnPage() {
   const [baseManual, setBaseManual] = useState("");
   const [loading, setLoading] = useState(true);
   const [novaSolicitacao, setNovaSolicitacao] = useState(false);
+  const [aba, setAba] = useState<"solicitacoes" | "efetivados">("solicitacoes");
+  const [confirmando, setConfirmando] = useState<ChurnSolicitacao | null>(null);
+  const { isGerente, squadId: perfilSquadId } = useUsuarioPerfil();
+
+  // Permite abrir direto numa subaba: /churn?aba=efetivados
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("aba") === "efetivados") setAba("efetivados");
+  }, []);
 
   // Histórico: últimos 12 meses até o mês corrente
   const mesesHistorico = useMemo(() => {
@@ -126,6 +136,11 @@ export default function ChurnPage() {
   }
 
   async function mudarStatus(s: ChurnSolicitacao, status: StatusChurn) {
+    // Confirmar = efetivar o churn do cliente (abre o "Subir Churn")
+    if (status === "confirmado" && !clientePorId.get(s.cliente_id)?.churn_realizado) {
+      setConfirmando(s);
+      return;
+    }
     await supabase.from("ruston_churn_solicitacoes")
       .update({ status, updated_at: new Date().toISOString() }).eq("id", s.id);
     load();
@@ -136,6 +151,30 @@ export default function ChurnPage() {
     await supabase.from("ruston_churn_solicitacoes").delete().eq("id", id);
     load();
   }
+
+  const efetivados = useMemo(() => clientes
+    .filter((c) => c.churn_realizado)
+    // Coordenador/Investidor: só vê clientes do próprio squad
+    .filter((c) => isGerente || !perfilSquadId || c.squad_id === perfilSquadId)
+    .sort((a, b) => (b.data_churn ?? "").localeCompare(a.data_churn ?? "")),
+  [clientes, isGerente, perfilSquadId]);
+
+  async function marcarSubiu(id: string) {
+    await supabase.from("ruston_clientes")
+      .update({ subiu_no_sistema: true, subiu_no_sistema_em: new Date().toISOString() })
+      .eq("id", id);
+    load();
+  }
+
+  async function reativar(id: string) {
+    if (!confirm("Reativar esse cliente? Ele volta pra base ativa.")) return;
+    await supabase.from("ruston_clientes")
+      .update({ churn_realizado: false, ativo: true, data_churn: null, subiu_no_sistema: false })
+      .eq("id", id);
+    load();
+  }
+
+  const clienteConfirmando = confirmando ? clientePorId.get(confirmando.cliente_id) : undefined;
 
   const anos = [hoje.getFullYear() - 1, hoje.getFullYear(), hoje.getFullYear() + 1];
 
@@ -148,16 +187,54 @@ export default function ChurnPage() {
             Histórico mensal de pedidos de churn · % calculado sobre o MRR do último dia do mês (pontual/one time não entra)
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        {aba === "solicitacoes" && <div className="flex items-center gap-2">
           <select className="input max-w-[150px]" value={mes} onChange={(e) => setMes(Number(e.target.value))}>
             {MESES_LABEL.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
           </select>
           <select className="input max-w-[100px]" value={ano} onChange={(e) => setAno(Number(e.target.value))}>
             {anos.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
-        </div>
+        </div>}
       </div>
 
+      {/* Subabas */}
+      <div className="mb-6 inline-flex rounded-lg border border-white/10 bg-brand-panel/50 p-1">
+        {[
+          { v: "solicitacoes", label: "Solicitações" },
+          { v: "efetivados", label: `Efetivados (${efetivados.length})` },
+        ].map((it) => (
+          <button
+            key={it.v}
+            onClick={() => setAba(it.v as typeof aba)}
+            className={`rounded-md px-4 py-1.5 text-xs font-medium transition ${
+              aba === it.v ? "bg-brand text-white" : "text-brand-muted hover:text-gray-200"
+            }`}
+          >
+            {it.label}
+          </button>
+        ))}
+      </div>
+
+      {aba === "efetivados" && (
+        <ChurnList clientes={efetivados} onMarkarSubiu={marcarSubiu} onReativar={reativar} />
+      )}
+
+      {clienteConfirmando && confirmando && (
+        <ModalSubirChurn
+          cliente={clienteConfirmando}
+          dataInicial={confirmando.data_solicitacao}
+          motivoInicial={[confirmando.motivo, confirmando.observacoes].filter(Boolean).join(" — ")}
+          onFechar={() => setConfirmando(null)}
+          onConfirmar={async (payload) => {
+            const error = await efetivarChurn(supabase, clienteConfirmando, payload, confirmando.id);
+            if (error) { alert(error.message); return; }
+            setConfirmando(null);
+            load();
+          }}
+        />
+      )}
+
+      {aba === "solicitacoes" && (<>
       {/* Indicadores */}
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat label="Solicitações no mês" valor={String(resumo.qtd)} />
@@ -251,6 +328,7 @@ export default function ChurnPage() {
                     <td className="px-4 py-3">
                       <p className="font-medium">{c?.nome ?? "—"}</p>
                       {c?.squad_nome && <p className="text-[10px] text-brand-muted">{c.squad_nome}</p>}
+                      {c?.churn_realizado && <p className="text-[10px] text-purple-300">✓ churn efetivado</p>}
                       {s.observacoes && <p className="text-[10px] text-brand-muted whitespace-pre-wrap">{s.observacoes}</p>}
                     </td>
                     <td className="px-4 py-3 text-brand-muted">{formatDate(s.data_solicitacao)}</td>
@@ -321,6 +399,7 @@ export default function ChurnPage() {
           </tbody>
         </table>
       </div>
+      </>)}
     </div>
   );
 }
@@ -425,8 +504,9 @@ function FormSolicitacao({ clientes, ano, mes, onSalvo, onCancelar }: {
           <label className="label">Status</label>
           <select className="input" value={form.status}
             onChange={(e) => setForm({ ...form, status: e.target.value as StatusChurn })}>
-            {STATUS_LIST.map((st) => <option key={st} value={st}>{STATUS_CHURN_LABEL[st]}</option>)}
+            {STATUS_LIST.filter((st) => st !== "confirmado").map((st) => <option key={st} value={st}>{STATUS_CHURN_LABEL[st]}</option>)}
           </select>
+          <p className="mt-1 text-[10px] text-brand-muted">Pra confirmar o churn, mude o status na tabela</p>
         </div>
       </div>
       <div>

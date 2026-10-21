@@ -1,17 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { calcHealthScore, taxaTarefasPorCliente } from "@/lib/healthScore";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
 const Z_URL = "https://api.z-api.io";
-
-function healthScore(fca: number | null, churn: string | null, sent: string | null): number {
-  let s = fca ?? 5;
-  if (sent === "positivo") s += 0.5; else if (sent === "negativo") s -= 0.5;
-  if (churn === "baixo") s += 0.5; else if (churn === "alto") s -= 1.0; else if (churn === "medio") s -= 0.3;
-  return Math.max(0, Math.min(10, Math.round(s * 10) / 10));
-}
 
 export async function GET() {
   const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -26,12 +20,13 @@ export async function GET() {
 
   const supabase = createClient(SB_URL, SB_SERVICE, { auth: { persistSession: false } });
 
-  const [{ data: clientes }, { data: fcas }, { data: radar }, { data: alertasHoje }, { data: tarefas }] = await Promise.all([
+  const [{ data: clientes }, { data: fcas }, { data: radar }, { data: alertasHoje }, { data: tarefas }, { data: tarefasCliente }] = await Promise.all([
     supabase.from("ruston_clientes_view").select("id, nome, mrr, coordenador_nome, squad_nome, etapa").eq("ativo", true),
     supabase.from("ruston_fca_view").select("cliente_id, nota_final").order("data_referencia", { ascending: false }),
     supabase.from("ruston_whatsapp_radar_view").select("cliente_id, risco_churn, sentimento, dias_sem_contato"),
     supabase.from("ruston_whatsapp_alertas").select("id, tipo").gte("criado_em", new Date().toISOString().slice(0, 10) + "T00:00:00"),
     supabase.from("ruston_ekyte_tasks_view").select("pessoa_nome, esta_atrasada").eq("esta_atrasada", true),
+    supabase.from("ruston_ekyte_tasks_view").select("cliente_id, situation, esta_atrasada").not("cliente_id", "is", null),
   ]);
 
   const clientesAtivos = (clientes ?? []).filter((c: any) => c.etapa !== "cancelado" && c.etapa !== "suspenso");
@@ -40,11 +35,18 @@ export async function GET() {
   const fcaMap: Record<string, number> = {};
   for (const f of (fcas ?? []) as any[]) { if (!fcaMap[f.cliente_id]) fcaMap[f.cliente_id] = f.nota_final; }
   const radarMap = Object.fromEntries((radar ?? []).map((r: any) => [r.cliente_id, r]));
+  const taxaMap = taxaTarefasPorCliente((tarefasCliente ?? []) as any[]);
 
   const emRisco = clientesAtivos
     .map((c: any) => {
       const w = radarMap[c.id];
-      const score = healthScore(fcaMap[c.id] ?? null, w?.risco_churn ?? null, w?.sentimento ?? null);
+      const score = calcHealthScore({
+        fca_nota: fcaMap[c.id] ?? null,
+        wa_sentimento: w?.sentimento ?? null,
+        wa_risco_churn: w?.risco_churn ?? null,
+        wa_dias_sem_contato: w?.dias_sem_contato ?? null,
+        tarefas_taxa: taxaMap[c.id]?.taxa ?? null,
+      });
       return { nome: c.nome, score, mrr: c.mrr, coord: c.coordenador_nome };
     })
     .sort((a: any, b: any) => a.score - b.score)

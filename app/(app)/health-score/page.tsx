@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { calcHealthScore, healthScoreNivel } from "@/lib/healthScore";
 
 type ClienteBase = {
   id: string;
@@ -60,54 +61,9 @@ type HealthData = {
   nivel: "verde" | "amarelo" | "vermelho" | "sem_dado";
 };
 
-// Health Score 0-10 — baseado no FCA com ajustes do WhatsApp e Tarefas
-// FCA ja calcula nota ponderada (resultado x7, roi x8, trafego x5, prazo x5, qualidade x4, relacionamento x4)
-// Health Score = FCA base +/- ajustes de WhatsApp e Tarefas
-function calcScore(d: {
-  fca_nota: number | null;
-  wa_temperatura: string | null;
-  wa_sentimento: string | null;
-  wa_risco_churn: string | null;
-  wa_dias_sem_contato: number | null;
-  tarefas_taxa: number | null;
-}): number {
-  // Se tem FCA, usa como base (70% do score)
-  // Se nao tem, usa 5 (neutro)
-  let base = d.fca_nota ?? 5;
-
-  // Ajuste WhatsApp (max +/- 1.5 pontos)
-  let ajusteWa = 0;
-  if (d.wa_sentimento === "positivo") ajusteWa += 0.5;
-  else if (d.wa_sentimento === "negativo") ajusteWa -= 0.5;
-
-  if (d.wa_risco_churn === "baixo") ajusteWa += 0.5;
-  else if (d.wa_risco_churn === "alto") ajusteWa -= 1.0;
-  else if (d.wa_risco_churn === "medio") ajusteWa -= 0.3;
-
-  if (d.wa_dias_sem_contato != null) {
-    if (d.wa_dias_sem_contato > 14) ajusteWa -= 0.5;
-    else if (d.wa_dias_sem_contato > 7) ajusteWa -= 0.2;
-    else if (d.wa_dias_sem_contato <= 2) ajusteWa += 0.3;
-  }
-
-  // Ajuste Tarefas (max +/- 0.5 pontos)
-  let ajusteTarefas = 0;
-  if (d.tarefas_taxa != null) {
-    if (d.tarefas_taxa >= 90) ajusteTarefas = 0.5;
-    else if (d.tarefas_taxa >= 70) ajusteTarefas = 0.2;
-    else if (d.tarefas_taxa < 50) ajusteTarefas = -0.5;
-  }
-
-  const score = base + ajusteWa + ajusteTarefas;
-  return Math.max(0, Math.min(10, Math.round(score * 10) / 10));
-}
-
-// Bandeira igual ao FCA: verde (>=8), amarelo (>=6), vermelho (<6)
-function scoreNivel(s: number): "verde" | "amarelo" | "vermelho" | "sem_dado" {
-  if (s >= 8) return "verde";
-  if (s >= 6) return "amarelo";
-  return "vermelho";
-}
+// Fórmula única em lib/healthScore.ts (mesma do Painel Gerente e do resumo diário)
+const calcScore = calcHealthScore;
+const scoreNivel = (s: number): "verde" | "amarelo" | "vermelho" | "sem_dado" => healthScoreNivel(s);
 
 const NIVEL_CONFIG = {
   verde: { label: "Safe", color: "text-emerald-400", bg: "bg-emerald-500", border: "border-emerald-500/40" },
@@ -176,7 +132,6 @@ export default function HealthScorePage() {
 
         const score = calcScore({
           fca_nota: fca?.nota_final ?? null,
-          wa_temperatura: wa?.temperatura ?? null,
           wa_sentimento: wa?.sentimento ?? null,
           wa_risco_churn: wa?.risco_churn ?? null,
           wa_dias_sem_contato: wa?.dias_sem_contato ?? null,
