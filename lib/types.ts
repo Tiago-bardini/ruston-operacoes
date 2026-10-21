@@ -543,6 +543,62 @@ export const STATUS_VENCIMENTO_COLOR: Record<StatusVencimento, string> = {
 };
 
 // =====================================================================
+// Solicitações de Churn
+// =====================================================================
+
+export type StatusChurn = "solicitado" | "em_retencao" | "revertido" | "confirmado";
+
+export const STATUS_CHURN_LABEL: Record<StatusChurn, string> = {
+  solicitado: "Solicitado",
+  em_retencao: "Em retenção",
+  revertido: "Revertido",
+  confirmado: "Churn confirmado",
+};
+
+export const STATUS_CHURN_COLOR: Record<StatusChurn, string> = {
+  solicitado: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+  em_retencao: "bg-sky-500/20 text-sky-300 border-sky-500/40",
+  revertido: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+  confirmado: "bg-red-500/20 text-red-300 border-red-500/40",
+};
+
+export const MOTIVOS_CHURN = [
+  "Resultado abaixo do esperado",
+  "Preço / orçamento",
+  "Atendimento / relacionamento",
+  "Entregas / prazo",
+  "Fechou ou pausou a empresa",
+  "Internalizou o marketing",
+  "Foi para concorrente",
+  "Outro",
+] as const;
+
+export interface ChurnSolicitacao {
+  id: string;
+  cliente_id: string;
+  data_solicitacao: string;
+  ano: number;
+  mes: number;
+  mrr: number;
+  motivo: string | null;
+  status: StatusChurn;
+  observacoes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** MRR de fechamento do mês — travado no último dia, não muda depois */
+export interface ChurnMrrBase {
+  ano: number;
+  mes: number;
+  mrr_base: number;
+  clientes_ativos: number | null;
+  travado_em: string | null;
+  origem: "automatico" | "manual" | null;
+}
+
+// =====================================================================
 // Entregas
 // =====================================================================
 
