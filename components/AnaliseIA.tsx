@@ -38,6 +38,13 @@ export function SelosAnalise({ a, temperatura, risco }: { a: Partial<AnaliseExtr
   );
 }
 
+const ORDEM_PRIORIDADE: Record<string, number> = { alta: 0, media: 1, baixa: 2 };
+const COR_PRIORIDADE: Record<string, string> = {
+  alta: "bg-red-500/20 text-red-300",
+  media: "bg-amber-500/20 text-amber-300",
+  baixa: "bg-white/10 text-brand-muted",
+};
+
 function Bloco({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
     <div className="mt-2">
@@ -57,6 +64,26 @@ export function DetalhesAnalise({ a }: { a: Partial<AnaliseExtra> }) {
   const c = a.conducao;
   return (
     <div>
+      {!!a.plano_acao?.length && (
+        <Bloco titulo="🛠️ Plano de ação sugerido">
+          <ul className="space-y-1.5">
+            {[...a.plano_acao]
+              .sort((x, y) => ORDEM_PRIORIDADE[x.prioridade] - ORDEM_PRIORIDADE[y.prioridade])
+              .map((p, i) => (
+                <li key={i} className="rounded border border-white/5 bg-black/20 p-1.5">
+                  <span className={`mr-1 rounded px-1.5 text-[9px] font-bold uppercase ${COR_PRIORIDADE[p.prioridade] ?? ""}`}>{p.prioridade}</span>
+                  <b>{p.ponto}</b>
+                  <p className="mt-0.5">→ {p.sugestao}</p>
+                  {(p.responsavel || p.prazo) && (
+                    <p className="text-[10px] text-brand-muted">
+                      {p.responsavel}{p.responsavel && p.prazo ? " · " : ""}{p.prazo}
+                    </p>
+                  )}
+                </li>
+              ))}
+          </ul>
+        </Bloco>
+      )}
       {!!a.insights?.length && (
         <Bloco titulo="💡 Insights"><Lista itens={a.insights} /></Bloco>
       )}

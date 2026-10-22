@@ -22,6 +22,7 @@ export type AnaliseExtra = {
   compromissos: { o_que: string; responsavel: string; prazo: string; lado: "ruston" | "cliente" }[];
   conducao: { nota: number; teve_pauta: boolean; apresentou_dados: boolean; fechou_proximos_passos: boolean; comentario: string };
   insights: string[];
+  plano_acao: { ponto: string; sugestao: string; responsavel: string; prioridade: "alta" | "media" | "baixa"; prazo: string }[];
 };
 
 export type AnaliseReuniao = AnaliseExtra & {
@@ -47,16 +48,19 @@ export const SCHEMA_EXTRAS = `  "estresse": "nenhum" | "leve" | "alto",
   "concorrencia": { "mencionou": true | false, "detalhe": "outra agência, freelancer, levar pra dentro de casa..." },
   "compromissos": [{ "o_que": "o que foi prometido", "responsavel": "nome ou área", "prazo": "data ou prazo citado, vazio se não houver", "lado": "ruston" | "cliente" }],
   "conducao": { "nota": 1-5, "teve_pauta": true | false, "apresentou_dados": true | false, "fechou_proximos_passos": true | false, "comentario": "o que o time Ruston fez bem ou pode melhorar" },
-  "insights": ["2 a 4 insights práticos e acionáveis para o time"]`;
+  "insights": ["2 a 4 insights práticos e acionáveis para o time"],
+  "plano_acao": [{ "ponto": "reclamação ou ponto levantado", "sugestao": "como resolver, passo concreto", "responsavel": "cargo sugerido (account, gestor de tráfego, coordenador...)", "prioridade": "alta" | "media" | "baixa", "prazo": "prazo sugerido (ex.: 48h, esta semana)" }]`;
 
 export const REGRAS_EXTRAS = `- "estresse alto" só com sinais claros (irritação, cobrança dura, ultimato)
 - "intencao_compra clara" só quando o cliente pede ou pergunta de um serviço novo/maior
 - "resultado_percebido nao_mencionado" quando o assunto não apareceu
 - compromissos: só o que foi combinado de fato, com o dono que foi citado
 - conducao avalia o time Ruston (pauta, dados, próximos passos com dono e prazo)
-- insights devem ser específicos deste cliente, nada genérico`;
+- insights devem ser específicos deste cliente, nada genérico
+- plano_acao: um item para cada reclamação e cada ponto de atenção levantado, com uma solução prática
+  que a agência consegue executar; prioridade "alta" para o que ameaça o contrato. Lista vazia se não houver pontos`;
 
-export async function chamarClaude(prompt: string, apiKey: string, maxTokens = 4000) {
+export async function chamarClaude(prompt: string, apiKey: string, maxTokens = 6000) {
   const res = await fetch(ANTHROPIC_URL, {
     method: "POST",
     headers: {
@@ -149,6 +153,7 @@ export function extrairExtras(a: any): AnaliseExtra {
     compromissos: a?.compromissos ?? [],
     conducao: a?.conducao ?? { nota: 0, teve_pauta: false, apresentou_dados: false, fechou_proximos_passos: false, comentario: "" },
     insights: a?.insights ?? [],
+    plano_acao: a?.plano_acao ?? [],
   };
 }
 
