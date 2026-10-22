@@ -10,6 +10,7 @@ import {
   statusCadencia, STATUS_CADENCIA_COLOR, STATUS_CADENCIA_LABEL,
 } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
+import { SelosAnalise, DetalhesAnalise } from "@/components/AnaliseIA";
 
 export default function ReunioesPage() {
   const supabase = createClient();
@@ -20,16 +21,23 @@ export default function ReunioesPage() {
   const [filterSquad, setFilterSquad] = useState("");
   const [filterStatus, setFilterStatus] = useState<"" | "ok" | "proximo" | "atrasado" | "critico">("");
   const [modalCliente, setModalCliente] = useState<ReuniaoStatus | null>(null);
-  const { isGerente, squadId: perfilSquadId } = useUsuarioPerfil();
+  const { isGerente, podeEditar, squadId: perfilSquadId } = useUsuarioPerfil();
+  const [semCliente, setSemCliente] = useState<ReuniaoCliente[]>([]);
 
   async function load() {
     setLoading(true);
-    const [{ data: ss }, { data: ps }, { data: sq }] = await Promise.all([
+    const [{ data: ss }, { data: ps }, { data: sq }, { data: sc }] = await Promise.all([
       supabase.from("ruston_reunioes_status").select("*"),
       supabase.from("ruston_pessoas").select("*").eq("ativo", true).order("nome"),
       supabase.from("ruston_squads").select("*").eq("ativo", true).order("nome"),
+      supabase.from("ruston_reunioes_cliente")
+        .select("id, data_reuniao, hora, titulo, participantes, interna, origem")
+        .is("cliente_id", null)
+        .order("data_reuniao", { ascending: false })
+        .limit(50),
     ]);
     setStatusList((ss as ReuniaoStatus[]) ?? []);
+    setSemCliente((sc as ReuniaoCliente[]) ?? []);
     setPessoas((ps as Pessoa[]) ?? []);
     setSquads((sq as Squad[]) ?? []);
     setLoading(false);
@@ -87,6 +95,10 @@ export default function ReunioesPage() {
             onClick={() => { setFilterSquad(""); setFilterStatus(""); }}>× limpar filtros</button>
         )}
       </div>
+
+      {!loading && podeEditar && semCliente.length > 0 && (
+        <ReunioesSemCliente reunioes={semCliente} clientes={statusList} onAtualizado={load} />
+      )}
 
       {loading && <p className="text-brand-muted">Carregando...</p>}
 
@@ -314,8 +326,12 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
                     <p className="text-sm font-semibold">
                       {formatDate(r.data_reuniao)}
                       <span className="ml-2 text-[10px] text-brand-muted">{TIPO_REUNIAO_LABEL[r.tipo_reuniao]}</span>
-                      {r.hora && <span className="ml-2 text-[10px] text-brand-muted">{r.hora}</span>}
+                      {r.hora && <span className="ml-2 text-[10px] text-brand-muted">{r.hora.slice(0, 5)}</span>}
+                      {r.origem === "google_meet" && <span className="ml-2 rounded bg-sky-500/15 px-1.5 text-[10px] text-sky-300">🎥 Meet</span>}
+                      {r.origem === "audio" && <span className="ml-2 rounded bg-sky-500/15 px-1.5 text-[10px] text-sky-300">🎙 Áudio</span>}
+                      {r.interna && <span className="ml-2 rounded bg-white/10 px-1.5 text-[10px] text-brand-muted">interna</span>}
                     </p>
+                    {r.titulo && <p className="text-xs text-gray-300">{r.titulo}</p>}
                     {r.presentes && <p className="text-[10px] text-brand-muted">Presentes: {r.presentes}</p>}
                   </div>
                   {podeEditar && (
@@ -323,6 +339,14 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
                       onClick={() => removerReuniao(r.id)}>excluir</button>
                   )}
                 </div>
+                {r.analise_ia && (
+                  <div className="mt-2">
+                    <SelosAnalise a={r.analise_ia} temperatura={r.temperatura} risco={r.risco_churn} />
+                  </div>
+                )}
+                {!r.analisado_em && r.origem === "google_meet" && (
+                  <AnalisarAgora reuniaoId={r.id} podeEditar={podeEditar} onFeito={loadReunioes} />
+                )}
                 {r.resumo && (
                   <div className="mt-2">
                     <p className="text-[10px] uppercase tracking-wide text-brand-muted">Resumo</p>
@@ -340,6 +364,12 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
                     <p className="text-[10px] uppercase tracking-wide text-brand-muted">Próximos passos</p>
                     <p className="text-xs whitespace-pre-wrap">{r.proximos_passos}</p>
                   </div>
+                )}
+                {r.analise_ia && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-[11px] text-brand">Ver análise completa da IA</summary>
+                    <DetalhesAnalise a={r.analise_ia} />
+                  </details>
                 )}
               </div>
             ))}
@@ -453,6 +483,92 @@ function FormReuniao({ clienteId, pessoas, onSalvo, onCancelar }: {
       <div className="flex gap-2">
         <button className="btn" onClick={salvar} disabled={saving}>{saving ? "..." : "Salvar reunião"}</button>
         <button className="btn-ghost" onClick={onCancelar}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
+function AnalisarAgora({ reuniaoId, podeEditar, onFeito }: { reuniaoId: string; podeEditar: boolean; onFeito: () => void }) {
+  const [rodando, setRodando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  async function rodar() {
+    setRodando(true); setErro(null);
+    const res = await fetch("/api/reunioes-analisar", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reuniao_id: reuniaoId }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setRodando(false);
+    if (!res.ok) setErro(j.error ?? "Erro ao analisar");
+    else onFeito();
+  }
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-amber-300">
+      ⏳ Análise da IA na fila (roda de hora em hora)
+      {podeEditar && (
+        <button className="text-brand hover:underline disabled:opacity-50" onClick={rodar} disabled={rodando}>
+          {rodando ? "analisando... (até 1 min)" : "analisar agora"}
+        </button>
+      )}
+      {erro && <span className="text-red-300">{erro}</span>}
+    </div>
+  );
+}
+
+function ReunioesSemCliente({ reunioes, clientes, onAtualizado }: {
+  reunioes: ReuniaoCliente[];
+  clientes: ReuniaoStatus[];
+  onAtualizado: () => void;
+}) {
+  const supabase = createClient();
+  const [salvando, setSalvando] = useState<string | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const ordenados = [...clientes].sort((a, b) => a.cliente_nome.localeCompare(b.cliente_nome));
+
+  async function vincular(reuniaoId: string, clienteId: string) {
+    setSalvando(reuniaoId); setErro(null);
+    const res = await fetch("/api/reunioes-analisar", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reuniao_id: reuniaoId, cliente_id: clienteId }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setSalvando(null);
+    if (!res.ok) setErro(j.error ?? "Erro ao vincular");
+    onAtualizado();
+  }
+
+  async function descartar(reuniaoId: string) {
+    if (!confirm("Descartar essa reunião? Ela não é de nenhum cliente.")) return;
+    await supabase.from("ruston_reunioes_cliente").delete().eq("id", reuniaoId);
+    onAtualizado();
+  }
+
+  return (
+    <div className="card mb-6 border-amber-500/30 p-4">
+      <h3 className="font-semibold">🎥 Reuniões do Meet sem cliente identificado ({reunioes.length})</h3>
+      <p className="mb-3 text-xs text-brand-muted">
+        Escolha o cliente: a IA analisa na hora e as próximas reuniões com esses convidados entram sozinhas.
+      </p>
+      {erro && <p className="mb-2 text-xs text-red-300">{erro}</p>}
+      <div className="space-y-2">
+        {reunioes.map((r) => (
+          <div key={r.id} className="flex flex-wrap items-center gap-3 rounded-lg bg-white/5 p-2 text-sm">
+            <div className="min-w-[220px] flex-1">
+              <p className="font-medium">{r.titulo ?? "(sem título)"}</p>
+              <p className="text-[10px] text-brand-muted">
+                {formatDate(r.data_reuniao)} {r.hora?.slice(0, 5)} · {(r.participantes ?? []).join(", ")}
+              </p>
+            </div>
+            <select className="input max-w-[240px] text-xs" defaultValue="" disabled={salvando === r.id}
+              onChange={(e) => e.target.value && vincular(r.id, e.target.value)}>
+              <option value="">{salvando === r.id ? "Analisando..." : "— vincular ao cliente —"}</option>
+              {ordenados.map((c) => <option key={c.cliente_id} value={c.cliente_id}>{c.cliente_nome}</option>)}
+            </select>
+            <button className="text-[11px] text-brand-muted hover:text-red-300" onClick={() => descartar(r.id)}>descartar</button>
+          </div>
+        ))}
       </div>
     </div>
   );

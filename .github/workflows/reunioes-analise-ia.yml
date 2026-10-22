@@ -1,0 +1,29 @@
+name: Reuniões Meet - Análise IA
+
+on:
+  schedule:
+    # De hora em hora, das 8h às 21h de Brasília (11h-00h UTC), seg a sex
+    - cron: "15 11-23 * * 1-5"
+    - cron: "15 0 * * 2-6"
+  workflow_dispatch:
+
+jobs:
+  analisar-reunioes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chamar endpoint de análise
+        run: |
+          echo "Chamando análise de reuniões às $(date -u) UTC..."
+          RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" \
+            -X POST \
+            -H "x-vercel-protection-bypass: ${{ secrets.VERCEL_BYPASS_TOKEN }}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.VERCEL_APP_URL }}/api/reunioes-analisar")
+          echo "Resposta:"
+          echo "$RESPONSE"
+          HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d':' -f2)
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Falhou com HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "Analise concluida"

@@ -18,6 +18,7 @@
 import { NextResponse } from "next/server";
 import { exigirCron } from "@/lib/apiAuth";
 import { createClient } from "@supabase/supabase-js";
+import { SCHEMA_EXTRAS, REGRAS_EXTRAS, extrairExtras } from "@/lib/analiseIA";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -83,7 +84,8 @@ Analise a conversa abaixo entre a equipe Ruston e o cliente "${cliente}" e retor
   "sinais_upsell": ["elogiou", "pediu_mais_servico", "aumento_investimento", ...],
   "acoes_sugeridas": ["agendar_reuniao", "oferecer_lp", "cobrar_resultado", ...],
   "resumo_curto": "1 frase objetiva sobre o estado da conversa",
-  "resumo_longo": "parágrafo de 2-4 linhas explicando contexto, sinais e recomendações"
+  "resumo_longo": "parágrafo de 2-4 linhas explicando contexto, sinais e recomendações",
+${SCHEMA_EXTRAS}
 }
 
 Regras importantes:
@@ -92,6 +94,8 @@ Regras importantes:
 - "risco_churn alto" só quando há sinais explícitos (ultimato, reclamação séria, ameaça de cancelar)
 - "upsell clara" só quando o cliente pede mais serviço ou aumenta orçamento
 - Seja direto e prático nas ações sugeridas
+${REGRAS_EXTRAS}
+- Em "conducao", avalie as respostas do time Ruston no grupo (rapidez, clareza, se fechou o combinado)
 - Use português brasileiro informal mas profissional
 
 Conversa (ordem cronológica):
@@ -108,7 +112,7 @@ Responda APENAS com o JSON válido, sem markdown.`;
     },
     body: JSON.stringify({
       model: MODELO_LLM,
-      max_tokens: 2000,
+      max_tokens: 4000,
       temperature: 0.3,
       messages: [{ role: "user", content: prompt }],
     }),
@@ -264,6 +268,7 @@ export async function GET(req: Request) {
         acoes_sugeridas: analise.acoes_sugeridas ?? [],
         resumo_curto: analise.resumo_curto,
         resumo_longo: analise.resumo_longo,
+        analise_extra: extrairExtras(analise),
         modelo: MODELO_LLM,
         tokens_entrada,
         tokens_saida,

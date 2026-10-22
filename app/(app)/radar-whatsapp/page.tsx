@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatBRL } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
+import type { AnaliseExtra } from "@/lib/analiseIA";
+import { SelosAnalise, DetalhesAnalise } from "@/components/AnaliseIA";
 
 type Conversa = {
   conversa_id: string;
@@ -47,6 +49,7 @@ export default function RadarWhatsappPage() {
     }
   }, [loadingPerfil, isGerente, isCoordenador, router]);
   const [conversas, setConversas] = useState<Conversa[]>([]);
+  const [extras, setExtras] = useState<Record<string, Partial<AnaliseExtra>>>({});
   const [squads, setSquads] = useState<Squad[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("radar");
@@ -55,10 +58,21 @@ export default function RadarWhatsappPage() {
 
   async function carregar() {
     setLoading(true);
-    const [{ data }, { data: sq }] = await Promise.all([
+    const [{ data }, { data: sq }, { data: ex }] = await Promise.all([
       supabase.from("ruston_whatsapp_radar_view").select("*").limit(5000),
       supabase.from("ruston_squads").select("id,nome").eq("ativo", true).order("nome"),
+      supabase.from("ruston_whatsapp_analises")
+        .select("conversa_id, analise_extra")
+        .not("analise_extra", "is", null)
+        .order("criado_em", { ascending: false })
+        .limit(3000),
     ]);
+    // Última análise com avaliações extras de cada conversa
+    const porConversa: Record<string, Partial<AnaliseExtra>> = {};
+    for (const e of (ex ?? []) as { conversa_id: string; analise_extra: AnaliseExtra }[]) {
+      if (!porConversa[e.conversa_id]) porConversa[e.conversa_id] = e.analise_extra;
+    }
+    setExtras(porConversa);
     setConversas((data as Conversa[]) ?? []);
     setSquads((sq as Squad[]) ?? []);
     setLoading(false);
@@ -197,6 +211,15 @@ export default function RadarWhatsappPage() {
                     <td className="px-3 py-2 text-center"><UpsellBadge v={c.oportunidade_upsell} /></td>
                     <td className="px-3 py-2 text-xs max-w-md">
                       {c.resumo_curto ?? <span className="text-brand-muted italic">sem análise</span>}
+                      {extras[c.conversa_id] && (
+                        <div className="mt-1">
+                          <SelosAnalise a={extras[c.conversa_id]} />
+                          <details className="mt-1">
+                            <summary className="cursor-pointer text-[11px] text-brand">Ver análise completa</summary>
+                            <DetalhesAnalise a={extras[c.conversa_id]} />
+                          </details>
+                        </div>
+                      )}
                       {c.sinais_churn && c.sinais_churn.length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {c.sinais_churn.slice(0, 3).map((s, i) => (

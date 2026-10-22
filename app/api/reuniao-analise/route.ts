@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
 import { exigirUsuario } from "@/lib/apiAuth";
 import { createClient } from "@supabase/supabase-js";
+import { chamarClaude, colunasDaAnalise, promptReuniao, type AnaliseReuniao } from "@/lib/analiseIA";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 const OPENAI_WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
-const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const MODELO_WHISPER = "whisper-1";
-const MODELO_LLM = "claude-sonnet-4-5-20250929";
 
 export async function POST(req: Request) {
   const negado = await exigirUsuario();
@@ -62,84 +61,27 @@ export async function POST(req: Request) {
     }
 
     // 2. Analisar com Claude
-    const prompt = `Voce e um analista senior de relacionamento com cliente da agencia de marketing Ruston & Co (franquia V4 Company).
-
-Analise a transcricao desta reuniao com o cliente "${clienteNome}" e retorne APENAS um JSON valido (sem markdown) com esta estrutura:
-
-{
-  "resumo_executivo": "2-3 frases resumindo o ponto principal da reuniao",
-  "decisoes": ["lista de decisoes tomadas na reuniao"],
-  "follow_ups": ["lista de acoes/follow-ups combinados, com responsavel se mencionado"],
-  "temperatura": "quente" | "morna" | "fria",
-  "sentimento_cliente": "positivo" | "neutro" | "negativo",
-  "risco_churn": "baixo" | "medio" | "alto",
-  "oportunidade_upsell": "nenhuma" | "possivel" | "clara",
-  "sinais_positivos": ["lista de sinais positivos identificados"],
-  "sinais_negativos": ["lista de sinais de alerta/preocupacao"],
-  "topicos_discutidos": ["lista dos principais topicos abordados"],
-  "proximos_passos": "resumo do que precisa ser feito ate a proxima reuniao"
-}
-
-Regras:
-- Seja direto e pratico
-- So marque "risco_churn alto" se houver sinais explicitos
-- Use portugues brasileiro
-- Se nao conseguir identificar algo, deixe lista vazia ou "nenhuma"
-
-Transcricao da reuniao:
-${transcricao.slice(0, 100000)}`;
-
-    const claudeRes = await fetch(ANTHROPIC_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: MODELO_LLM,
-        max_tokens: 3000,
-        temperature: 0.3,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-
-    if (!claudeRes.ok) {
-      const err = await claudeRes.text();
-      return NextResponse.json({ error: `Claude erro: ${err}` }, { status: 500 });
-    }
-
-    const claudeData = await claudeRes.json();
-    const content = claudeData.content?.[0]?.text ?? "";
-    const cleanContent = content.replace(/^```json\s*/i, "").replace(/\s*```\s*$/, "").trim();
-
-    let analise: any;
+    let analise: AnaliseReuniao;
+    let tokens = { tokens_entrada: 0, tokens_saida: 0 };
     try {
-      analise = JSON.parse(cleanContent);
-    } catch {
-      return NextResponse.json({ error: "JSON invalido do Claude", raw: cleanContent.slice(0, 500) }, { status: 500 });
+      const r = await chamarClaude(promptReuniao({ cliente: clienteNome, interna: false, transcricao }), ANTHROPIC_KEY);
+      analise = r.json;
+      tokens = { tokens_entrada: r.tokens_entrada, tokens_saida: r.tokens_saida };
+    } catch (e: any) {
+      return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
     }
 
     // 3. Salvar no Supabase
+    const agora = new Date();
     const { data: reuniao, error: insertErr } = await supabase.from("ruston_reunioes_cliente").insert({
       cliente_id: clienteId,
       tipo_reuniao: tipoReuniao,
-      data_reuniao: new Date().toISOString(),
+      origem: "audio",
+      data_reuniao: agora.toISOString().slice(0, 10),
+      realizada: true,
       duracao_minutos: Math.round(duracao_segundos / 60),
       transcricao,
-      resumo: analise.resumo_executivo,
-      decisoes: analise.decisoes ?? [],
-      follow_ups: analise.follow_ups ?? [],
-      temperatura: analise.temperatura,
-      sentimento: analise.sentimento_cliente,
-      risco_churn: analise.risco_churn,
-      oportunidade_upsell: analise.oportunidade_upsell,
-      sinais_positivos: analise.sinais_positivos ?? [],
-      sinais_negativos: analise.sinais_negativos ?? [],
-      topicos: analise.topicos_discutidos ?? [],
-      proximos_passos: analise.proximos_passos,
-      tokens_entrada: claudeData.usage?.input_tokens ?? 0,
-      tokens_saida: claudeData.usage?.output_tokens ?? 0,
+      ...colunasDaAnalise(analise, tokens),
     }).select("id").single();
 
     if (insertErr) {

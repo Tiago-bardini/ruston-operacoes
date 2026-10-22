@@ -1,22 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { AnaliseReuniao } from "@/lib/analiseIA";
+import { SelosAnalise, DetalhesAnalise } from "@/components/AnaliseIA";
 import { createClient } from "@/lib/supabase/client";
 
 type Cliente = { id: string; nome: string; squad_nome: string | null; coordenador_nome: string | null };
-type Analise = {
-  resumo_executivo: string;
-  decisoes: string[];
-  follow_ups: string[];
-  temperatura: string;
-  sentimento_cliente: string;
-  risco_churn: string;
-  oportunidade_upsell: string;
-  sinais_positivos: string[];
-  sinais_negativos: string[];
-  topicos_discutidos: string[];
-  proximos_passos: string;
-};
+type Analise = AnaliseReuniao;
 
 export default function AnaliseReunioesPage() {
   const supabase = createClient();
@@ -143,7 +133,7 @@ export default function AnaliseReunioesPage() {
             </div>
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
               <div className="text-zinc-400 text-xs uppercase">Sentimento</div>
-              <div className={`text-xl font-bold mt-1 capitalize ${sentColor(resultado.sentimento_cliente)}`}>{resultado.sentimento_cliente}</div>
+              <div className={`text-xl font-bold mt-1 capitalize ${sentColor(resultado.sentimento)}`}>{resultado.sentimento}</div>
             </div>
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
               <div className="text-zinc-400 text-xs uppercase">Risco Churn</div>
@@ -170,12 +160,17 @@ export default function AnaliseReunioesPage() {
               ) : <p className="text-zinc-500 text-sm">Nenhuma decisao identificada</p>}
             </div>
 
-            {/* Follow-ups */}
+            {/* Compromissos */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-              <h3 className="text-white font-semibold mb-2">Follow-ups / Acoes</h3>
-              {resultado.follow_ups.length > 0 ? (
-                <ul className="space-y-1">{resultado.follow_ups.map((f, i) => <li key={i} className="text-zinc-300 text-sm flex gap-2"><span className="text-blue-400">→</span>{f}</li>)}</ul>
-              ) : <p className="text-zinc-500 text-sm">Nenhum follow-up identificado</p>}
+              <h3 className="text-white font-semibold mb-2">Compromissos</h3>
+              {resultado.compromissos?.length > 0 ? (
+                <ul className="space-y-1">{resultado.compromissos.map((f, i) => (
+                  <li key={i} className="text-zinc-300 text-sm flex gap-2">
+                    <span className="text-blue-400">→</span>
+                    {f.o_que}{f.responsavel ? ` — ${f.responsavel}` : ""}{f.prazo ? ` · até ${f.prazo}` : ""}
+                  </li>
+                ))}</ul>
+              ) : <p className="text-zinc-500 text-sm">Nenhum compromisso identificado</p>}
             </div>
           </div>
 
@@ -201,6 +196,13 @@ export default function AnaliseReunioesPage() {
           <div className="bg-zinc-900 border border-blue-500/20 rounded-lg p-4">
             <h3 className="text-blue-400 font-semibold mb-2">Proximos Passos</h3>
             <p className="text-zinc-300 text-sm">{resultado.proximos_passos}</p>
+          </div>
+
+          {/* Avaliações extras (estresse, compra, resultado, concorrência, condução...) */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+            <h3 className="text-white font-semibold mb-2">Avaliação do relacionamento</h3>
+            <SelosAnalise a={resultado} />
+            <DetalhesAnalise a={resultado} />
           </div>
 
           {/* Topicos */}
