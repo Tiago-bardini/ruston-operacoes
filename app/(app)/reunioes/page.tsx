@@ -549,7 +549,7 @@ function ReunioesSemCliente({ reunioes, clientes, onAtualizado }: {
     <div className="card mb-6 border-amber-500/30 p-4">
       <h3 className="font-semibold">🎥 Reuniões do Meet sem cliente identificado ({reunioes.length})</h3>
       <p className="mb-3 text-xs text-brand-muted">
-        Escolha o cliente: a IA analisa na hora e as próximas reuniões com esses convidados entram sozinhas.
+        Escolha o cliente: a IA analisa na hora. Dica: com o nome do cliente no título da reunião (ex.: [CLIENTE] Check-in), ela entra sozinha.
       </p>
       {erro && <p className="mb-2 text-xs text-red-300">{erro}</p>}
       <div className="space-y-2">
