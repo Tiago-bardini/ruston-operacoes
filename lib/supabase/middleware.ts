@@ -57,7 +57,7 @@ export async function updateSession(request: NextRequest) {
     const perfil = (data?.perfil ?? "investidor") as PerfilUsuario;
     if (!podeAcessar(path, perfil)) {
       const url = request.nextUrl.clone();
-      url.pathname = "/cockpit";
+      url.pathname = "/clientes";
       url.search = "";
       return NextResponse.redirect(url);
     }

@@ -27,7 +27,7 @@ export default function UsuariosPage() {
 
   // Redirect se não for Gerente
   useEffect(() => {
-    if (!loadingPerfil && !isGerente) router.push("/cockpit");
+    if (!loadingPerfil && !isGerente) router.push("/clientes");
   }, [loadingPerfil, isGerente, router]);
 
   async function load() {

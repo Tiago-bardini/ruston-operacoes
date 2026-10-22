@@ -16,7 +16,7 @@ export default function ForecastPage() {
   const router = useRouter();
   const { loading: loadingPerfil, podeVerForecast, isCoordenador, squadId } = useUsuarioPerfil();
   useEffect(() => {
-    if (!loadingPerfil && !podeVerForecast) router.push("/cockpit");
+    if (!loadingPerfil && !podeVerForecast) router.push("/clientes");
   }, [loadingPerfil, podeVerForecast, router]);
 
   const [ano, setAno] = useState(ANO_ATUAL);

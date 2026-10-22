@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/types";
+import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
 type SyncLog = {
   id: string;
@@ -87,6 +88,7 @@ function limitesPeriodo(p: Periodo, customIni?: string, customFim?: string): { i
 
 export default function EkytePage() {
   const supabase = createClient();
+  const { podeEditar } = useUsuarioPerfil();
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
@@ -136,6 +138,7 @@ export default function EkytePage() {
   }
 
   async function vincularManual(ekyte_executor_id: string | null, ekyte_email: string | null, ekyte_nome: string, pessoa_id: string) {
+    if (!podeEditar) return;
     const { error } = await supabase.from("ruston_ekyte_mapping_pessoa").upsert({
       ekyte_executor_id, ekyte_email, ekyte_nome, pessoa_id,
     }, { onConflict: "ekyte_executor_id" });
@@ -615,7 +618,7 @@ export default function EkytePage() {
                 Pra cada linha, escolhe quem é no cadastro Ruston. O vínculo é salvo e aplica em todas as tasks dessa pessoa.
               </p>
             </div>
-            <button className="btn-ghost text-xs" onClick={rematch}>🔄 Re-match automático</button>
+            {podeEditar && <button className="btn-ghost text-xs" onClick={rematch}>🔄 Re-match automático</button>}
           </div>
           <table className="w-full text-sm">
             <thead>
@@ -634,6 +637,9 @@ export default function EkytePage() {
                   <td className="px-2 py-2 text-xs text-brand-muted">{s.executor_email ?? "—"}</td>
                   <td className="px-2 py-2 text-center">{s.qtd_tasks}</td>
                   <td className="px-2 py-2">
+                    {!podeEditar ? (
+                      <span className="text-xs text-brand-muted">Somente leitura</span>
+                    ) : (
                     <select
                       className="input text-xs"
                       onChange={(e) => {
@@ -646,6 +652,7 @@ export default function EkytePage() {
                         <option key={p.id} value={p.id}>{p.nome} {p.cargo ? `(${p.cargo})` : ""}</option>
                       ))}
                     </select>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -24,7 +24,7 @@ export default function HeadcountPage() {
   const router = useRouter();
   const { loading: loadingPerfil, podeVerHeadcount, isCoordenador, squadId } = useUsuarioPerfil();
   useEffect(() => {
-    if (!loadingPerfil && !podeVerHeadcount) router.push("/cockpit");
+    if (!loadingPerfil && !podeVerHeadcount) router.push("/clientes");
   }, [loadingPerfil, podeVerHeadcount, router]);
 
   const [squads, setSquads] = useState<Squad[]>([]);

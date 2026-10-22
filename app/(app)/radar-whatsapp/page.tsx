@@ -43,7 +43,7 @@ export default function RadarWhatsappPage() {
   // Só gerente e coordenador podem acessar
   useEffect(() => {
     if (!loadingPerfil && !isGerente && !isCoordenador) {
-      router.push("/cockpit");
+      router.push("/clientes");
     }
   }, [loadingPerfil, isGerente, isCoordenador, router]);
   const [conversas, setConversas] = useState<Conversa[]>([]);

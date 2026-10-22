@@ -185,6 +185,7 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
   onAtualizado: () => void;
 }) {
   const supabase = createClient();
+  const { podeEditar } = useUsuarioPerfil();
   const [reunioes, setReunioes] = useState<ReuniaoCliente[]>([]);
   const [loading, setLoading] = useState(true);
   const [novaReuniao, setNovaReuniao] = useState(false);
@@ -263,7 +264,7 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
                 </div>
               )}
             </div>
-            {!editandoCadencia ? (
+            {!podeEditar ? null : !editandoCadencia ? (
               <button className="text-xs text-brand hover:text-red-400"
                 onClick={() => setEditandoCadencia(true)}>editar</button>
             ) : (
@@ -279,12 +280,14 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
         {/* Botão nova reunião */}
         <div className="mb-3 flex items-center justify-between">
           <p className="text-sm font-semibold">Histórico · {reunioes.length} reuniões</p>
-          <button className="btn text-xs" onClick={() => setNovaReuniao(!novaReuniao)}>
-            {novaReuniao ? "Fechar" : "+ Nova reunião"}
-          </button>
+          {podeEditar && (
+            <button className="btn text-xs" onClick={() => setNovaReuniao(!novaReuniao)}>
+              {novaReuniao ? "Fechar" : "+ Nova reunião"}
+            </button>
+          )}
         </div>
 
-        {novaReuniao && (
+        {podeEditar && novaReuniao && (
           <FormReuniao
             clienteId={statusCliente.cliente_id}
             pessoas={pessoas}
@@ -298,7 +301,7 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
         {!loading && reunioes.length === 0 && !novaReuniao && (
           <div className="rounded-lg bg-white/5 p-6 text-center">
             <p className="text-sm text-brand-muted">
-              Nenhuma reunião registrada ainda. Clica em "+ Nova reunião" pra começar o histórico.
+              Nenhuma reunião registrada ainda.{podeEditar && ' Clica em "+ Nova reunião" pra começar o histórico.'}
             </p>
           </div>
         )}
@@ -315,8 +318,10 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
                     </p>
                     {r.presentes && <p className="text-[10px] text-brand-muted">Presentes: {r.presentes}</p>}
                   </div>
-                  <button className="text-[10px] text-red-300 hover:text-red-400"
-                    onClick={() => removerReuniao(r.id)}>excluir</button>
+                  {podeEditar && (
+                    <button className="text-[10px] text-red-300 hover:text-red-400"
+                      onClick={() => removerReuniao(r.id)}>excluir</button>
+                  )}
                 </div>
                 {r.resumo && (
                   <div className="mt-2">
