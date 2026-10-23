@@ -50,6 +50,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Time", icon: "👥", items: [
+      { href: "/placar", label: "Placar dos Squads" },
       { href: "/pessoas", label: "Pessoas" },
       { href: "/squads", label: "Squads" },
       { href: "/organograma", label: "Organograma" },
