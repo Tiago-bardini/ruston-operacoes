@@ -4,15 +4,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { squadExcluido, statusCadencia, type ReuniaoStatus } from "@/lib/types";
 
-export type CriterioKey = "fca" | "reunioes" | "pe" | "tarefas" | "whatsapp" | "churn";
+export type CriterioKey = "fca" | "reunioes" | "pe" | "tarefas" | "whatsapp" | "churn" | "monetizacao" | "indicacoes";
 
 export const CRITERIOS: { key: CriterioKey; label: string; peso: number; regra: string }[] = [
-  { key: "fca", label: "FCA preenchido", peso: 20, regra: "% dos clientes com FCA na semana" },
-  { key: "reunioes", label: "Reuniões em dia", peso: 15, regra: "% dos clientes com reunião dentro da cadência" },
+  { key: "fca", label: "FCA preenchido", peso: 15, regra: "% dos clientes com FCA na semana" },
+  { key: "reunioes", label: "Reuniões em dia", peso: 10, regra: "% dos clientes com reunião dentro da cadência" },
   { key: "pe", label: "Ponto de Equilíbrio", peso: 10, regra: "% dos clientes com o PE do mês preenchido" },
-  { key: "tarefas", label: "Tarefas no prazo", peso: 20, regra: "% das tarefas do eKyte com prazo na semana entregues no prazo" },
-  { key: "whatsapp", label: "Atendimento WhatsApp", peso: 15, regra: "% dos clientes sem alerta de demora da Ruston na semana (esperou 30 min ou ficou sem resposta)" },
+  { key: "tarefas", label: "Tarefas no prazo", peso: 15, regra: "% das tarefas do eKyte com prazo na semana entregues no prazo" },
+  { key: "whatsapp", label: "Atendimento WhatsApp", peso: 10, regra: "% dos clientes sem alerta de demora da Ruston na semana (esperou 30 min ou ficou sem resposta)" },
   { key: "churn", label: "Churn do mês", peso: 20, regra: "0% de MRR em churn = nota cheia; 5% ou mais = zero" },
+  { key: "monetizacao", label: "Monetização", peso: 12, regra: "upsell ganho no mês (MRR + one time) ÷ meta do mês proporcional aos dias que já passaram" },
+  { key: "indicacoes", label: "Indicações", peso: 8, regra: "indicações do mês (lançadas em Metas) ÷ meta do mês proporcional aos dias que já passaram" },
 ];
 
 const CHURN_TETO = 0.05;
@@ -56,7 +58,10 @@ export async function calcularPlacar(supabase: SupabaseClient, sexta: string): P
   const iniMes = `${sexta.slice(0, 7)}-01`;
   const fimMes = iso(new Date(ano, mes, 0));
 
-  const [{ data: sq }, { data: cs }, { data: fc }, { data: st }, { data: pe }, { data: tk }, { data: al }, { data: ch }] = await Promise.all([
+  // Metas mensais contam só a parte do mês que já passou até a sexta
+  const fracaoMes = Number(sexta.slice(8, 10)) / Number(fimMes.slice(8, 10));
+
+  const [{ data: sq }, { data: cs }, { data: fc }, { data: st }, { data: pe }, { data: tk }, { data: al }, { data: ch }, { data: mm }, { data: mo }, { data: mi }] = await Promise.all([
     supabase.from("ruston_squads").select("id, nome, cor").eq("ativo", true).order("nome"),
     supabase.from("ruston_clientes_view").select("id, nome, mrr, squad_id, ativo, etapa, churn_realizado"),
     supabase.from("ruston_fca_view").select("cliente_id").eq("data_referencia", sexta),
@@ -73,6 +78,13 @@ export async function calcularPlacar(supabase: SupabaseClient, sexta: string): P
       .gte("criado_em", `${sabado}T00:00:00`).lte("criado_em", `${sexta}T23:59:59`),
     supabase.from("ruston_churn_solicitacoes").select("cliente_id, mrr, status")
       .gte("data_solicitacao", iniMes).lte("data_solicitacao", fimMes).neq("status", "revertido"),
+    supabase.from("ruston_monetizacao_metas").select("squad_id, valor_meta").eq("ano", ano).eq("mes", mes),
+    // Mesma data de referência da tela de Monetização
+    supabase.from("ruston_monetizacao_view")
+      .select("cliente_squad_id, valor_mrr_estimado, valor_onetime_estimado, data_prevista_fechamento, data_ganho")
+      .eq("estagio", "ganho"),
+    supabase.from("ruston_metas_squad").select("squad_id, valor_meta, valor_realizado")
+      .eq("ano", ano).eq("mes", mes).eq("metrica", "indicacoes"),
   ]);
 
   const todos = (cs ?? []) as any[];
@@ -135,6 +147,21 @@ export async function calcularPlacar(supabase: SupabaseClient, sexta: string): P
     const churnTaxa = mrr + mrrChurn ? mrrChurn / (mrr + mrrChurn) : 0;
     const churnPct = cl.length || churns.length ? Math.max(0, 1 - churnTaxa / CHURN_TETO) : null;
 
+    // Monetização: ganho no mês até a sexta ÷ meta proporcional
+    const metaMon = ((mm ?? []) as any[]).filter((m) => m.squad_id === s.id).reduce((a, m) => a + (Number(m.valor_meta) || 0), 0);
+    const ganhoMon = ((mo ?? []) as any[]).filter((o) => {
+      const ref = (o.data_prevista_fechamento ?? o.data_ganho ?? "").slice(0, 10);
+      return o.cliente_squad_id === s.id && ref >= iniMes && ref <= sexta;
+    }).reduce((a, o) => a + (Number(o.valor_mrr_estimado) || 0) + (Number(o.valor_onetime_estimado) || 0), 0);
+    const esperadoMon = metaMon * fracaoMes;
+    const monPct = esperadoMon > 0 ? Math.min(1, ganhoMon / esperadoMon) : null;
+
+    // Indicações: lançadas na tela de Metas (vazio com meta = zero indicação)
+    const ind = ((mi ?? []) as any[]).find((m) => m.squad_id === s.id);
+    const metaInd = Number(ind?.valor_meta) || 0;
+    const feitasInd = Number(ind?.valor_realizado) || 0;
+    const indPct = metaInd > 0 ? Math.min(1, feitasInd / (metaInd * fracaoMes)) : null;
+
     const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
     const valores: Record<CriterioKey, { pct: number | null; detalhe: string }> = {
       fca: { pct: fcaPct, detalhe: `${cl.filter((c) => comFca.has(c.id)).length} de ${cl.length} clientes` },
@@ -143,6 +170,8 @@ export async function calcularPlacar(supabase: SupabaseClient, sexta: string): P
       tarefas: { pct: tarPct, detalhe: noPrazo + atrasadas ? `${noPrazo} de ${noPrazo + atrasadas} no prazo` : "sem tarefa com prazo na semana" },
       whatsapp: { pct: waPct, detalhe: `${cl.filter((c) => comAlerta[c.id]).length} cliente(s) com alerta` },
       churn: { pct: churnPct, detalhe: mrrChurn ? `${brl(mrrChurn)} (${(churnTaxa * 100).toFixed(1)}% do MRR)` : "nenhum pedido no mês" },
+      monetizacao: { pct: monPct, detalhe: metaMon ? `${brl(ganhoMon)} de ${brl(esperadoMon)} esperados até aqui (meta ${brl(metaMon)})` : "sem meta de monetização no mês" },
+      indicacoes: { pct: indPct, detalhe: metaInd ? `${feitasInd} de ${metaInd} no mês${ind?.valor_realizado == null ? " (não lançado em Metas)" : ""}` : "sem meta de indicações no mês" },
     };
 
     // Critério sem dado não pune: o peso dele é redistribuído entre os outros
