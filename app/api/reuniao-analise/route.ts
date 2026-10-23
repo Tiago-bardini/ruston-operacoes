@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { exigirUsuario } from "@/lib/apiAuth";
+import { exigirPerfil } from "@/lib/apiAuth";
 import { createClient } from "@supabase/supabase-js";
 import { chamarClaude, colunasDaAnalise, promptReuniao, type AnaliseReuniao } from "@/lib/analiseIA";
 
@@ -10,7 +10,8 @@ const OPENAI_WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 const MODELO_WHISPER = "whisper-1";
 
 export async function POST(req: Request) {
-  const negado = await exigirUsuario();
+  // Mesma regra das telas /auditoria-vendas e /analise-reunioes
+  const negado = await exigirPerfil(["gerente", "coordenador"]);
   if (negado) return negado;
   const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SB_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;

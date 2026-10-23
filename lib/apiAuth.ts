@@ -41,3 +41,16 @@ export function exigirTokenWebhook(req: Request): NextResponse | null {
   }
   return null;
 }
+
+/** Rotas do painel restritas por perfil (as mesmas regras de lib/permissoes.ts).
+ *  Sem perfil cadastrado = investidor, igual ao middleware. */
+export async function exigirPerfil(perfis: string[]): Promise<NextResponse | null> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const { data } = await supabase.from("ruston_usuario_perfil").select("perfil").eq("email", user.email ?? "").maybeSingle();
+  if (!perfis.includes(data?.perfil ?? "investidor")) {
+    return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+  }
+  return null;
+}

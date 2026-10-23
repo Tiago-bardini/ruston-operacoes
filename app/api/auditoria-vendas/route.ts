@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { exigirUsuario } from "@/lib/apiAuth";
+import { exigirPerfil } from "@/lib/apiAuth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -8,7 +8,8 @@ const OPENAI_WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
 export async function POST(req: Request) {
-  const negado = await exigirUsuario();
+  // Mesma regra das telas /auditoria-vendas e /analise-reunioes
+  const negado = await exigirPerfil(["gerente", "coordenador"]);
   if (negado) return negado;
   const OPENAI_KEY = process.env.OPENAI_API_KEY;
   const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;

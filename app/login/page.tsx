@@ -32,7 +32,7 @@ export default function LoginPage() {
     setLoading(false);
     if (error) { setError(error.message); return; }
     if (mode === "signup") {
-      setError("Conta criada. Se a confirmação por email estiver ativa, confirme antes de entrar.");
+      setError("Conta criada. Abra o link de confirmação que chegou no seu e-mail e depois entre aqui.");
       setMode("signin");
       return;
     }
