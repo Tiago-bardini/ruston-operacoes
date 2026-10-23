@@ -64,6 +64,9 @@ function mapTask(t: EkyteTask) {
     ctc_task_type_id: t.ctcTaskTypeId ?? null,
     ctc_task_type: t.ctcTaskType ?? null,
     tags: t.tags ?? null,
+    // Zera o vínculo: o match logo abaixo refaz pelo executor ATUAL. Sem isso, a
+    // tarefa que trocava de responsável no eKyte continuava contando pro antigo
+    pessoa_id: null,
     payload_raw: t,
     synced_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),

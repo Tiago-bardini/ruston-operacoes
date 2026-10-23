@@ -117,18 +117,27 @@ export default function EkytePage() {
       supabase.from("ruston_ekyte_tasks_dashboard")
         .select("*")
         .eq("pessoa_ativa", true)
-        .gte("creation_date", inicioJanelaEkyte()).not("executor_email", "ilike", "%@gmail.com")
+        .gte("creation_date", inicioJanelaEkyte())
         .limit(50000),
       supabase.from("ruston_pessoas").select("id,nome,cargo,squad_id,ativo").eq("ativo", true).order("nome"),
       supabase.from("ruston_squads").select("id,nome").eq("ativo", true).order("nome"),
-      supabase.rpc("fn_ekyte_pessoas_sem_match"),
+      supabase.from("ruston_ekyte_tasks_view")
+        .select("executor_id, executor, executor_email")
+        .is("pessoa_id", null)
+        .gte("creation_date", inicioJanelaEkyte())
+        .limit(10000),
     ]);
     setLogs(ls ?? []);
     setTasks(ts ?? []);
     setPessoas(ps ?? []);
     setSquads(sq ?? []);
-    // E-mail pessoal (gmail) não é considerado: cada investidor usa o e-mail V4
-    setSemMatch(((sm as any[]) ?? []).filter((x) => !/@gmail\.com$/i.test(x.executor_email ?? "")));
+    // Agrupa por executor: quem tem tarefa recente e ainda não foi vinculado
+    const semVinculo: Record<string, { executor_id: string | null; executor: string; executor_email: string | null; qtd_tasks: number }> = {};
+    for (const t of (sm as { executor_id: string | null; executor: string | null; executor_email: string | null }[]) ?? []) {
+      const k = t.executor_id ?? t.executor_email ?? t.executor ?? "?";
+      (semVinculo[k] ??= { executor_id: t.executor_id, executor: t.executor ?? t.executor_email ?? "—", executor_email: t.executor_email, qtd_tasks: 0 }).qtd_tasks++;
+    }
+    setSemMatch(Object.values(semVinculo).sort((a, b) => b.qtd_tasks - a.qtd_tasks));
   }
 
   async function rematch() {
@@ -618,7 +627,7 @@ export default function EkytePage() {
             <div>
               <h3 className="font-semibold">Pessoas do Ekyte sem vínculo com cadastro</h3>
               <p className="text-xs text-brand-muted">
-                Pra cada linha, escolhe quem é no cadastro Ruston. O vínculo é salvo e aplica em todas as tasks dessa pessoa.
+                Quem tem tarefa nos últimos 3 meses e ainda não está ligado a ninguém do cadastro (ex.: investidor novo usando gmail até sair o e-mail V4). Escolhe quem é — o vínculo é salvo e aplica em todas as tasks dessa pessoa.
               </p>
             </div>
             {podeEditar && <button className="btn-ghost text-xs" onClick={rematch}>🔄 Re-match automático</button>}

@@ -99,7 +99,6 @@ export default function ProdutividadePage() {
         .from("ruston_ekyte_tasks_dashboard")
         .select("id, pessoa_id, pessoa_nome, pessoa_cargo, current_due_date, resolved_date, situation, esta_atrasada, foi_prorrogada, workspace, cliente_nome")
         .eq("pessoa_ativa", true)
-        .not("executor_email", "ilike", "%@gmail.com") // e-mail pessoal não conta
         .gte("creation_date", inicio);
       if (fim) taskQuery = taskQuery.lte("creation_date", fim);
 
