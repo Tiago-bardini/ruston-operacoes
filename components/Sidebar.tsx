@@ -30,7 +30,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Saúde da Carteira", icon: "♥", items: [
-      { href: "/health-score", label: "Health Score · SLA" },
+      { href: "/health-score", label: "Radar de Churn · SLA" },
       { href: "/radar-whatsapp", label: "Radar WhatsApp" },
       { href: "/fca", label: "FCA" },
     ],
