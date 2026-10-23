@@ -19,6 +19,15 @@ export const maxDuration = 300; // até 5min (Vercel Pro). Em Hobby = 60s.
 const EKYTE_BASE = "https://api.ekyte.com/v1.1/tasks";
 const PAGE_SIZE_GUESS = 100; // Ekyte retorna 100 por página
 const MAX_PAGES = 500; // suporta até 50k tasks por status
+// Só trabalhamos com os últimos 3 meses: o que foi criado antes disso sai do banco
+// a cada sync (tarefa velha esquecida em aberto e gente que já saiu poluíam os números)
+const JANELA_MESES = 3;
+
+function inicioJanela(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - JANELA_MESES);
+  return d.toISOString().slice(0, 10);
+}
 
 type EkyteTask = Record<string, any>;
 
@@ -98,9 +107,7 @@ export async function POST(req: Request) {
   // Lê body opcional: { createdFrom?: "YYYY-MM-DD", disparado_por_email?: string }
   let body: any = {};
   try { body = await req.json(); } catch {}
-  // Padrão: desde 2023-01-01 pra garantir que pega TODAS as tasks ainda abertas,
-  // inclusive as criadas há muito tempo que o investidor nunca concluiu.
-  const createdFrom: string = body.createdFrom ?? "2023-01-01";
+  const createdFrom: string = body.createdFrom ?? inicioJanela();
   const disparadoPorEmail: string | null = body.disparado_por_email ?? null;
 
   // Abre log
@@ -129,6 +136,12 @@ export async function POST(req: Request) {
       }
     }
 
+    // ----------- LIMPA O QUE FICOU FORA DA JANELA -----------
+    const { count: removidas, error: errDel } = await supabase.from("ruston_ekyte_tasks")
+      .delete({ count: "exact" })
+      .lt("creation_date", `${inicioJanela()}T00:00:00`);
+    if (errDel) throw errDel;
+
     // ----------- MATCHING AUTOMÁTICO -----------
     // 1) Match pessoa por email
     const { data: matchP } = await supabase.rpc("fn_ekyte_match_pessoas");
@@ -146,7 +159,7 @@ export async function POST(req: Request) {
       }).eq("id", logId);
     }
 
-    return NextResponse.json({ ok: true, pages, tasks_upserted: totalUpserted, createdFrom, match: matchStats });
+    return NextResponse.json({ ok: true, pages, tasks_upserted: totalUpserted, tasks_removidas: removidas ?? 0, createdFrom, match: matchStats });
   } catch (e: any) {
     if (logId) {
       await supabase.from("ruston_ekyte_sync_log").update({

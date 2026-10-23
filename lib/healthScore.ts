@@ -40,7 +40,7 @@ export function calcHealthScore(d: HealthScoreInput): number {
   return Math.max(0, Math.min(10, Math.round(score * 10) / 10));
 }
 
-/** % de tarefas concluídas por cliente, a partir de ruston_ekyte_tasks_view
+/** % de tarefas concluídas por cliente, a partir de ruston_ekyte_tasks_dashboard
  *  (select "cliente_id, situation, esta_atrasada"). situation 30 = concluída. */
 export function taxaTarefasPorCliente(
   tasks: { cliente_id: string | null; situation: number | null; esta_atrasada: boolean | null }[],

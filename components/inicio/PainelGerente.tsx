@@ -36,8 +36,8 @@ export default function PainelGerente() {
         supabase.from("ruston_fca_view").select("cliente_id, nota_final, bandeira, data_referencia").order("data_referencia", { ascending: false }),
         supabase.from("ruston_whatsapp_radar_view").select("cliente_id, temperatura, sentimento, risco_churn, dias_sem_contato, resumo_curto"),
         supabase.from("ruston_whatsapp_alertas").select("id, tipo, cliente_id, detalhes, criado_em").gte("criado_em", hoje + "T00:00:00").order("criado_em", { ascending: false }).limit(20),
-        supabase.from("ruston_ekyte_tasks_view").select("pessoa_nome, pessoa_cargo, situation, esta_atrasada").not("pessoa_id", "is", null),
-        supabase.from("ruston_ekyte_tasks_view").select("cliente_id, situation, esta_atrasada").not("cliente_id", "is", null),
+        supabase.from("ruston_ekyte_tasks_dashboard").select("pessoa_nome, pessoa_cargo, situation, esta_atrasada").eq("pessoa_ativa", true).not("pessoa_id", "is", null),
+        supabase.from("ruston_ekyte_tasks_dashboard").select("cliente_id, situation, esta_atrasada").eq("pessoa_ativa", true).not("cliente_id", "is", null),
       ]);
       setClientes((c ?? []) as ClienteBase[]);
       setFcas((f ?? []) as FcaRow[]);

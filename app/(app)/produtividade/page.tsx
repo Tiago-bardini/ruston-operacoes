@@ -95,8 +95,10 @@ export default function ProdutividadePage() {
       const fim = getDataFim(periodo);
 
       let taskQuery = supabase
-        .from("ruston_ekyte_tasks_view")
+        // Só investidores ativos (quem saiu ou não tem vínculo fica de fora)
+        .from("ruston_ekyte_tasks_dashboard")
         .select("id, pessoa_id, pessoa_nome, pessoa_cargo, current_due_date, resolved_date, situation, esta_atrasada, foi_prorrogada, workspace, cliente_nome")
+        .eq("pessoa_ativa", true)
         .gte("creation_date", inicio);
       if (fim) taskQuery = taskQuery.lte("creation_date", fim);
 
