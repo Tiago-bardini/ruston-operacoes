@@ -604,6 +604,7 @@ function Lista({
                 )}
               </td>
               <td className="px-4 py-3 text-right space-x-3">
+                <a href={`/planejamento?cliente=${c.id}`} className="text-xs text-brand-muted hover:text-gray-200">planejamento</a>
                 <button onClick={() => onEdit(c)} className="text-xs text-brand-muted hover:text-gray-200">editar</button>
                 <button onClick={() => onRemove(c.id)} className="text-xs text-brand-muted hover:text-red-400">excluir</button>
               </td>
@@ -769,6 +770,7 @@ function ClienteCard({
       )}
       <div className="mt-2 flex items-center justify-between text-[10px] text-brand-muted">
         <button onClick={() => onEdit(c)} className="hover:text-gray-200">editar</button>
+        <a href={`/planejamento?cliente=${c.id}`} className="hover:text-gray-200">planejamento</a>
         <button onClick={() => onRemove(c.id)} className="hover:text-red-400">excluir</button>
       </div>
     </div>

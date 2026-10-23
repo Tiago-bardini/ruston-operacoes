@@ -16,11 +16,13 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Início", icon: "🏠", items: [
       { href: "/cockpit", label: "Cockpit" },
+      { href: "/log-alteracoes", label: "Log de alterações" },
     ],
   },
   {
     label: "Clientes", icon: "◎", items: [
       { href: "/clientes", label: "Carteira" },
+      { href: "/planejamento", label: "Planejamento" },
       { href: "/churn", label: "Churn" },
       { href: "/reunioes", label: "Reuniões" },
       { href: "/entregas", label: "Entregas" },
