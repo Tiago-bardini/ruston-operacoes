@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -11,17 +11,18 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("erro") === "sem_acesso") {
+      setError("Seu e-mail não está liberado. Peça ao gerente pra te cadastrar na Gestão de Usuários.");
+    }
+  }, []);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
        e.preventDefault();
        setError(null);
 
-       // Restrição: só emails @v4company.com podem criar conta
-       if (mode === "signup" && !email.toLowerCase().trim().endsWith("@v4company.com")) {
-         setError("Cadastro liberado apenas para emails @v4company.com.");
-         return;
-       }
+       // Quem pode criar conta é decidido no banco: só e-mail ativo na Gestão de Usuários
 
        setLoading(true);
        const fn =
@@ -30,7 +31,12 @@ export default function LoginPage() {
         : supabase.auth.signUp({ email, password });
     const { error } = await fn;
     setLoading(false);
-    if (error) { setError(error.message); return; }
+    if (error) {
+      setError(/sem acesso liberado|Database error saving new user/i.test(error.message)
+        ? "Seu e-mail não está liberado. Peça ao gerente pra te cadastrar na Gestão de Usuários."
+        : error.message);
+      return;
+    }
     if (mode === "signup") {
       setError("Conta criada. Abra o link de confirmação que chegou no seu e-mail e depois entre aqui.");
       setMode("signin");

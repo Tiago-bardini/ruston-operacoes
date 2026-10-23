@@ -26,7 +26,7 @@ export function useUsuarioPerfil() {
       const { data } = await supabase
         .from("ruston_usuario_perfil")
         .select("*")
-        .eq("email", user.email)
+        .ilike("email", user.email)
         .maybeSingle();
       setPerfil(data as UsuarioPerfil | null);
       setLoading(false);

@@ -46,16 +46,27 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Página restrita por perfil: bloqueia também o acesso direto pela URL
-  if (user && rotaRestrita(path)) {
+  if (user && !isPublic) {
     const { data } = await supabase
       .from("ruston_usuario_perfil")
-      .select("perfil")
-      .eq("email", user.email ?? "")
+      .select("perfil, ativo")
+      .ilike("email", user.email ?? "") // sem diferenciar maiúscula, igual ao banco
       .maybeSingle();
-    // Sem perfil cadastrado = investidor (mais restritivo), igual ao useUsuarioPerfil
-    const perfil = (data?.perfil ?? "investidor") as PerfilUsuario;
-    if (!podeAcessar(path, perfil)) {
+
+    // Só entra quem está ativo na Gestão de Usuários (e-mail V4 sozinho não basta)
+    if (!data || data.ativo === false) {
+      await supabase.auth.signOut();
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      url.search = "?erro=sem_acesso";
+      const redirect = NextResponse.redirect(url);
+      // Leva junto os cookies de sessão já limpos pelo signOut
+      supabaseResponse.cookies.getAll().forEach((c) => redirect.cookies.set(c));
+      return redirect;
+    }
+
+    // Página restrita por perfil: bloqueia também o acesso direto pela URL
+    if (rotaRestrita(path) && !podeAcessar(path, data.perfil as PerfilUsuario)) {
       const url = request.nextUrl.clone();
       url.pathname = "/acesso-negado";
       url.search = "";
