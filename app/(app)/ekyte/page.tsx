@@ -117,7 +117,7 @@ export default function EkytePage() {
       supabase.from("ruston_ekyte_tasks_dashboard")
         .select("*")
         .eq("pessoa_ativa", true)
-        .gte("creation_date", inicioJanelaEkyte())
+        .gte("creation_date", inicioJanelaEkyte()).not("executor_email", "ilike", "%@gmail.com")
         .limit(50000),
       supabase.from("ruston_pessoas").select("id,nome,cargo,squad_id,ativo").eq("ativo", true).order("nome"),
       supabase.from("ruston_squads").select("id,nome").eq("ativo", true).order("nome"),
@@ -127,7 +127,8 @@ export default function EkytePage() {
     setTasks(ts ?? []);
     setPessoas(ps ?? []);
     setSquads(sq ?? []);
-    setSemMatch((sm as any) ?? []);
+    // E-mail pessoal (gmail) não é considerado: cada investidor usa o e-mail V4
+    setSemMatch(((sm as any[]) ?? []).filter((x) => !/@gmail\.com$/i.test(x.executor_email ?? "")));
   }
 
   async function rematch() {

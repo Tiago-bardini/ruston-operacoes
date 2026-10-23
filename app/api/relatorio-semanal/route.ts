@@ -37,7 +37,7 @@ export async function GET(req: Request) {
     supabase.from("ruston_fca_view").select("cliente_id, nota_final, data_referencia").order("data_referencia", { ascending: false }),
     supabase.from("ruston_fca_view").select("cliente_id, nota_final, data_referencia").order("data_referencia", { ascending: false }),
     supabase.from("ruston_whatsapp_radar_view").select("cliente_id, risco_churn, sentimento"),
-    supabase.from("ruston_ekyte_tasks_dashboard").select("pessoa_nome, cliente_id, esta_atrasada, situation").eq("pessoa_ativa", true).gte("creation_date", inicioJanelaEkyte()).not("cliente_id", "is", null),
+    supabase.from("ruston_ekyte_tasks_dashboard").select("pessoa_nome, cliente_id, esta_atrasada, situation").eq("pessoa_ativa", true).gte("creation_date", inicioJanelaEkyte()).not("executor_email", "ilike", "%@gmail.com").not("cliente_id", "is", null),
     supabase.from("ruston_whatsapp_alertas").select("id, tipo").gte("criado_em", semanaAtras),
     supabase.from("ruston_squads").select("id, nome").eq("ativo", true),
   ]);

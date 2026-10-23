@@ -49,7 +49,7 @@ export default function ControleSla() {
         supabase.from("ruston_clientes_view").select("id, nome, coordenador_nome, squad_nome, cadencia_reuniao_dias, tipo_cadencia").eq("ativo", true).not("etapa", "in", "(cancelado,suspenso)"),
         supabase.from("ruston_whatsapp_radar_view").select("cliente_id, dias_sem_contato, qtd_mensagens"),
         supabase.from("ruston_fca_view").select("cliente_id, data_referencia, nota_final").order("data_referencia", { ascending: false }),
-        supabase.from("ruston_ekyte_tasks_dashboard").select("cliente_id, esta_atrasada, situation").eq("pessoa_ativa", true).gte("creation_date", inicioJanelaEkyte()).not("cliente_id", "is", null),
+        supabase.from("ruston_ekyte_tasks_dashboard").select("cliente_id, esta_atrasada, situation").eq("pessoa_ativa", true).gte("creation_date", inicioJanelaEkyte()).not("executor_email", "ilike", "%@gmail.com").not("cliente_id", "is", null),
         supabase.from("ruston_whatsapp_alertas").select("id, tipo, cliente_id, criado_em").gte("criado_em", hoje + "T00:00:00"),
       ]);
       setClientes((c ?? []) as ClienteBase[]);
