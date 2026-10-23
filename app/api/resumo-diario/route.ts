@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { exigirCron } from "@/lib/apiAuth";
 import { createClient } from "@supabase/supabase-js";
-import { calcHealthScore, taxaTarefasPorCliente } from "@/lib/healthScore";
+import { avaliarRiscoChurn, carregarDadosRadar } from "@/lib/radarChurn";
 import { inicioJanelaEkyte } from "@/lib/ekyteJanela";
 
 export const runtime = "nodejs";
@@ -24,39 +24,27 @@ export async function GET(req: Request) {
 
   const supabase = createClient(SB_URL, SB_SERVICE, { auth: { persistSession: false } });
 
-  const [{ data: clientes }, { data: fcas }, { data: radar }, { data: alertasHoje }, { data: tarefas }, { data: tarefasCliente }] = await Promise.all([
+  const [{ data: clientes }, dadosRadar, { data: alertasHoje }, { data: tarefas }] = await Promise.all([
     supabase.from("ruston_clientes_view").select("id, nome, mrr, coordenador_nome, squad_nome, etapa").eq("ativo", true),
-    supabase.from("ruston_fca_view").select("cliente_id, nota_final").order("data_referencia", { ascending: false }),
-    supabase.from("ruston_whatsapp_radar_view").select("cliente_id, risco_churn, sentimento, dias_sem_contato"),
+    carregarDadosRadar(supabase),
     supabase.from("ruston_whatsapp_alertas").select("id, tipo").gte("criado_em", new Date().toISOString().slice(0, 10) + "T00:00:00"),
     supabase.from("ruston_ekyte_tasks_dashboard").select("pessoa_nome, esta_atrasada").eq("pessoa_ativa", true).gte("creation_date", inicioJanelaEkyte()).eq("esta_atrasada", true),
-    supabase.from("ruston_ekyte_tasks_dashboard").select("cliente_id, situation, esta_atrasada").eq("pessoa_ativa", true).gte("creation_date", inicioJanelaEkyte()).not("cliente_id", "is", null),
   ]);
 
   const clientesAtivos = (clientes ?? []).filter((c: any) => c.etapa !== "cancelado" && c.etapa !== "suspenso");
   const mrrTotal = clientesAtivos.reduce((a: number, c: any) => a + (c.mrr ?? 0), 0);
 
-  const fcaMap: Record<string, number> = {};
-  for (const f of (fcas ?? []) as any[]) { if (!fcaMap[f.cliente_id]) fcaMap[f.cliente_id] = f.nota_final; }
-  const radarMap = Object.fromEntries((radar ?? []).map((r: any) => [r.cliente_id, r]));
-  const taxaMap = taxaTarefasPorCliente((tarefasCliente ?? []) as any[]);
-
-  const emRisco = clientesAtivos
-    .map((c: any) => {
-      const w = radarMap[c.id];
-      const score = calcHealthScore({
-        fca_nota: fcaMap[c.id] ?? null,
-        wa_sentimento: w?.sentimento ?? null,
-        wa_risco_churn: w?.risco_churn ?? null,
-        wa_dias_sem_contato: w?.dias_sem_contato ?? null,
-        tarefas_taxa: taxaMap[c.id]?.taxa ?? null,
-      });
-      return { nome: c.nome, score, mrr: c.mrr, coord: c.coordenador_nome };
-    })
-    .sort((a: any, b: any) => a.score - b.score)
-    .slice(0, 5);
-
-  const mrrRisco = emRisco.filter((c: any) => c.score < 6).reduce((a: number, c: any) => a + (c.mrr ?? 0), 0);
+  // Mesmo cálculo do Radar de Churn: crítico + atenção = MRR em risco
+  const coordPorCliente = Object.fromEntries((clientes ?? []).map((c: any) => [c.id, c.coordenador_nome]));
+  const emRiscoTodos = dadosRadar
+    .map((d) => ({ d, av: avaliarRiscoChurn(d) }))
+    .filter((x) => x.av.nivel === "critico" || x.av.nivel === "atencao")
+    .sort((a, b) => (a.av.nivel === b.av.nivel ? 0 : a.av.nivel === "critico" ? -1 : 1) || b.av.risco - a.av.risco);
+  const mrrRisco = emRiscoTodos.reduce((a, x) => a + (Number(x.d.cliente.mrr) || 0), 0);
+  const emRisco = emRiscoTodos.slice(0, 5).map((x) => ({
+    nome: x.d.cliente.nome, risco: x.av.risco, nivel: x.av.nivel,
+    coord: coordPorCliente[x.d.cliente.id], motivo: x.av.sinais[0]?.texto,
+  }));
 
   const atrasadasMap: Record<string, number> = {};
   for (const t of (tarefas ?? []) as any[]) {
@@ -74,10 +62,11 @@ export async function GET(req: Request) {
   msg += `*Clientes Ativos:* ${clientesAtivos.length}\n`;
   msg += `*Alertas SLA hoje:* ${alertasSla}\n\n`;
 
-  msg += `*Top 5 Clientes em Risco:*\n`;
+  msg += `*Clientes em Risco (Radar de Churn):*\n`;
+  if (emRisco.length === 0) msg += `🟢 Nenhum cliente em risco\n`;
   for (const c of emRisco) {
-    const emoji = c.score >= 8 ? "🟢" : c.score >= 6 ? "🟡" : "🔴";
-    msg += `${emoji} ${c.nome} (${c.score.toFixed(1)}) - ${c.coord ?? "sem coord"}\n`;
+    msg += `${c.nivel === "critico" ? "🔴" : "🟡"} ${c.nome} (risco ${c.risco}) - ${c.coord ?? "sem coord"}\n`;
+    if (c.motivo) msg += `   ↳ ${c.motivo}\n`;
   }
 
   if (topAtrasadas.length > 0) {
