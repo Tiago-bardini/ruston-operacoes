@@ -116,6 +116,38 @@ export function calcularPontoEquilibrio(i: PontoEquilibrioInput, mrrCliente: num
   };
 }
 
+// Junta vários meses num período só (3 meses, ano...): soma faturamento, vendas e
+// custos fixos; % variáveis e de CAC viram média ponderada pelo faturamento.
+export function consolidarPe(meses: PontoEquilibrioInput[], mrrCliente: number): PontoEquilibrioInput | null {
+  if (meses.length === 0) return null;
+  const soma = (f: (m: PontoEquilibrioInput) => number) => meses.reduce((s, m) => s + f(m), 0);
+  const fatTotal = soma((m) => m.faturamento ?? 0);
+  const peso = (m: PontoEquilibrioInput) => (fatTotal ? (m.faturamento ?? 0) / fatTotal : 1 / meses.length);
+  const media = (f: (m: PontoEquilibrioInput) => number) => soma((m) => f(m) * peso(m));
+  const comCac = meses.filter((m) => m.cac_alvo_valor != null);
+  return {
+    ...meses[meses.length - 1],
+    faturamento: fatTotal,
+    qtd_vendas: soma((m) => m.qtd_vendas ?? 0),
+    pct_frete: media((m) => m.pct_frete),
+    pct_impostos: media((m) => m.pct_impostos),
+    pct_custo_produto: media((m) => m.pct_custo_produto),
+    pct_gateway: media((m) => m.pct_gateway),
+    pct_comissao: media((m) => m.pct_comissao),
+    pct_outros_var: media((m) => m.pct_outros_var),
+    fee_v4: soma((m) => m.fee_v4 ?? mrrCliente),
+    ferramentas: soma((m) => m.ferramentas ?? 0),
+    equipe_vendas: soma((m) => m.equipe_vendas ?? 0),
+    outros_fixos: soma((m) => m.outros_fixos ?? 0),
+    pct_cac_alvo: media((m) => m.pct_cac_alvo),
+    pct_cac_aceitavel: media((m) => m.pct_cac_aceitavel),
+    // CAC em R$ só vale no período se todos os meses usaram valor mapeado
+    cac_alvo_valor: comCac.length === meses.length
+      ? comCac.reduce((s, m) => s + (m.cac_alvo_valor ?? 0) * (m.qtd_vendas ?? 0), 0) / (soma((m) => m.qtd_vendas ?? 0) || 1)
+      : null,
+  };
+}
+
 /* ================= FORECASTING ================= */
 
 export type CustoFixoFcKey = "v4" | "hospedagem" | "equipe_dev" | "equipe_comercial" | "aluguel" | "ferramentas" | "outros";
@@ -297,9 +329,35 @@ export function calcularForecast(i: ForecastInput, mrrCliente: number): ColunaFo
 
 export interface PlanejamentoCliente {
   cliente_id: string;
-  ponto_equilibrio: Partial<PontoEquilibrioInput>;
   forecast: Partial<ForecastInput>;
   updated_at: string | null;
+}
+
+export interface PeMensal {
+  cliente_id: string;
+  ano: number;
+  mes: number;
+  dados: Partial<PontoEquilibrioInput>;
+  updated_at: string | null;
+}
+
+export const chaveMes = (ano: number, mes: number) => `${ano}-${String(mes).padStart(2, "0")}`;
+
+export function mesAtual(): string {
+  const d = new Date();
+  return chaveMes(d.getFullYear(), d.getMonth() + 1);
+}
+
+// "2026-10" → "Out/26"
+export function rotuloMes(chave: string): string {
+  const [a, m] = chave.split("-");
+  return `${["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"][Number(m) - 1]}/${a.slice(2)}`;
+}
+
+export function somarMeses(chave: string, n: number): string {
+  const [a, m] = chave.split("-").map(Number);
+  const d = new Date(a, m - 1 + n, 1);
+  return chaveMes(d.getFullYear(), d.getMonth() + 1);
 }
 
 // Junta o que foi salvo com o modelo padrão — campo novo no modelo aparece

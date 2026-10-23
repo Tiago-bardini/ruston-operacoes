@@ -604,7 +604,10 @@ function Lista({
                 )}
               </td>
               <td className="px-4 py-3 text-right space-x-3">
-                <a href={`/planejamento?cliente=${c.id}`} className="text-xs text-brand-muted hover:text-gray-200">planejamento</a>
+                <a href={`/planejamento?cliente=${c.id}`}
+                  className="inline-flex items-center gap-1 rounded-md border border-brand/40 bg-brand/15 px-2 py-1 text-xs font-semibold text-white hover:bg-brand/30">
+                  📊 Planejamento
+                </a>
                 <button onClick={() => onEdit(c)} className="text-xs text-brand-muted hover:text-gray-200">editar</button>
                 <button onClick={() => onRemove(c.id)} className="text-xs text-brand-muted hover:text-red-400">excluir</button>
               </td>
@@ -768,9 +771,12 @@ function ClienteCard({
           <option value="cancelado">Cancelado</option>
         </select>
       )}
+      <a href={`/planejamento?cliente=${c.id}`}
+        className="mt-2 flex items-center justify-center gap-1.5 rounded-lg border border-brand/40 bg-brand/15 px-2 py-1.5 text-[11px] font-semibold text-white transition hover:bg-brand/30">
+        📊 Ponto de Equilíbrio · Forecast
+      </a>
       <div className="mt-2 flex items-center justify-between text-[10px] text-brand-muted">
         <button onClick={() => onEdit(c)} className="hover:text-gray-200">editar</button>
-        <a href={`/planejamento?cliente=${c.id}`} className="hover:text-gray-200">planejamento</a>
         <button onClick={() => onRemove(c.id)} className="hover:text-red-400">excluir</button>
       </div>
     </div>
