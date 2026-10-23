@@ -32,10 +32,18 @@ export default function PlacarPage() {
   const supabase = createClient();
   const { loading: loadingPerfil, isGerente, squadId } = useUsuarioPerfil();
   const semanas = useMemo(() => ultimasSemanas(8), []);
+  // Últimos 6 meses ("YYYY-MM"), do mais recente pro mais antigo
+  const meses = useMemo(() => Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(semanas[0] + "T12:00:00");
+    d.setDate(1);
+    d.setMonth(d.getMonth() - i);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }), [semanas]);
   const [semana, setSemana] = useState(semanas[0]);
   const [placar, setPlacar] = useState<PlacarSquad[]>([]);
   const [historico, setHistorico] = useState<Historico[]>([]);
   const [aberto, setAberto] = useState<string | null>(null);
+  const [visao, setVisao] = useState<"semana" | "mes">("semana");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -44,7 +52,7 @@ export default function PlacarPage() {
       setLoading(true);
       const [p, { data: h }] = await Promise.all([
         calcularPlacar(supabase, semana),
-        supabase.from("ruston_placar_squad").select("squad_id, semana, nota").gte("semana", semanas[semanas.length - 1]),
+        supabase.from("ruston_placar_squad").select("squad_id, semana, nota").gte("semana", meses[meses.length - 1] + "-01"),
       ]);
       // Coordenador vê só o próprio squad
       setPlacar(p.filter((s) => s.clientes > 0 && (isGerente || !squadId || s.squad_id === squadId))
@@ -56,13 +64,19 @@ export default function PlacarPage() {
   }, [semana, loadingPerfil]);
 
   const notaHist = (sq: string, sem: string) => historico.find((h) => h.squad_id === sq && h.semana === sem)?.nota ?? null;
+  // Nota do mês = média das semanas fechadas dentro dele
+  const notaMes = (sq: string, mes: string) => {
+    const ns = historico.filter((h) => h.squad_id === sq && h.semana.startsWith(mes) && h.nota != null).map((h) => h.nota as number);
+    return ns.length ? { nota: Math.round(ns.reduce((a, n) => a + n, 0) / ns.length), semanas: ns.length } : null;
+  };
+  const MESES_CURTOS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
   return (
     <div className="max-w-[1400px] space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Placar dos Squads</h1>
-          <p className="text-sm text-brand-muted">Disciplina da operação + churn, de 0 a 100, semana a semana</p>
+          <p className="text-sm text-brand-muted">Disciplina, churn, monetização e indicações, de 0 a 100 — semana a semana e mês a mês</p>
         </div>
         <div>
           <label className="label">Semana</label>
@@ -157,28 +171,52 @@ export default function PlacarPage() {
           })()}
 
           <div className="card overflow-x-auto p-0">
-            <p className="px-4 pt-4 text-sm font-semibold">Evolução</p>
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-4">
+              <p className="text-sm font-semibold">Evolução</p>
+              <div className="inline-flex rounded-lg border border-white/10 bg-black/20 p-1">
+                {([["semana", "Semana a semana"], ["mes", "Mês a mês"]] as const).map(([v, l]) => (
+                  <button key={v} onClick={() => setVisao(v)}
+                    className={`rounded-md px-3 py-1 text-xs font-medium ${visao === v ? "bg-brand text-white" : "text-brand-muted hover:text-gray-200"}`}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
             <table className="mt-2 w-full text-xs">
               <thead>
                 <tr className="border-b border-white/5 text-brand-muted">
                   <th className="px-4 py-2 text-left">Squad</th>
-                  {[...semanas].reverse().map((s) => <th key={s} className="px-3 py-2 text-right">{dataBR(s)}</th>)}
+                  {visao === "semana"
+                    ? [...semanas].reverse().map((s) => <th key={s} className="px-3 py-2 text-right">{dataBR(inicioDaSemana(s))}–{dataBR(s)}</th>)
+                    : [...meses].reverse().map((m) => <th key={m} className="px-3 py-2 text-right">{MESES_CURTOS[Number(m.slice(5)) - 1]}/{m.slice(2, 4)}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {placar.map((s) => (
                   <tr key={s.squad_id} className="border-b border-white/5 last:border-0">
                     <td className="px-4 py-2 font-medium">{s.squad_nome}</td>
-                    {[...semanas].reverse().map((sem) => {
-                      const n = sem === semana ? s.nota : notaHist(s.squad_id, sem);
-                      return <td key={sem} className={`px-3 py-2 text-right font-semibold tabular-nums ${corNota(n)}`}>{n ?? "·"}</td>;
-                    })}
+                    {visao === "semana"
+                      ? [...semanas].reverse().map((sem) => {
+                          const n = sem === semana ? s.nota : notaHist(s.squad_id, sem);
+                          return <td key={sem} className={`px-3 py-2 text-right font-semibold tabular-nums ${corNota(n)}`}>{n ?? "·"}</td>;
+                        })
+                      : [...meses].reverse().map((m) => {
+                          const r = notaMes(s.squad_id, m);
+                          return (
+                            <td key={m} className={`px-3 py-2 text-right tabular-nums ${corNota(r?.nota ?? null)}`}>
+                              <span className="font-semibold">{r?.nota ?? "·"}</span>
+                              {r && <span className="ml-1 text-[9px] text-brand-muted">{r.semanas}s</span>}
+                            </td>
+                          );
+                        })}
                   </tr>
                 ))}
               </tbody>
             </table>
             <p className="border-t border-white/5 px-4 py-2 text-[11px] text-brand-muted">
-              O histórico é gravado todo sábado de manhã; semanas antes disso aparecem como &quot;·&quot;.
+              {visao === "semana"
+                ? "Cada coluna é uma semana FCA (sábado a sexta). O histórico é gravado todo sábado de manhã."
+                : "Nota do mês = média das semanas fechadas no mês (o número pequeno é quantas semanas entraram)."}
             </p>
           </div>
 

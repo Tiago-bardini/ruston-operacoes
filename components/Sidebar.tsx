@@ -16,6 +16,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Início", icon: "🏠", items: [
       { href: "/cockpit", label: "Cockpit" },
+      { href: "/placar", label: "🏆 Placar dos Squads" },
       { href: "/log-alteracoes", label: "Log de alterações" },
     ],
   },
@@ -50,7 +51,6 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Time", icon: "👥", items: [
-      { href: "/placar", label: "Placar dos Squads" },
       { href: "/pessoas", label: "Pessoas" },
       { href: "/squads", label: "Squads" },
       { href: "/organograma", label: "Organograma" },
