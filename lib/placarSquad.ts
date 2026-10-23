@@ -2,7 +2,7 @@
 // que o sistema já tem. Mesmo cálculo na tela (/placar) e no snapshot semanal
 // (/api/placar-snapshot), que guarda o histórico.
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { statusCadencia, type ReuniaoStatus } from "@/lib/types";
+import { squadExcluido, statusCadencia, type ReuniaoStatus } from "@/lib/types";
 
 export type CriterioKey = "fca" | "reunioes" | "pe" | "tarefas" | "whatsapp" | "churn";
 
@@ -86,7 +86,8 @@ export async function calcularPlacar(supabase: SupabaseClient, sexta: string): P
   ((al ?? []) as any[]).forEach((a) => { comAlerta[a.cliente_id] ??= a.tipo; });
   const agora = Date.now();
 
-  return ((sq ?? []) as any[]).map((s) => {
+  // ISSAS fica fora da disputa
+  return ((sq ?? []) as any[]).filter((s) => !squadExcluido(s.nome)).map((s) => {
     const cl = ativos.filter((c) => c.squad_id === s.id);
     const ids = new Set(cl.map((c) => c.id));
     const mrr = cl.reduce((a, c) => a + (Number(c.mrr) || 0), 0);

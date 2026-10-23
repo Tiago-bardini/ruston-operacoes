@@ -4,7 +4,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Pessoa, Squad, HeadcountPlanejado, Cargo, Cliente } from "@/lib/types";
-import { CARGO_LABEL, formatBRL } from "@/lib/types";
+import { CARGO_LABEL, formatBRL, squadExcluido } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
 const CARGOS_OPERACIONAIS: Cargo[] = ["coordenador", "gestor_projetos", "gestor_trafego", "designer"];
@@ -12,12 +12,6 @@ const CARGOS_OPERACIONAIS: Cargo[] = ["coordenador", "gestor_projetos", "gestor_
 // Metas de % de custo (sobre receita)
 const META_VERDE = 20;    // ≤20% = verde
 const META_AMARELO = 25;  // 20-25% = amarelo. >25% = vermelho
-
-// Squads que NÃO entram em nenhum cálculo (ISSAS/ISAAS etc.)
-function squadExcluido(nome: string): boolean {
-  const prefixo = (nome || "").slice(0, 3).toLowerCase();
-  return prefixo === "iss" || prefixo === "isa";
-}
 
 export default function HeadcountPage() {
   const supabase = createClient();

@@ -660,3 +660,9 @@ export type EntregaPrevistaView = {
   created_at: string;
   updated_at: string;
 };
+
+/** Squads que NÃO entram em comparativos nem disputas (ISSAS/ISAAS). */
+export function squadExcluido(nome: string): boolean {
+  const prefixo = (nome || "").slice(0, 3).toLowerCase();
+  return prefixo === "iss" || prefixo === "isa";
+}
