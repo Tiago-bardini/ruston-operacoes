@@ -736,19 +736,33 @@ function ClienteCard({
 }) {
   return (
     <div className="card p-3">
-      <div className="flex items-start justify-between">
-        <p className="text-sm font-medium">{c.nome}</p>
-        {!compact && <span className={`badge shrink-0 ${ETAPA_COLOR[c.etapa]}`}>{ETAPA_LABEL[c.etapa]}</span>}
+      <p className="text-sm font-semibold leading-snug">{c.nome}</p>
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-brand">{formatBRL(c.mrr)}/mês</p>
+        {/* A etapa é o próprio seletor: clica no selo pra mover de fase */}
+        {onMove ? (
+          <div className="relative shrink-0" title="Mudar etapa">
+            <select
+              value={c.etapa}
+              onChange={(e) => onMove(c, e.target.value as EtapaCliente)}
+              className={`badge cursor-pointer appearance-none text-[10px] outline-none ${ETAPA_COLOR[c.etapa]}`}
+              style={{ paddingRight: "1.25rem" }}
+            >
+              {ETAPAS.map((et) => <option key={et} value={et} className="bg-brand-panel text-gray-100">{ETAPA_LABEL[et]}</option>)}
+              <option value="cancelado" className="bg-brand-panel text-gray-100">Cancelado</option>
+            </select>
+            <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[8px] opacity-70">▼</span>
+          </div>
+        ) : !compact && (
+          <span className={`badge shrink-0 text-[10px] ${ETAPA_COLOR[c.etapa]}`}>{ETAPA_LABEL[c.etapa]}</span>
+        )}
       </div>
-      <p className="mt-1 text-xs font-semibold text-brand">{formatBRL(c.mrr)}/mês</p>
-      <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-brand-muted">
+      <div className="mt-1.5 flex flex-wrap gap-x-1.5 text-[10px] text-brand-muted">
         {c.tier && <span>{TIER_LABEL[c.tier]}</span>}
-        {c.squad_nome && <span>• {c.squad_nome}</span>}
-        {c.lt_meses != null && <span>• {c.lt_meses}m</span>}
+        {c.squad_nome && <span>· {c.squad_nome}</span>}
+        {c.lt_meses != null && <span>· {c.lt_meses}m</span>}
+        {c.account_nome && !compact && <span>· GP {c.account_nome}</span>}
       </div>
-      {c.account_nome && !compact && (
-        <p className="mt-1 text-[10px] text-brand-muted">GP: {c.account_nome}</p>
-      )}
       {c.data_vencimento_contrato && (() => {
         const status = statusVencimento(c.data_vencimento_contrato);
         if (status === "ok" || status === "sem_data") return null;
@@ -761,23 +775,15 @@ function ClienteCard({
           </div>
         );
       })()}
-      {onMove && (
-        <select
-          value={c.etapa}
-          onChange={(e) => onMove(c, e.target.value as EtapaCliente)}
-          className="input mt-2 py-1 text-xs"
-        >
-          {ETAPAS.map((et) => <option key={et} value={et}>{ETAPA_LABEL[et]}</option>)}
-          <option value="cancelado">Cancelado</option>
-        </select>
-      )}
-      <a href={`/planejamento?cliente=${c.id}`}
-        className="mt-2 flex items-center justify-center gap-1.5 rounded-lg border border-brand/40 bg-brand/15 px-2 py-1.5 text-[11px] font-semibold text-white transition hover:bg-brand/30">
-        📊 Ponto de Equilíbrio · Forecast
-      </a>
-      <div className="mt-2 flex items-center justify-between text-[10px] text-brand-muted">
-        <button onClick={() => onEdit(c)} className="hover:text-gray-200">editar</button>
-        <button onClick={() => onRemove(c.id)} className="hover:text-red-400">excluir</button>
+      <div className="mt-3 flex items-center justify-between gap-2 border-t border-white/5 pt-2.5">
+        <a href={`/planejamento?cliente=${c.id}`}
+          className="inline-flex items-center gap-1 rounded-md border border-brand/40 bg-brand/15 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-brand/30">
+          📊 Planejamento
+        </a>
+        <div className="flex items-center gap-3 text-[10px] text-brand-muted">
+          <button onClick={() => onEdit(c)} className="hover:text-gray-200">editar</button>
+          <button onClick={() => onRemove(c.id)} className="hover:text-red-400">excluir</button>
+        </div>
       </div>
     </div>
   );
