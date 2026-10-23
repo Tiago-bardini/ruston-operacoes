@@ -738,23 +738,23 @@ function ClienteCard({
     <div className="card p-3">
       <p className="text-sm font-semibold leading-snug">{c.nome}</p>
       <div className="mt-1.5 flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-brand">{formatBRL(c.mrr)}/mês</p>
-        {/* A etapa é o próprio seletor: clica no selo pra mover de fase */}
+        <p className="min-w-0 truncate text-xs font-semibold text-brand">{formatBRL(c.mrr)}/mês</p>
+        {/* No Kanban por Etapa a coluna já diz a fase — aqui fica só o atalho pra mover */}
         {onMove ? (
-          <div className="relative shrink-0" title="Mudar etapa">
+          <label className="relative inline-flex shrink-0 cursor-pointer items-center gap-1 overflow-hidden rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-brand-muted transition hover:border-white/20 hover:text-gray-200"
+            title="Mover de etapa">
+            Mover <span className="text-[8px]">▼</span>
             <select
               value={c.etapa}
               onChange={(e) => onMove(c, e.target.value as EtapaCliente)}
-              className={`badge cursor-pointer appearance-none text-[10px] outline-none ${ETAPA_COLOR[c.etapa]}`}
-              style={{ paddingRight: "1.25rem" }}
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
             >
               {ETAPAS.map((et) => <option key={et} value={et} className="bg-brand-panel text-gray-100">{ETAPA_LABEL[et]}</option>)}
               <option value="cancelado" className="bg-brand-panel text-gray-100">Cancelado</option>
             </select>
-            <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[8px] opacity-70">▼</span>
-          </div>
+          </label>
         ) : !compact && (
-          <span className={`badge shrink-0 text-[10px] ${ETAPA_COLOR[c.etapa]}`}>{ETAPA_LABEL[c.etapa]}</span>
+          <span className={`badge max-w-[120px] shrink-0 truncate text-[10px] ${ETAPA_COLOR[c.etapa]}`}>{ETAPA_LABEL[c.etapa]}</span>
         )}
       </div>
       <div className="mt-1.5 flex flex-wrap gap-x-1.5 text-[10px] text-brand-muted">
@@ -777,12 +777,14 @@ function ClienteCard({
       })()}
       <div className="mt-3 flex items-center justify-between gap-2 border-t border-white/5 pt-2.5">
         <a href={`/planejamento?cliente=${c.id}`}
-          className="inline-flex items-center gap-1 rounded-md border border-brand/40 bg-brand/15 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-brand/30">
+          className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-brand/40 bg-brand/15 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-brand/30">
           📊 Planejamento
         </a>
-        <div className="flex items-center gap-3 text-[10px] text-brand-muted">
-          <button onClick={() => onEdit(c)} className="hover:text-gray-200">editar</button>
-          <button onClick={() => onRemove(c.id)} className="hover:text-red-400">excluir</button>
+        <div className="flex items-center gap-1 text-brand-muted">
+          <button onClick={() => onEdit(c)} title="Editar"
+            className="rounded px-1.5 py-0.5 text-sm hover:bg-white/5 hover:text-gray-200">✎</button>
+          <button onClick={() => onRemove(c.id)} title="Excluir"
+            className="rounded px-1.5 py-0.5 text-sm hover:bg-white/5 hover:text-red-400">🗑</button>
         </div>
       </div>
     </div>
