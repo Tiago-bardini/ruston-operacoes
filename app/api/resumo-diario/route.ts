@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { exigirCron } from "@/lib/apiAuth";
 import { createClient } from "@supabase/supabase-js";
 import { calcHealthScore, taxaTarefasPorCliente } from "@/lib/healthScore";
+import { inicioJanelaEkyte } from "@/lib/ekyteJanela";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -28,8 +29,8 @@ export async function GET(req: Request) {
     supabase.from("ruston_fca_view").select("cliente_id, nota_final").order("data_referencia", { ascending: false }),
     supabase.from("ruston_whatsapp_radar_view").select("cliente_id, risco_churn, sentimento, dias_sem_contato"),
     supabase.from("ruston_whatsapp_alertas").select("id, tipo").gte("criado_em", new Date().toISOString().slice(0, 10) + "T00:00:00"),
-    supabase.from("ruston_ekyte_tasks_dashboard").select("pessoa_nome, esta_atrasada").eq("pessoa_ativa", true).eq("esta_atrasada", true),
-    supabase.from("ruston_ekyte_tasks_dashboard").select("cliente_id, situation, esta_atrasada").eq("pessoa_ativa", true).not("cliente_id", "is", null),
+    supabase.from("ruston_ekyte_tasks_dashboard").select("pessoa_nome, esta_atrasada").eq("pessoa_ativa", true).gte("creation_date", inicioJanelaEkyte()).eq("esta_atrasada", true),
+    supabase.from("ruston_ekyte_tasks_dashboard").select("cliente_id, situation, esta_atrasada").eq("pessoa_ativa", true).gte("creation_date", inicioJanelaEkyte()).not("cliente_id", "is", null),
   ]);
 
   const clientesAtivos = (clientes ?? []).filter((c: any) => c.etapa !== "cancelado" && c.etapa !== "suspenso");

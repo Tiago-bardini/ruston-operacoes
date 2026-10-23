@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
+import { inicioJanelaEkyte } from "@/lib/ekyteJanela";
 
 type SyncLog = {
   id: string;
@@ -116,6 +117,7 @@ export default function EkytePage() {
       supabase.from("ruston_ekyte_tasks_dashboard")
         .select("*")
         .eq("pessoa_ativa", true)
+        .gte("creation_date", inicioJanelaEkyte())
         .limit(50000),
       supabase.from("ruston_pessoas").select("id,nome,cargo,squad_id,ativo").eq("ativo", true).order("nome"),
       supabase.from("ruston_squads").select("id,nome").eq("ativo", true).order("nome"),
