@@ -24,6 +24,8 @@ interface MonetOp {
   ativo: boolean;
 }
 
+interface ChurnSolLite { status: string; mrr: number; cliente: { squad_id: string | null } | null; }
+
 const CARGOS_OPERACIONAIS: Cargo[] = ["coordenador", "gestor_projetos", "gestor_trafego", "designer"];
 const MES_ATUAL = new Date().getMonth() + 1;
 const ANO_ATUAL = new Date().getFullYear();
@@ -49,6 +51,8 @@ function CockpitConteudo() {
   const [okrRealizados, setOkrRealizados] = useState<OkrRealizadoLite[]>([]);
   const [monetMetas, setMonetMetas] = useState<MonetMeta[]>([]);
   const [monetOps, setMonetOps] = useState<MonetOp[]>([]);
+  const [churnSol, setChurnSol] = useState<ChurnSolLite[]>([]);
+  const [churnBase, setChurnBase] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [mes, setMes] = useState(MES_ATUAL);
   const [ano, setAno] = useState(ANO_ATUAL);
@@ -61,7 +65,7 @@ function CockpitConteudo() {
       { data: cs }, { data: ps }, { data: sq },
       { data: me }, { data: ms }, { data: fc }, { data: hc },
       { data: okm }, { data: okr }, { data: okra },
-      { data: mm }, { data: mo },
+      { data: mm }, { data: mo }, { data: chs }, { data: chb },
     ] = await Promise.all([
       supabase.from("ruston_clientes_view").select("*").eq("ativo", true),
       supabase.from("ruston_pessoas").select("*").eq("ativo", true),
@@ -75,6 +79,8 @@ function CockpitConteudo() {
       supabase.from("ruston_okr_realizado_investidor").select("pessoa_id,metrica_id,valor_realizado").eq("ano", ano).eq("mes", mes),
       supabase.from("ruston_monetizacao_metas").select("squad_id,ano,mes,valor_meta").eq("ano", ano).eq("mes", mes),
       supabase.from("ruston_monetizacao_view").select("id,cliente_squad_id,estagio,valor_mrr_estimado,valor_onetime_estimado,data_ganho,data_prevista_fechamento,ativo").eq("ativo", true),
+      supabase.from("ruston_churn_solicitacoes").select("status,mrr,cliente:ruston_clientes(squad_id)").eq("ano", ano).eq("mes", mes),
+      supabase.from("ruston_churn_mrr_base").select("mrr_base").eq("ano", ano).eq("mes", mes).maybeSingle(),
     ]);
     setClientes((cs as ClienteView[]) ?? []);
     setPessoas((ps as Pessoa[]) ?? []);
@@ -88,6 +94,8 @@ function CockpitConteudo() {
     setOkrRealizados((okra as OkrRealizadoLite[]) ?? []);
     setMonetMetas((mm as MonetMeta[]) ?? []);
     setMonetOps((mo as MonetOp[]) ?? []);
+    setChurnSol((chs as unknown as ChurnSolLite[]) ?? []);
+    setChurnBase(chb ? Number((chb as { mrr_base: number }).mrr_base) : null);
     setLoading(false);
   }
 
@@ -141,7 +149,18 @@ function CockpitConteudo() {
     return { pct: Math.round((batidas / metasEmpresa.length) * 100), batidas, total: metasEmpresa.length };
   }, [metasEmpresa]);
 
-  const churnAtual = metasEmpresa.find((m) => m.metrica === "churn")?.valor_realizado ?? null;
+  // Mesma conta da aba Churn: Planejado = em retenção + confirmado (revertido não entra),
+  // sobre o MRR travado do mês (ou o MRR de hoje enquanto o mês não fecha)
+  const churn = useMemo(() => {
+    const lista = churnSol.filter((s) => s.status !== "revertido"
+      && (!squadFiltro || s.cliente?.squad_id === squadFiltro));
+    const planejado = lista.reduce((a, s) => a + (Number(s.mrr) || 0), 0);
+    const confirmado = lista.filter((s) => s.status === "confirmado").reduce((a, s) => a + (Number(s.mrr) || 0), 0);
+    const base = squadFiltro ? mrrTotal : churnBase ?? mrrTotal;
+    const pct = (v: number) => (base > 0 ? (v / base) * 100 : null);
+    return { planejado, confirmado, pctPlanejado: pct(planejado), pctConfirmado: pct(confirmado) };
+  }, [churnSol, churnBase, squadFiltro, mrrTotal]);
+  const fmtPct = (v: number | null) => v == null ? "—" : `${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
 
   const fcaContagem = useMemo(() => {
     const verde = fcasFiltrados.filter((f) => f.bandeira === "verde").length;
@@ -340,11 +359,19 @@ function CockpitConteudo() {
             </div>
           )}
 
-          <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
             <KPI label="MRR total" valor={formatBRL(mrrTotal)} cor="text-brand" sublabel={`${clientesAtivos} clientes ativos`} />
             <KPI label="Ticket médio" valor={formatBRL(ticketMedio)} sublabel="MRR ÷ clientes" />
-            <KPI label="Churn" valor={churnAtual != null ? `${churnAtual}%` : "—"}
-              cor={churnAtual != null && churnAtual <= 5 ? "text-emerald-300" : "text-red-300"} sublabel="meta ≤ 5%" />
+            <a href="/churn" className="block hover:brightness-125 transition">
+              <KPI label="Churn Planejado" valor={fmtPct(churn.pctPlanejado)}
+                cor={churn.pctPlanejado != null && churn.pctPlanejado <= 5 ? "text-emerald-300" : "text-red-300"}
+                sublabel={`${formatBRL(churn.planejado)} · meta ≤ 5%`} />
+            </a>
+            <a href="/churn" className="block hover:brightness-125 transition">
+              <KPI label="Churn confirmado" valor={fmtPct(churn.pctConfirmado)}
+                cor={churn.pctConfirmado != null && churn.pctConfirmado <= 5 ? "text-emerald-300" : "text-red-400"}
+                sublabel={formatBRL(churn.confirmado)} />
+            </a>
             <KPI label="FCA médio" valor={fcaMedio != null ? fcaMedio.toFixed(2) : "—"}
               cor={fcaMedio == null ? "text-brand-muted" : fcaMedio >= 8 ? "text-emerald-300" : fcaMedio >= 6 ? "text-amber-300" : "text-red-300"}
               sublabel={`${fcaContagem.verde}🟢 ${fcaContagem.amarelo}🟡 ${fcaContagem.vermelho}🔴`} />

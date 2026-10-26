@@ -278,7 +278,7 @@ export default function ChurnPage() {
             </>
           )}
         </div>
-        <Stat label="% Churn do mês" valor={formatPct(resumo.pctChurn)} cor="text-red-300"
+        <Stat label="% Churn Planejado" valor={formatPct(resumo.pctChurn)} cor="text-red-300"
           sub={`${base.situacao === "parcial" ? "parcial · " : ""}em retenção + confirmado`} />
         <Stat label="% Churn confirmado" valor={formatPct(resumo.pctConfirmado)} cor="text-red-400"
           sub={formatBRL(resumo.mrrConfirmado)} />
@@ -377,7 +377,7 @@ export default function ChurnPage() {
               <th className="px-4 py-3">MRR base</th>
               <th className="px-4 py-3">Solicitações</th>
               <th className="px-4 py-3">MRR em churn</th>
-              <th className="px-4 py-3">% Churn</th>
+              <th className="px-4 py-3">% Planejado</th>
               <th className="px-4 py-3">% Confirmado</th>
             </tr>
           </thead>
