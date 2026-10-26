@@ -330,6 +330,7 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
                       {r.hora && <span className="ml-2 text-[10px] text-brand-muted">{r.hora.slice(0, 5)}</span>}
                       {r.origem === "google_meet" && <span className="ml-2 rounded bg-sky-500/15 px-1.5 text-[10px] text-sky-300">🎥 Meet</span>}
                       {r.origem === "audio" && <span className="ml-2 rounded bg-sky-500/15 px-1.5 text-[10px] text-sky-300">🎙 Áudio</span>}
+                      {r.origem === "telefone" && <span className="ml-2 rounded bg-sky-500/15 px-1.5 text-[10px] text-sky-300">📞 1:1 telefone</span>}
                       {r.interna && <span className="ml-2 rounded bg-white/10 px-1.5 text-[10px] text-brand-muted">interna</span>}
                     </p>
                     {r.titulo && <p className="text-xs text-gray-300">{r.titulo}</p>}
@@ -365,6 +366,12 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
                     <p className="text-[10px] uppercase tracking-wide text-brand-muted">Próximos passos</p>
                     <p className="text-xs whitespace-pre-wrap">{r.proximos_passos}</p>
                   </div>
+                )}
+                {r.origem === "telefone" && r.transcricao && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-[11px] text-brand">Ver resumo escrito pelo coordenador</summary>
+                    <p className="mt-1 text-xs whitespace-pre-wrap text-gray-300">{r.transcricao}</p>
+                  </details>
                 )}
                 {r.analise_ia && (
                   <details className="mt-2">

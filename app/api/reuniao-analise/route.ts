@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { exigirPerfil } from "@/lib/apiAuth";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { chamarClaude, colunasDaAnalise, promptReuniao, type AnaliseReuniao } from "@/lib/analiseIA";
 
 export const runtime = "nodejs";
@@ -19,10 +19,14 @@ export async function POST(req: Request) {
   const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 
   if (!SB_URL || !SB_SERVICE) return NextResponse.json({ error: "Supabase nao configurado" }, { status: 500 });
-  if (!OPENAI_KEY) return NextResponse.json({ error: "OPENAI_API_KEY nao configurada" }, { status: 500 });
   if (!ANTHROPIC_KEY) return NextResponse.json({ error: "ANTHROPIC_API_KEY nao configurada" }, { status: 500 });
 
   const supabase = createClient(SB_URL, SB_SERVICE, { auth: { persistSession: false } });
+
+  // 1:1 por telefone: o coordenador manda o resumo da conversa em texto (sem áudio)
+  if ((req.headers.get("content-type") ?? "").includes("application/json")) {
+    return resumo1a1(req, supabase, ANTHROPIC_KEY);
+  }
 
   let body: any;
   try {
@@ -32,6 +36,7 @@ export async function POST(req: Request) {
     const clienteNome = formData.get("cliente_nome") as string;
     const tipoReuniao = formData.get("tipo_reuniao") as string || "periodica";
 
+    if (!OPENAI_KEY) return NextResponse.json({ error: "OPENAI_API_KEY nao configurada" }, { status: 500 });
     if (!file) return NextResponse.json({ error: "Arquivo de audio nao enviado" }, { status: 400 });
     if (!clienteId) return NextResponse.json({ error: "cliente_id obrigatorio" }, { status: 400 });
 
@@ -96,4 +101,41 @@ export async function POST(req: Request) {
     console.error("[reuniao-analise] erro:", e);
     return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
   }
+}
+
+async function resumo1a1(req: Request, supabase: SupabaseClient, anthropicKey: string) {
+  let body: any;
+  try { body = await req.json(); } catch { return NextResponse.json({ error: "JSON inválido" }, { status: 400 }); }
+  const resumo = String(body?.resumo ?? "").trim();
+  if (!body?.cliente_id) return NextResponse.json({ error: "cliente_id obrigatorio" }, { status: 400 });
+  if (resumo.length < 50) return NextResponse.json({ error: "Escreva um resumo com pelo menos algumas frases" }, { status: 400 });
+
+  let analise: AnaliseReuniao;
+  let tokens = { tokens_entrada: 0, tokens_saida: 0 };
+  try {
+    const r = await chamarClaude(
+      promptReuniao({ cliente: body.cliente_nome ?? "", interna: false, transcricao: resumo, resumo1a1: true }),
+      anthropicKey,
+    );
+    analise = r.json;
+    tokens = { tokens_entrada: r.tokens_entrada, tokens_saida: r.tokens_saida };
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
+  }
+
+  const { data: reuniao, error } = await supabase.from("ruston_reunioes_cliente").insert({
+    cliente_id: body.cliente_id,
+    tipo_reuniao: body.tipo_reuniao || "periodica",
+    origem: "telefone",
+    titulo: "1:1 por telefone",
+    data_reuniao: body.data_reuniao || new Date().toISOString().slice(0, 10),
+    duracao_minutos: Number(body.duracao_minutos) || null,
+    presentes: body.presentes || null,
+    realizada: true,
+    transcricao: resumo.slice(0, 100000),
+    ...colunasDaAnalise(analise, tokens),
+  }).select("id").single();
+
+  if (error) return NextResponse.json({ ok: true, analise, saved: false, error: error.message });
+  return NextResponse.json({ ok: true, analise, saved: true, reuniao_id: reuniao?.id });
 }

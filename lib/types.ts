@@ -151,7 +151,7 @@ export interface ReuniaoCliente {
   created_at: string;
   updated_at: string;
   // Reuniões do Google Meet / análise de IA (migration 005)
-  origem?: "manual" | "audio" | "google_meet";
+  origem?: "manual" | "audio" | "google_meet" | "telefone";
   titulo?: string | null;
   interna?: boolean;
   participantes?: string[] | null;
@@ -160,6 +160,7 @@ export interface ReuniaoCliente {
   risco_churn?: string | null;
   analise_ia?: any | null;
   analisado_em?: string | null;
+  transcricao?: string | null;
 }
 
 export interface ReuniaoStatus {

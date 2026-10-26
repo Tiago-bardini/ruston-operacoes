@@ -96,8 +96,12 @@ export async function chamarClaude(prompt: string, apiKey: string, maxTokens = 6
 }
 
 /** Prompt da reunião. `interna` = só o time Ruston/V4 falando sobre o cliente. */
-export function promptReuniao(opts: { cliente: string; titulo?: string; interna: boolean; transcricao: string }) {
-  const contexto = opts.interna
+export function promptReuniao(opts: { cliente: string; titulo?: string; interna: boolean; transcricao: string; resumo1a1?: boolean }) {
+  const contexto = opts.resumo1a1
+    ? `Esta foi uma conversa 1:1 por telefone entre o coordenador da Ruston e o cliente "${opts.cliente}".
+Não há transcrição: o texto abaixo é o RESUMO escrito pelo coordenador depois da ligação. Analise o cliente pelo que ele relatou.
+Em "conducao", avalie pelo resumo se a conversa fechou próximos passos com dono e prazo (sem informação, nota 3).`
+    : opts.interna
     ? `Esta é uma reunião INTERNA do time Ruston sobre o cliente "${opts.cliente}" (o cliente não estava presente).
 Avalie o cliente pelo que o time relatou dele. Em "conducao", avalie se a reunião interna gerou um plano claro.`
     : `Esta é uma reunião entre o time Ruston e o cliente "${opts.cliente}".`;
@@ -130,7 +134,7 @@ ${REGRAS_EXTRAS}
 - Se não identificar algo, use lista vazia, false ou "nenhum"/"nenhuma"
 - Português brasileiro, direto e prático
 
-Transcrição:
+${opts.resumo1a1 ? "Resumo do coordenador" : "Transcrição"}:
 ${opts.transcricao.slice(0, 150000)}`;
 }
 
