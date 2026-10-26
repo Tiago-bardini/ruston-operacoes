@@ -276,7 +276,8 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
                 </div>
               )}
             </div>
-            {!podeEditar ? null : !editandoCadencia ? (
+            {/* Cadência: investidor também pode ajustar */}
+            {!editandoCadencia ? (
               <button className="text-xs text-brand hover:text-red-400"
                 onClick={() => setEditandoCadencia(true)}>editar</button>
             ) : (

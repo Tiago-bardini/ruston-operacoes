@@ -5,6 +5,9 @@ import { createClient } from "@/lib/supabase/client";
 import type { MetaEmpresa, MetaSquad, Squad, UnidadeMeta, NivelSenioridade, VersaoV, Pessoa } from "@/lib/types";
 import { MESES_LABEL, UNIDADE_LABEL, NIVEL_LABEL, V_LABEL, CARGO_LABEL } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
+import {
+  CATALOGO_EMPRESA, CATALOGO_SQUAD, sincronizarMetasAgregadas, regraAuto, type ValorAuto,
+} from "@/lib/metasAgregadas";
 
 type Tab = "empresa" | "squads" | "okrs" | "investidores" | "comparativo" | "ranking";
 
@@ -14,41 +17,6 @@ const ANOS = [ANO_ATUAL - 1, ANO_ATUAL, ANO_ATUAL + 1];
 
 const NIVEIS: NivelSenioridade[] = ["junior", "pleno", "senior", "especialista"];
 const VS: VersaoV[] = ["v1", "v2", "v3", "v4"];
-
-const CATALOGO_EMPRESA: {
-  metrica: string; label: string; unidade: UnidadeMeta; valor: number; ordem: number;
-}[] = [
-  { metrica: "churn",                  label: "Churn",                                    unidade: "percentual", valor: 5,     ordem: 1 },
-  { metrica: "respostas_pesquisa",     label: "Respostas nas pesquisas de satisfação",    unidade: "percentual", valor: 80,    ordem: 2 },
-  { metrica: "nps_medio",              label: "NPS Médio",                                unidade: "nota",       valor: 8.5,   ordem: 3 },
-  { metrica: "csat_medio",             label: "CSAT Médio",                               unidade: "nota",       valor: 4,     ordem: 4 },
-  { metrica: "clientes_safe",          label: "Clientes em Safe",                         unidade: "percentual", valor: 60,    ordem: 5 },
-  { metrica: "clientes_roi_positivo",  label: "Clientes com ROI Positivo",                unidade: "percentual", valor: 50,    ordem: 6 },
-  { metrica: "timer",                  label: "Timer",                                    unidade: "percentual", valor: 85,    ordem: 7 },
-  { metrica: "upsell_mrr",             label: "Upsell MRR",                               unidade: "reais",      valor: 15000, ordem: 8 },
-  { metrica: "upsell_one_time",        label: "Upsell One Time",                          unidade: "reais",      valor: 30000, ordem: 9 },
-  { metrica: "indicacoes",             label: "Indicações",                               unidade: "quantidade", valor: 20,    ordem: 10 },
-  { metrica: "renovacao_contratos",    label: "Taxa de renovação de contratos",           unidade: "percentual", valor: 80,    ordem: 11 },
-  { metrica: "cumprimento_okrs_time",  label: "Cumprimento agregado das OKRs do time",    unidade: "percentual", valor: 70,    ordem: 12 },
-];
-
-const CATALOGO_SQUAD: {
-  metrica: string; label: string; unidade: UnidadeMeta; valor: number; ordem: number;
-}[] = [
-  { metrica: "churn",                  label: "Churn",                                    unidade: "percentual", valor: 5,      ordem: 1 },
-  { metrica: "respostas_pesquisa",     label: "Respostas nas pesquisas de satisfação",    unidade: "percentual", valor: 80,     ordem: 2 },
-  { metrica: "nps_medio",              label: "NPS Médio",                                unidade: "nota",       valor: 8.5,    ordem: 3 },
-  { metrica: "csat_medio",             label: "CSAT Médio",                               unidade: "nota",       valor: 4,      ordem: 4 },
-  { metrica: "clientes_safe",          label: "Clientes em Safe",                         unidade: "percentual", valor: 60,     ordem: 5 },
-  { metrica: "clientes_roi_positivo",  label: "Clientes com ROI Positivo",                unidade: "percentual", valor: 50,     ordem: 6 },
-  { metrica: "timer",                  label: "Timer",                                    unidade: "percentual", valor: 85,     ordem: 7 },
-  { metrica: "upsell_mrr",             label: "Upsell MRR",                               unidade: "reais",      valor: 7500,   ordem: 8 },
-  { metrica: "upsell_one_time",        label: "Upsell One Time",                          unidade: "reais",      valor: 15000,  ordem: 9 },
-  { metrica: "indicacoes",             label: "Indicações",                               unidade: "quantidade", valor: 10,     ordem: 10 },
-  { metrica: "renovacao_contratos",    label: "Taxa de renovação de contratos",           unidade: "percentual", valor: 80,     ordem: 11 },
-  { metrica: "cumprimento_okrs_time",  label: "Cumprimento agregado das OKRs do time",    unidade: "percentual", valor: 70,     ordem: 12 },
-  { metrica: "mrr_gerenciado_trio",    label: "MRR gerenciado por trio (por trio)",       unidade: "reais",      valor: 100000, ordem: 13 },
-];
 
 const METRICAS_MENOR_MELHOR = new Set(["churn"]);
 
@@ -120,11 +88,15 @@ function TabEmpresa() {
   const [ano, setAno] = useState(ANO_ATUAL);
   const [mes, setMes] = useState(MES_ATUAL);
   const [metas, setMetas] = useState<MetaEmpresa[]>([]);
+  const [auto, setAuto] = useState<Record<string, ValorAuto>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
+    // Realizado automático a partir dos investidores (grava antes de ler)
+    const ag = await sincronizarMetasAgregadas(supabase, ano, mes);
+    setAuto(ag.empresa);
     const { data } = await supabase
       .from("ruston_metas_empresa")
       .select("*")
@@ -182,6 +154,7 @@ function TabEmpresa() {
       onValorMeta={(m, v) => atualizarValor(m as MetaEmpresa, "valor_meta", v ?? 0)}
       onValorRealizado={(m, v) => atualizarValor(m as MetaEmpresa, "valor_realizado", v)}
       onObs={(m, o) => atualizarObs(m as MetaEmpresa, o)}
+      auto={auto}
     />
   );
 }
@@ -195,6 +168,7 @@ function TabSquads() {
   const [ano, setAno] = useState(ANO_ATUAL);
   const [mes, setMes] = useState(MES_ATUAL);
   const [metas, setMetas] = useState<MetaSquad[]>([]);
+  const [auto, setAuto] = useState<Record<string, ValorAuto>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
 
@@ -211,6 +185,8 @@ function TabSquads() {
   async function load() {
     if (!squadId) return;
     setLoading(true);
+    const ag = await sincronizarMetasAgregadas(supabase, ano, mes);
+    setAuto(ag.squads[squadId] ?? {});
     const { data } = await supabase
       .from("ruston_metas_squad")
       .select("*")
@@ -289,6 +265,7 @@ function TabSquads() {
         onValorMeta={(m, v) => atualizarValor(m as MetaSquad, "valor_meta", v ?? 0)}
         onValorRealizado={(m, v) => atualizarValor(m as MetaSquad, "valor_realizado", v)}
         onObs={(m, o) => atualizarObs(m as MetaSquad, o)}
+        auto={auto}
       />
     </div>
   );
@@ -647,7 +624,7 @@ function TabelaMetas({
   metas, loading, saving,
   ano, mes,
   onMesChange, onAnoChange,
-  onValorMeta, onValorRealizado, onObs,
+  onValorMeta, onValorRealizado, onObs, auto = {},
 }: {
   metas: MetaLike[];
   loading: boolean;
@@ -659,6 +636,7 @@ function TabelaMetas({
   onValorMeta: (m: MetaLike, v: number | null) => void;
   onValorRealizado: (m: MetaLike, v: number | null) => void;
   onObs: (m: MetaLike, o: string) => void;
+  auto?: Record<string, ValorAuto>;
 }) {
   const bateu = (m: MetaLike) => {
     if (m.valor_realizado == null) return false;
@@ -721,13 +699,29 @@ function TabelaMetas({
                     />
                   </td>
                   <td className="px-4 py-3">
-                    <InputMeta
-                      valor={m.valor_realizado}
-                      unidade={m.unidade}
-                      onSalvar={(v) => onValorRealizado(m, v)}
-                      salvando={saving === m.id}
-                      placeholder="—"
-                    />
+                    {auto[m.metrica] ? (
+                      <div title="Calculado a partir do realizado dos investidores">
+                        <p className="font-semibold">
+                          {formatValor(auto[m.metrica].valor, m.unidade)}
+                        </p>
+                        <p className="text-[10px] text-sky-300">
+                          🔄 automático · {regraAuto(m.metrica)} ({auto[m.metrica].investidores})
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <InputMeta
+                          valor={m.valor_realizado}
+                          unidade={m.unidade}
+                          onSalvar={(v) => onValorRealizado(m, v)}
+                          salvando={saving === m.id}
+                          placeholder="—"
+                        />
+                        {regraAuto(m.metrica) && (
+                          <p className="mt-0.5 text-[10px] text-brand-muted">manual até um investidor lançar</p>
+                        )}
+                      </>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     {m.valor_realizado == null && <span className="text-xs text-brand-muted">Sem dado</span>}
@@ -1353,6 +1347,8 @@ function TabInvestidores() {
         pessoa_id: pessoaId, metrica_id: metricaId, ano, mes, valor_realizado: valor,
       });
     }
+    // Squad e Empresa são calculados a partir dos investidores
+    await sincronizarMetasAgregadas(supabase, ano, mes);
     setSaving(null);
     load();
   }

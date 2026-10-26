@@ -79,7 +79,8 @@ export default function EntregasPage() {
           clientes={clientesFiltrados}
           tipos={tipos}
           entregas={entregas}
-          podeEditar={podeEditar}
+          // Investidor também edita as entregas dos clientes (o catálogo segue só gestão)
+          podeEditar
           onChanged={load}
         />
       )}
