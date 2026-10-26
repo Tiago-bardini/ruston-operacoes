@@ -279,7 +279,7 @@ export default function ChurnPage() {
           )}
         </div>
         <Stat label="% Churn Planejado" valor={formatPct(resumo.pctChurn)} cor="text-red-300"
-          sub={`${base.situacao === "parcial" ? "parcial · " : ""}em retenção + confirmado`} />
+          sub={`${formatBRL(resumo.mrrChurn)} · ${base.situacao === "parcial" ? "parcial · " : ""}em retenção + confirmado`} />
         <Stat label="% Churn confirmado" valor={formatPct(resumo.pctConfirmado)} cor="text-red-400"
           sub={formatBRL(resumo.mrrConfirmado)} />
       </div>
