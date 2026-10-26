@@ -69,7 +69,14 @@ const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCa
 const menorMelhor = (nome: string) => { const n = norm(nome); return n.includes("churn") || n.includes("refacao"); };
 
 export type ValorAuto = { valor: number; investidores: number };
-export type ResultadoAgregado = { empresa: Record<string, ValorAuto>; squads: Record<string, Record<string, ValorAuto>> };
+/** Quantos investidores deveriam lançar cada métrica (cargo tem a métrica na régua) */
+export type Esperados = Record<string, number>;
+export type ResultadoAgregado = {
+  empresa: Record<string, ValorAuto>;
+  squads: Record<string, Record<string, ValorAuto>>;
+  esperadosEmpresa: Esperados;
+  esperadosSquad: Record<string, Esperados>;
+};
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export async function calcularMetasAgregadas(supabase: SupabaseClient, ano: number, mes: number): Promise<ResultadoAgregado> {
@@ -120,7 +127,29 @@ export async function calcularMetasAgregadas(supabase: SupabaseClient, ano: numb
   new Set(linhas.map((x) => x.squad).filter(Boolean) as string[]).forEach((s) => {
     squads[s] = agregar(linhas.filter((x) => x.squad === s));
   });
-  return { empresa: agregar(linhas), squads };
+
+  // Investidores esperados por métrica: pessoas ativas cujo cargo tem a métrica na régua
+  const nomesPorCargo = new Map<string, Set<string>>();
+  metricas.forEach((m: any) => {
+    if (!nomesPorCargo.has(m.cargo)) nomesPorCargo.set(m.cargo, new Set());
+    nomesPorCargo.get(m.cargo)!.add(norm(m.nome));
+  });
+  function esperados(lista: any[]): Esperados {
+    const out: Esperados = {};
+    for (const [metrica, o] of Object.entries(ORIGEM_INVESTIDOR)) {
+      const n = lista.filter((p) => o.nomes.some((x) => nomesPorCargo.get(p.cargo)?.has(x))).length;
+      if (n) out[metrica] = n;
+    }
+    const comRegua = lista.filter((p) => nomesPorCargo.has(p.cargo)).length;
+    if (comRegua) out[METRICA_CUMPRIMENTO] = comRegua;
+    return out;
+  }
+  const todas = Array.from(pessoas.values());
+  const esperadosSquad: Record<string, Esperados> = {};
+  new Set(todas.map((p: any) => p.squad_id).filter(Boolean) as string[]).forEach((s) => {
+    esperadosSquad[s] = esperados(todas.filter((p: any) => p.squad_id === s));
+  });
+  return { empresa: agregar(linhas), squads, esperadosEmpresa: esperados(todas), esperadosSquad };
 }
 
 /** Grava o realizado automático nas metas de Squad e Empresa do mês (cria as linhas que faltarem). */

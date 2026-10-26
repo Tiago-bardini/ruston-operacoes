@@ -89,6 +89,7 @@ function TabEmpresa() {
   const [mes, setMes] = useState(MES_ATUAL);
   const [metas, setMetas] = useState<MetaEmpresa[]>([]);
   const [auto, setAuto] = useState<Record<string, ValorAuto>>({});
+  const [esperados, setEsperados] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
 
@@ -97,6 +98,7 @@ function TabEmpresa() {
     // Realizado automático a partir dos investidores (grava antes de ler)
     const ag = await sincronizarMetasAgregadas(supabase, ano, mes);
     setAuto(ag.empresa);
+    setEsperados(ag.esperadosEmpresa);
     const { data } = await supabase
       .from("ruston_metas_empresa")
       .select("*")
@@ -155,6 +157,7 @@ function TabEmpresa() {
       onValorRealizado={(m, v) => atualizarValor(m as MetaEmpresa, "valor_realizado", v)}
       onObs={(m, o) => atualizarObs(m as MetaEmpresa, o)}
       auto={auto}
+      esperados={esperados}
     />
   );
 }
@@ -169,6 +172,7 @@ function TabSquads() {
   const [mes, setMes] = useState(MES_ATUAL);
   const [metas, setMetas] = useState<MetaSquad[]>([]);
   const [auto, setAuto] = useState<Record<string, ValorAuto>>({});
+  const [esperados, setEsperados] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
 
@@ -187,6 +191,7 @@ function TabSquads() {
     setLoading(true);
     const ag = await sincronizarMetasAgregadas(supabase, ano, mes);
     setAuto(ag.squads[squadId] ?? {});
+    setEsperados(ag.esperadosSquad[squadId] ?? {});
     const { data } = await supabase
       .from("ruston_metas_squad")
       .select("*")
@@ -266,6 +271,7 @@ function TabSquads() {
         onValorRealizado={(m, v) => atualizarValor(m as MetaSquad, "valor_realizado", v)}
         onObs={(m, o) => atualizarObs(m as MetaSquad, o)}
         auto={auto}
+        esperados={esperados}
       />
     </div>
   );
@@ -624,7 +630,7 @@ function TabelaMetas({
   metas, loading, saving,
   ano, mes,
   onMesChange, onAnoChange,
-  onValorMeta, onValorRealizado, onObs, auto = {},
+  onValorMeta, onValorRealizado, onObs, auto = {}, esperados = {},
 }: {
   metas: MetaLike[];
   loading: boolean;
@@ -637,6 +643,7 @@ function TabelaMetas({
   onValorRealizado: (m: MetaLike, v: number | null) => void;
   onObs: (m: MetaLike, o: string) => void;
   auto?: Record<string, ValorAuto>;
+  esperados?: Record<string, number>;
 }) {
   const bateu = (m: MetaLike) => {
     if (m.valor_realizado == null) return false;
@@ -705,8 +712,21 @@ function TabelaMetas({
                           {formatValor(auto[m.metrica].valor, m.unidade)}
                         </p>
                         <p className="text-[10px] text-sky-300">
-                          🔄 automático · {regraAuto(m.metrica)} ({auto[m.metrica].investidores})
+                          🔄 automático · {regraAuto(m.metrica)}
                         </p>
+                        {esperados[m.metrica] ? (
+                          auto[m.metrica].investidores >= esperados[m.metrica] ? (
+                            <p className="text-[10px] text-emerald-300">
+                              ✓ completo · {auto[m.metrica].investidores} de {esperados[m.metrica]} investidores
+                            </p>
+                          ) : (
+                            <p className="text-[10px] text-amber-300">
+                              parcial · {auto[m.metrica].investidores} de {esperados[m.metrica]} investidores lançaram
+                            </p>
+                          )
+                        ) : (
+                          <p className="text-[10px] text-brand-muted">{auto[m.metrica].investidores} investidores</p>
+                        )}
                       </div>
                     ) : (
                       <>
@@ -718,7 +738,9 @@ function TabelaMetas({
                           placeholder="—"
                         />
                         {regraAuto(m.metrica) && (
-                          <p className="mt-0.5 text-[10px] text-brand-muted">manual até um investidor lançar</p>
+                          <p className="mt-0.5 text-[10px] text-brand-muted">
+                            manual até um investidor lançar{esperados[m.metrica] ? ` · 0 de ${esperados[m.metrica]}` : ""}
+                          </p>
                         )}
                       </>
                     )}
