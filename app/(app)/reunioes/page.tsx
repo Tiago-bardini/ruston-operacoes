@@ -330,7 +330,7 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
                       {r.hora && <span className="ml-2 text-[10px] text-brand-muted">{r.hora.slice(0, 5)}</span>}
                       {r.origem === "google_meet" && <span className="ml-2 rounded bg-sky-500/15 px-1.5 text-[10px] text-sky-300">🎥 Meet</span>}
                       {r.origem === "audio" && <span className="ml-2 rounded bg-sky-500/15 px-1.5 text-[10px] text-sky-300">🎙 Áudio</span>}
-                      {r.origem === "telefone" && <span className="ml-2 rounded bg-sky-500/15 px-1.5 text-[10px] text-sky-300">📞 1:1 telefone</span>}
+                      {r.origem === "telefone" && <span className="ml-2 rounded bg-sky-500/15 px-1.5 text-[10px] text-sky-300">📞 1:1 COO X Cliente</span>}
                       {r.interna && <span className="ml-2 rounded bg-white/10 px-1.5 text-[10px] text-brand-muted">interna</span>}
                     </p>
                     {r.titulo && <p className="text-xs text-gray-300">{r.titulo}</p>}

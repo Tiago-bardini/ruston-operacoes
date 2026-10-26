@@ -116,7 +116,7 @@ export default function AnaliseReunioesPage() {
       <p className="text-zinc-400 text-sm">Suba o audio da reuniao e a IA transcreve, analisa sentimento, identifica decisoes e gera follow-ups automaticamente.</p>
 
       <div className="flex gap-2">
-        {([["audio", "🎙 Áudio da reunião"], ["telefone", "📞 1:1 por telefone"]] as const).map(([k, label]) => (
+        {([["audio", "🎙 Áudio da reunião"], ["telefone", "📞 1:1 COO X Cliente"]] as const).map(([k, label]) => (
           <button key={k}
             className={`rounded px-4 py-2 text-sm border ${modo === k ? "bg-blue-600 border-blue-500 text-white" : "bg-zinc-900 border-zinc-700 text-zinc-300 hover:bg-zinc-800"}`}
             onClick={() => { setModo(k); setResultado(null); setErro(null); setSalvo(false); }}>
