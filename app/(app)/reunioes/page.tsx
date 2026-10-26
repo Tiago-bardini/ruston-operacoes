@@ -11,6 +11,7 @@ import {
 } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 import { SelosAnalise, DetalhesAnalise } from "@/components/AnaliseIA";
+import { Form1a1, Modal1a1 } from "@/components/reunioes/Form1a1";
 
 export default function ReunioesPage() {
   const supabase = createClient();
@@ -23,6 +24,7 @@ export default function ReunioesPage() {
   const [modalCliente, setModalCliente] = useState<ReuniaoStatus | null>(null);
   const { isGerente, podeEditar, squadId: perfilSquadId } = useUsuarioPerfil();
   const [semCliente, setSemCliente] = useState<ReuniaoCliente[]>([]);
+  const [novo1a1, setNovo1a1] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -63,12 +65,24 @@ export default function ReunioesPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Reuniões com Cliente</h1>
-        <p className="text-sm text-brand-muted">
-          Cadência de contato · foco em manter frequência e evitar churn silencioso
-        </p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Reuniões com Cliente</h1>
+          <p className="text-sm text-brand-muted">
+            Cadência de contato · foco em manter frequência e evitar churn silencioso
+          </p>
+        </div>
+        {podeEditar && (
+          <button className="btn" onClick={() => setNovo1a1(true)}>📞 1:1 COO X Cliente</button>
+        )}
       </div>
+
+      {novo1a1 && (
+        <Modal1a1
+          clientes={statusList.filter((s) => isGerente || !perfilSquadId || s.cliente_squad_id === perfilSquadId)}
+          onFechar={() => setNovo1a1(false)}
+          onSalvo={() => { setNovo1a1(false); load(); }} />
+      )}
 
       {/* Cards de status */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -201,6 +215,7 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
   const [reunioes, setReunioes] = useState<ReuniaoCliente[]>([]);
   const [loading, setLoading] = useState(true);
   const [novaReuniao, setNovaReuniao] = useState(false);
+  const [novo1a1, setNovo1a1] = useState(false);
   const [editandoCadencia, setEditandoCadencia] = useState(false);
   const [novaCadencia, setNovaCadencia] = useState(statusCliente.cadencia_dias);
   const [novoTipoCadencia, setNovoTipoCadencia] = useState(statusCliente.tipo_cadencia);
@@ -294,11 +309,22 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
         <div className="mb-3 flex items-center justify-between">
           <p className="text-sm font-semibold">Histórico · {reunioes.length} reuniões</p>
           {podeEditar && (
-            <button className="btn text-xs" onClick={() => setNovaReuniao(!novaReuniao)}>
-              {novaReuniao ? "Fechar" : "+ Nova reunião"}
-            </button>
+            <div className="flex gap-2">
+              <button className="btn-ghost text-xs" onClick={() => { setNovo1a1(!novo1a1); setNovaReuniao(false); }}>
+                {novo1a1 ? "Fechar 1:1" : "📞 1:1 COO X Cliente"}
+              </button>
+              <button className="btn text-xs" onClick={() => { setNovaReuniao(!novaReuniao); setNovo1a1(false); }}>
+                {novaReuniao ? "Fechar" : "+ Nova reunião"}
+              </button>
+            </div>
           )}
         </div>
+
+        {podeEditar && novo1a1 && (
+          <Form1a1 clienteId={statusCliente.cliente_id} clienteNome={statusCliente.cliente_nome}
+            onSalvo={() => { setNovo1a1(false); loadReunioes(); onAtualizado(); }}
+            onCancelar={() => setNovo1a1(false)} />
+        )}
 
         {podeEditar && novaReuniao && (
           <FormReuniao
