@@ -127,7 +127,7 @@ async function resumo1a1(req: Request, supabase: SupabaseClient, anthropicKey: s
     cliente_id: body.cliente_id,
     tipo_reuniao: body.tipo_reuniao || "periodica",
     origem: "telefone",
-    titulo: "1:1 por telefone",
+    titulo: "1:1 COO X Cliente",
     data_reuniao: body.data_reuniao || new Date().toISOString().slice(0, 10),
     duracao_minutos: Number(body.duracao_minutos) || null,
     presentes: body.presentes || null,
