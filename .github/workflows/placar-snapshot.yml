@@ -1,0 +1,16 @@
+name: Placar Semanal dos Squads
+
+on:
+  schedule:
+    - cron: '0 9 * * 6'  # 9h UTC = 6h BRT, todo sábado
+  workflow_dispatch:
+
+jobs:
+  placar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gravar nota da semana que fechou
+        run: |
+          curl -s -f -X GET "https://ruston-operacoes.vercel.app/api/placar-snapshot" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            --max-time 60
