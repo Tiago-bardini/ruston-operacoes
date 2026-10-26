@@ -59,6 +59,26 @@ export async function efetivarChurn(
   return e;
 }
 
+/** Cliente foi para "Em Retenção" na Carteira: abre a solicitação de churn com status
+ *  Em retenção no mês de hoje (entra no Churn do mês). Não duplica se já houver uma em aberto. */
+export async function abrirRetencao(supabase: SupabaseClient, cliente: { id: string; mrr: number | string | null }) {
+  const { data: aberta } = await supabase.from("ruston_churn_solicitacoes")
+    .select("id").eq("cliente_id", cliente.id).in("status", ["solicitado", "em_retencao"])
+    .limit(1).maybeSingle();
+  if (aberta) return null;
+  const h = new Date();
+  const { error } = await supabase.from("ruston_churn_solicitacoes").insert({
+    cliente_id: cliente.id,
+    data_solicitacao: `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`,
+    ano: h.getFullYear(),
+    mes: h.getMonth() + 1,
+    mrr: Number(cliente.mrr) || 0,
+    status: "em_retencao",
+    observacoes: "Movido para Em Retenção na Carteira",
+  });
+  return error;
+}
+
 /* ============================== CHURN LIST ============================== */
 
 export function ChurnList({ clientes, onMarkarSubiu, onReativar }: {

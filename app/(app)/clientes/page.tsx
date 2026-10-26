@@ -8,7 +8,7 @@ import {
   statusVencimento, diasParaVencimento, STATUS_VENCIMENTO_COLOR,
 } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
-import { ModalSubirChurn, efetivarChurn } from "@/components/churn/ChurnEfetivado";
+import { ModalSubirChurn, efetivarChurn, abrirRetencao } from "@/components/churn/ChurnEfetivado";
 
 const ETAPAS: EtapaCliente[] = ["onboarding", "estruturacao_estrategica", "byline", "em_recuperacao", "suspenso"];
 const TIERS: TierCliente[] = ["tiny", "small", "medium", "large"];
@@ -101,9 +101,14 @@ export default function ClientesPage() {
       observacoes: form.observacoes || null,
     };
     if (editingId) {
-      await supabase.from("ruston_clientes").update(payload).eq("id", editingId);
+      const antes = clientes.find((c) => c.id === editingId);
+      const { error } = await supabase.from("ruston_clientes").update(payload).eq("id", editingId);
+      if (!error && payload.etapa === "em_recuperacao" && antes?.etapa !== "em_recuperacao") {
+        await abrirRetencao(supabase, { id: editingId, mrr: payload.mrr });
+      }
     } else {
-      await supabase.from("ruston_clientes").insert(payload);
+      const { data: novo } = await supabase.from("ruston_clientes").insert(payload).select("id").maybeSingle();
+      if (novo && payload.etapa === "em_recuperacao") await abrirRetencao(supabase, { id: novo.id, mrr: payload.mrr });
     }
     setForm(emptyForm);
     setFormOpen(false);
@@ -137,7 +142,9 @@ export default function ClientesPage() {
   }
 
   async function moveEtapa(c: ClienteView, etapa: EtapaCliente) {
-    await supabase.from("ruston_clientes").update({ etapa }).eq("id", c.id);
+    const { error } = await supabase.from("ruston_clientes").update({ etapa }).eq("id", c.id);
+    // Em Retenção já conta como churn do mês na aba Churn
+    if (!error && etapa === "em_recuperacao" && c.etapa !== "em_recuperacao") await abrirRetencao(supabase, c);
     load();
   }
 

@@ -169,7 +169,7 @@ export default function ChurnPage() {
   async function reativar(id: string) {
     if (!confirm("Reativar esse cliente? Ele volta pra base ativa.")) return;
     await supabase.from("ruston_clientes")
-      // etapa "cancelado" não aparece em nenhuma coluna da Carteira — volta como Em Recuperação
+      // etapa "cancelado" não aparece em nenhuma coluna da Carteira — volta como Em Retenção
       .update({ churn_realizado: false, ativo: true, data_churn: null, subiu_no_sistema: false, etapa: "em_recuperacao" })
       .eq("id", id);
     // Churn desfeito: a solicitação confirmada deixa de contar no % de churn
@@ -279,7 +279,7 @@ export default function ChurnPage() {
           )}
         </div>
         <Stat label="% Churn do mês" valor={formatPct(resumo.pctChurn)} cor="text-red-300"
-          sub={base.situacao === "parcial" ? "parcial · solicitado − revertido" : "solicitado − revertido"} />
+          sub={`${base.situacao === "parcial" ? "parcial · " : ""}em retenção + confirmado`} />
         <Stat label="% Churn confirmado" valor={formatPct(resumo.pctConfirmado)} cor="text-red-400"
           sub={formatBRL(resumo.mrrConfirmado)} />
       </div>

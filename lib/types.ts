@@ -37,7 +37,7 @@ export const ETAPA_LABEL: Record<EtapaCliente, string> = {
   estruturacao_estrategica: "Estruturação Estratégica",
   byline: "By-line",
   pontual: "Pontual",
-  em_recuperacao: "Em Recuperação",
+  em_recuperacao: "Em Retenção",
   suspenso: "Suspenso",
   cancelado: "Cancelado",
 };
