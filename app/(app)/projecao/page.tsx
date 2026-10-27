@@ -22,7 +22,8 @@ type SimCliente = {
 type SimGp = { id: string; nome: string; area_id: string; foto_url: string | null; capacidade: number | null; ficticio?: boolean };
 type Cenario = { clientes: SimCliente[]; gpsExtras: SimGp[]; areaDoGp: Record<string, string> };
 
-const CHAVE = "projecao:cenario:v1";
+const CHAVE = "projecao:cenario:v2";
+const FORA = "__fora__";
 const SEM_GP = "__sem_gp__";
 
 function brl(v: number) {
@@ -47,6 +48,8 @@ export default function ProjecaoPage() {
   const { loading: loadingPerfil, isGerente } = useUsuarioPerfil();
   const [loading, setLoading] = useState(true);
   const [squads, setSquads] = useState<Area[]>([]);
+  const [fixas, setFixas] = useState<Area[]>([]);
+  const [membros, setMembros] = useState<OrgPessoa[]>([]);
   const [gpsReais, setGpsReais] = useState<SimGp[]>([]);
   const [reais, setReais] = useState<SimCliente[]>([]);
   const [cenario, setCenario] = useState<Cenario>({ clientes: [], gpsExtras: [], areaDoGp: {} });
@@ -55,27 +58,45 @@ export default function ProjecaoPage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: a }, { data: p }, { data: cli }, semanas, tags] = await Promise.all([
-      supabase.from("ruston_org_areas").select("id,nome,tipo,ordem").eq("ativo", true).eq("tipo", "squad").order("ordem"),
-      supabase.from("ruston_org_pessoas").select("id,area_id,nome,cargo,foto_url,tem_carteira,ruston_pessoa_id,capacidade").eq("ativo", true),
+    const [{ data: a }, { data: p }, { data: cli }, { data: pc }, semanas, tags] = await Promise.all([
+      supabase.from("ruston_org_areas").select("id,nome,tipo,ordem").eq("ativo", true).order("ordem"),
+      supabase.from("ruston_org_pessoas").select("id,area_id,nome,cargo,foto_url,tem_carteira,ruston_pessoa_id,capacidade").eq("ativo", true).order("linha").order("coluna"),
       supabase.from("ruston_clientes").select("id,nome,account_id,mrr,churn_realizado,subiu_no_sistema,etapa").eq("ativo", true),
+      supabase.from("ruston_pessoas").select("id,nome"),
       carregarSemanasEE(supabase),
       carregarTagsContrato(supabase),
     ]);
-    const sq = (a as Area[]) ?? [];
-    const idsSquad = new Set(sq.map((s) => s.id));
-    const gps: SimGp[] = ((p as OrgPessoa[]) ?? [])
-      .filter((x) => x.tem_carteira && x.ruston_pessoa_id && idsSquad.has(x.area_id))
-      .map((x) => ({ id: x.ruston_pessoa_id!, nome: x.nome, area_id: x.area_id, foto_url: x.foto_url, capacidade: x.capacidade }));
-    const idsGp = new Set(gps.map((g) => g.id));
-    const clientes: SimCliente[] = ((cli as { id: string; nome: string; account_id: string | null; mrr: number | null; churn_realizado: boolean; subiu_no_sistema: boolean; etapa: string | null }[]) ?? [])
-      .filter((x) => !(x.churn_realizado && x.subiu_no_sistema))
+    const todasAreas = (a as Area[]) ?? [];
+    const sq = todasAreas.filter((x) => x.tipo === "squad");
+    const pessoasOrg = (p as OrgPessoa[]) ?? [];
+    const brutos = ((cli as { id: string; nome: string; account_id: string | null; mrr: number | null; churn_realizado: boolean; subiu_no_sistema: boolean; etapa: string | null }[]) ?? [])
+      .filter((x) => !(x.churn_realizado && x.subiu_no_sistema));
+    const comCliente = new Set(brutos.map((x) => x.account_id).filter(Boolean) as string[]);
+    // GP = quem tem carteira no organograma ou tem cliente ativo no sistema
+    const gps: SimGp[] = [];
+    const idsGp = new Set<string>();
+    pessoasOrg.forEach((x) => {
+      if (!x.ruston_pessoa_id || idsGp.has(x.ruston_pessoa_id)) return;
+      if (!x.tem_carteira && !comCliente.has(x.ruston_pessoa_id)) return;
+      idsGp.add(x.ruston_pessoa_id);
+      gps.push({ id: x.ruston_pessoa_id, nome: x.nome, area_id: x.area_id, foto_url: x.foto_url, capacidade: x.capacidade });
+    });
+    // Dono de cliente que não está no organograma também entra, num grupo à parte
+    const nomes = new Map(((pc as { id: string; nome: string }[]) ?? []).map((x) => [x.id, x.nome]));
+    comCliente.forEach((id) => {
+      if (idsGp.has(id)) return;
+      idsGp.add(id);
+      gps.push({ id, nome: nomes.get(id) ?? "GP sem nome", area_id: FORA, foto_url: null, capacidade: null });
+    });
+    const clientes: SimCliente[] = brutos
       .map((x) => ({
         id: x.id, nome: x.nome, mrr: x.mrr ?? 0,
         gp: x.account_id && idsGp.has(x.account_id) ? x.account_id : null,
         etapa: x.etapa, semana_ee: semanas[x.id] ?? null, tag_contrato: tags[x.id] ?? null,
       }));
     setSquads(sq);
+    setFixas(todasAreas.filter((x) => x.tipo !== "squad"));
+    setMembros(pessoasOrg);
     setGpsReais(gps);
     setReais(clientes);
     let salvo: Cenario | null = null;
@@ -147,7 +168,9 @@ export default function ProjecaoPage() {
   if (!isGerente) return <p className="text-brand-muted">Esta tela é exclusiva do gerente.</p>;
   if (loading) return <p className="text-brand-muted">Carregando projeção...</p>;
 
-  const squadsVisiveis = aba === "todos" ? squads : squads.filter((s) => s.id === aba);
+  const temFora = gps.some((g) => g.area_id === FORA);
+  const blocos: Area[] = [...squads, ...(temFora ? [{ id: FORA, nome: "Fora do organograma", tipo: "squad" as const, ordem: 999 }] : [])];
+  const squadsVisiveis = aba === "todos" ? blocos : blocos.filter((s) => s.id === aba);
   const semGp = ativos.filter((c) => !c.gp || !gps.some((g) => g.id === c.gp));
   const real = (gpId: string) => reais.filter((c) => c.gp === gpId);
 
@@ -177,13 +200,19 @@ export default function ProjecaoPage() {
       </div>
 
       <div className="mb-6 flex flex-wrap gap-2 border-b border-white/5 pb-4">
-        {[{ id: "todos", nome: "Todos" }, ...squads].map((s) => (
+        {[{ id: "todos", nome: "Todos" }, ...blocos].map((s) => (
           <button key={s.id} onClick={() => setAba(s.id)}
             className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${aba === s.id ? "bg-brand text-white" : "border border-white/10 text-brand-muted hover:text-gray-200"}`}>
             {s.nome}
           </button>
         ))}
       </div>
+
+      {aba === "todos" && fixas.length > 0 && (
+        <div className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {fixas.map((f) => <CartaoTime key={f.id} area={f} membros={membros.filter((m) => m.area_id === f.id)} />)}
+        </div>
+      )}
 
       <div className="space-y-8">
         {squadsVisiveis.map((sq) => {
@@ -199,6 +228,7 @@ export default function ProjecaoPage() {
                   MRR projetado · {compacto(mrrSquad)} · {cliSquad.length} clientes <Delta v={mrrSquad - mrrSquadReal} />
                 </p>
               </div>
+              <Membros membros={membros.filter((m) => m.area_id === sq.id)} />
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {gpsSquad.map((g) => (
                   <CartaoGp key={g.id} gp={g} squads={squads}
@@ -209,10 +239,10 @@ export default function ProjecaoPage() {
                     onRemoverGp={g.ficticio ? () => removerGpFicticio(g.id) : undefined} />
                 ))}
               </div>
-              <button onClick={() => adicionarGp(sq.id)}
+              {sq.id !== FORA && <button onClick={() => adicionarGp(sq.id)}
                 className="mt-3 w-full rounded-lg border border-dashed border-white/15 py-2 text-xs text-brand-muted hover:border-brand hover:text-brand">
                 + GP fictício neste squad
-              </button>
+              </button>}
             </div>
           );
         })}
@@ -250,6 +280,38 @@ export default function ProjecaoPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function Membros({ membros }: { membros: OrgPessoa[] }) {
+  if (membros.length === 0) return null;
+  return (
+    <div className="mb-4 flex flex-wrap justify-center gap-3">
+      {membros.map((m) => {
+        const iniciais = m.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
+        return (
+          <div key={m.id} className="flex w-20 flex-col items-center gap-1 text-center">
+            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border-2 border-red-500/40 bg-gradient-to-br from-red-600 to-red-800">
+              {m.foto_url
+                ? // eslint-disable-next-line @next/next/no-img-element
+                  <img src={m.foto_url} alt={m.nome} className="h-full w-full object-cover" />
+                : <span className="text-xs font-black text-white">{iniciais}</span>}
+            </div>
+            <p className="text-[9px] font-bold uppercase leading-tight text-white">{m.nome}</p>
+            {m.cargo && <p className="text-[8px] leading-tight text-red-300">{m.cargo}</p>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CartaoTime({ area, membros }: { area: Area; membros: OrgPessoa[] }) {
+  return (
+    <div className="rounded-2xl border-2 border-red-500/60 bg-white/[0.02] p-5">
+      <h2 className="mb-4 text-center text-sm font-bold uppercase tracking-widest text-white">{area.nome}</h2>
+      <Membros membros={membros} />
     </div>
   );
 }
@@ -301,6 +363,7 @@ function CartaoGp({ gp, squads, clientes, reais, reaisPorId, arrastando, setArra
         </div>
         <select value={gp.area_id} onChange={(e) => onMoverSquad(e.target.value)} title="Mover GP para outro squad (projeção)"
           className="max-w-[90px] rounded border border-white/10 bg-brand-panel px-1 py-0.5 text-[10px] text-brand-muted">
+          {gp.area_id === FORA && <option value={FORA}>Fora</option>}
           {squads.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
         </select>
         {onRemoverGp && <button onClick={onRemoverGp} title="Remover GP fictício" className="text-xs text-brand-muted hover:text-red-300">✕</button>}
