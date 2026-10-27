@@ -117,7 +117,7 @@ export interface HeadcountPlanejado {
 }
 
 export type TipoCadencia = "semanal" | "quinzenal" | "mensal" | "custom";
-export type TipoReuniao = "kickoff" | "periodica" | "urgente" | "upsell" | "renovacao" | "outra";
+export type TipoReuniao = "kickoff" | "periodica" | "urgente" | "upsell" | "renovacao" | "outra" | "s1" | "s2" | "s3" | "s4" | "s5";
 
 export const TIPO_CADENCIA_LABEL: Record<TipoCadencia, string> = {
   semanal: "Semanal",
@@ -133,6 +133,11 @@ export const TIPO_REUNIAO_LABEL: Record<TipoReuniao, string> = {
   upsell: "Upsell",
   renovacao: "Renovação",
   outra: "Outra",
+  s1: "S1",
+  s2: "S2",
+  s3: "S3",
+  s4: "S4",
+  s5: "S5",
 };
 
 export interface ReuniaoCliente {

@@ -148,6 +148,11 @@ export default function AnaliseReunioesPage() {
               <option value="upsell">Upsell</option>
               <option value="renovacao">Renovacao</option>
               <option value="outra">Outra</option>
+              <option value="s1">S1</option>
+              <option value="s2">S2</option>
+              <option value="s3">S3</option>
+              <option value="s4">S4</option>
+              <option value="s5">S5</option>
             </select>
           </div>
           {modo === "telefone" ? (
