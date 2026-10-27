@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import Sidebar from "@/components/Sidebar";
 import AvisoErro from "@/components/AvisoErro";
+import AvisoEstruturacao from "@/components/AvisoEstruturacao";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
@@ -12,6 +13,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <Sidebar email={user.email ?? undefined} />
       <main className="flex-1 overflow-y-auto p-8">{children}</main>
       <AvisoErro />
+      <AvisoEstruturacao />
     </div>
   );
 }
