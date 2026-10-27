@@ -13,6 +13,7 @@ export default function AnaliseReunioesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [clienteId, setClienteId] = useState("");
   const [tipoReuniao, setTipoReuniao] = useState("periodica");
+  const [titulo, setTitulo] = useState("");
   const [arquivo, setArquivo] = useState<File | null>(null);
   // "audio" = sobe a gravação · "telefone" = 1:1 por telefone, o coordenador escreve o resumo
   const [modo, setModo] = useState<"audio" | "telefone">("audio");
@@ -85,6 +86,7 @@ export default function AnaliseReunioesPage() {
     formData.append("cliente_id", clienteId);
     formData.append("cliente_nome", cliente?.nome ?? "");
     formData.append("tipo_reuniao", tipoReuniao);
+    formData.append("titulo", titulo);
 
     try {
       setProgresso("Transcrevendo audio com Whisper...");
@@ -170,6 +172,15 @@ export default function AnaliseReunioesPage() {
           </div>
           )}
         </div>
+
+        {modo === "audio" && (
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Título da reunião (opcional)</label>
+            <input className="w-full bg-zinc-800 text-zinc-200 rounded px-3 py-2 text-sm border border-zinc-700"
+              value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex: E.E S3 - Diagnóstico de Marketing" />
+            <p className="mt-1 text-[11px] text-zinc-500">Com E.E ou Estruturação Estratégica no título, a IA também avalia a entrega da semana.</p>
+          </div>
+        )}
 
         {modo === "telefone" && (
           <div>

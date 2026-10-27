@@ -23,7 +23,88 @@ export type AnaliseExtra = {
   conducao: { nota: number; teve_pauta: boolean; apresentou_dados: boolean; fechou_proximos_passos: boolean; comentario: string };
   insights: string[];
   plano_acao: { ponto: string; sugestao: string; responsavel: string; prioridade: "alta" | "media" | "baixa"; prazo: string }[];
+  /** Só nas reuniões de Estruturação Estratégica (título com E.E / EE / Estruturação Estratégica) */
+  estruturacao?: AvaliacaoEE | null;
 };
+
+export type AvaliacaoEE = {
+  semana: 1 | 2 | 3 | 4 | 5 | null;
+  etapa: string;
+  entregas: { item: string; status: "entregue" | "parcial" | "nao_entregue"; comentario: string }[];
+  nota_entrega: number;             // 1-5, qualidade do que o time entregou
+  cliente_validou: boolean;         // cliente aprovou / concordou com o que foi apresentado
+  pontos_fortes: string[];
+  lacunas: string[];                // o que faltou entregar ou ficou fraco
+  pendencias_proxima_semana: string[];
+};
+
+// ============================ ESTRUTURAÇÃO ESTRATÉGICA ============================
+// A E.E tem 5 semanas; cada reunião apresenta uma delas.
+export const SEMANAS_EE: { semana: number; nome: string; entregas: string[] }[] = [
+  { semana: 1, nome: "Boas-vindas / Kickoff", entregas: [
+    "Conhecer o negócio do cliente (modelo, público, objetivos)",
+    "Revisar o contrato com o cliente e alinhar o que foi vendido",
+  ] },
+  { semana: 2, nome: "Pesquisa de mercado", entregas: [
+    "Pesquisa aprofundada do mercado do cliente",
+  ] },
+  { semana: 3, nome: "Diagnóstico de Marketing e Vendas", entregas: [
+    "Análise das campanhas do cliente",
+    "Análise dos criativos",
+    "Análise dos concorrentes (o que fazem e o que deixam de fazer)",
+    "Confirmação com o cliente para subir as primeiras campanhas de anúncios",
+  ] },
+  { semana: 4, nome: "Diagnóstico Comercial", entregas: [
+    "Diagnóstico do comercial do cliente",
+    "Pontos de melhoria do comercial apresentados",
+  ] },
+  { semana: 5, nome: "Entrega final", entregas: [
+    "Compilado final da Estruturação Estratégica entregue ao cliente",
+    "Forecast de investimento em mídia para os próximos 12 meses",
+  ] },
+];
+
+const semAcento = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/** Título indica reunião de Estruturação Estratégica: "E.E", "E.E.", "EE", "Estruturação Estratégica". */
+export function ehEstruturacao(titulo?: string | null): boolean {
+  if (!titulo) return false;
+  const t = semAcento(titulo);
+  return /estruturacao estrategica/.test(t) || /(^|[^a-z0-9])e\.?\s?e\.?(?=$|[^a-z0-9])/.test(t.replace(/\be e\b/g, ""));
+}
+
+/** Semana citada no título ("S3", "Semana 3"), se houver. */
+export function semanaNoTitulo(titulo?: string | null): number | null {
+  const m = semAcento(titulo ?? "").match(/(?:^|[^a-z0-9])(?:s|semana)\s?([1-5])(?![0-9])/);
+  return m ? Number(m[1]) : null;
+}
+
+function blocoEE(titulo?: string) {
+  const sem = semanaNoTitulo(titulo);
+  const roteiro = SEMANAS_EE.map((s) => `Semana ${s.semana} – ${s.nome}:\n${s.entregas.map((e) => `  • ${e}`).join("\n")}`).join("\n");
+  return `
+ESTA É UMA REUNIÃO DA ESTRUTURAÇÃO ESTRATÉGICA (E.E). A E.E tem 5 semanas, cada uma com entregas definidas:
+${roteiro}
+${sem ? `O título indica a Semana ${sem}; confirme pelo conteúdo.` : "Identifique pelo conteúdo qual semana está sendo apresentada."}
+
+Além do relacionamento, AVALIE O QUE O TIME ENTREGOU nesta semana, preenchendo "estruturacao":
+  "estruturacao": {
+    "semana": 1 | 2 | 3 | 4 | 5 | null,
+    "etapa": "nome da semana",
+    "entregas": [{ "item": "cada entrega esperada da semana", "status": "entregue" | "parcial" | "nao_entregue", "comentario": "o que foi apresentado ou o que faltou" }],
+    "nota_entrega": 1-5,
+    "cliente_validou": true | false,
+    "pontos_fortes": ["o que o time apresentou bem"],
+    "lacunas": ["o que faltou ou ficou superficial"],
+    "pendencias_proxima_semana": ["o que precisa estar pronto para a próxima semana"]
+  }
+Regras da E.E:
+- Liste TODAS as entregas esperadas da semana em "entregas", mesmo as que não apareceram (status "nao_entregue")
+- "nota_entrega" avalia profundidade e qualidade do que foi apresentado, não o humor do cliente
+- "cliente_validou" true só se o cliente concordou/aprovou de forma explícita (na semana 3: autorizou subir as campanhas)
+- Se for reunião interna de preparo, avalie o quanto a entrega está pronta para ser apresentada
+`;
+}
 
 export type AnaliseReuniao = AnaliseExtra & {
   resumo_executivo: string;
@@ -113,6 +194,7 @@ Em "conducao", avalie pelo resumo se a conversa fechou próximos passos com dono
     ? `Esta é uma reunião INTERNA do time Ruston sobre o cliente "${opts.cliente}" (o cliente não estava presente).
 Avalie o cliente pelo que o time relatou dele. Em "conducao", avalie se a reunião interna gerou um plano claro.`
     : `Esta é uma reunião entre o time Ruston e o cliente "${opts.cliente}".`;
+  const ee = !opts.resumo && ehEstruturacao(opts.titulo);
 
   return `Você é um analista sênior de relacionamento com cliente da agência de marketing Ruston & Co (franquia V4 Company).
 
@@ -131,8 +213,9 @@ Retorne APENAS um JSON válido (sem markdown, sem texto antes/depois) com esta e
   "oportunidade_upsell": "nenhuma" | "possivel" | "clara",
   "sinais_positivos": ["sinais positivos"],
   "sinais_negativos": ["sinais de alerta"],
-${SCHEMA_EXTRAS}
+${SCHEMA_EXTRAS}${ee ? `,\n  "estruturacao": { ...conforme instruções da E.E abaixo }` : ""}
 }
+${ee ? blocoEE(opts.titulo) : ""}
 
 Regras:
 - Dê peso MAIOR ao que o tomador de decisão (dono/gerente) falou
@@ -166,6 +249,7 @@ export function extrairExtras(a: any): AnaliseExtra {
     conducao: a?.conducao ?? { nota: 0, teve_pauta: false, apresentou_dados: false, fechou_proximos_passos: false, comentario: "" },
     insights: a?.insights ?? [],
     plano_acao: a?.plano_acao ?? [],
+    estruturacao: a?.estruturacao ?? null,
   };
 }
 

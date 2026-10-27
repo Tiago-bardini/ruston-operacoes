@@ -35,6 +35,7 @@ export async function POST(req: Request) {
     const clienteId = formData.get("cliente_id") as string;
     const clienteNome = formData.get("cliente_nome") as string;
     const tipoReuniao = formData.get("tipo_reuniao") as string || "periodica";
+    const titulo = ((formData.get("titulo") as string) || "").trim() || undefined;
 
     if (!OPENAI_KEY) return NextResponse.json({ error: "OPENAI_API_KEY nao configurada" }, { status: 500 });
     if (!file) return NextResponse.json({ error: "Arquivo de audio nao enviado" }, { status: 400 });
@@ -70,7 +71,7 @@ export async function POST(req: Request) {
     let analise: AnaliseReuniao;
     let tokens = { tokens_entrada: 0, tokens_saida: 0 };
     try {
-      const r = await chamarClaude(promptReuniao({ cliente: clienteNome, interna: false, transcricao }), ANTHROPIC_KEY);
+      const r = await chamarClaude(promptReuniao({ cliente: clienteNome, titulo, interna: false, transcricao }), ANTHROPIC_KEY);
       analise = r.json;
       tokens = { tokens_entrada: r.tokens_entrada, tokens_saida: r.tokens_saida };
     } catch (e: any) {
@@ -83,6 +84,7 @@ export async function POST(req: Request) {
       cliente_id: clienteId,
       tipo_reuniao: tipoReuniao,
       origem: "audio",
+      titulo: titulo ?? null,
       data_reuniao: agora.toISOString().slice(0, 10),
       realizada: true,
       duracao_minutos: Math.round(duracao_segundos / 60),

@@ -1,6 +1,6 @@
 "use client";
 
-import type { AnaliseExtra } from "@/lib/analiseIA";
+import type { AnaliseExtra, AvaliacaoEE } from "@/lib/analiseIA";
 
 // Blocos da análise de IA que Reuniões e Radar WhatsApp mostram igual.
 
@@ -34,6 +34,11 @@ export function SelosAnalise({ a, temperatura, risco }: { a: Partial<AnaliseExtr
         <Selo label="Resultado" valor={resultado} cor={corNivel(resultado === "satisfeito", resultado === "insatisfeito")} />
       )}
       {a.concorrencia?.mencionou && <Selo label="Concorrência" valor="citou" cor="bg-red-500/15 text-red-300" />}
+      {a.estruturacao && (
+        <Selo label={`E.E${a.estruturacao.semana ? ` · Semana ${a.estruturacao.semana}` : ""}`}
+          valor={`entrega ${a.estruturacao.nota_entrega}/5`}
+          cor={corNivel(a.estruturacao.nota_entrega >= 4, a.estruturacao.nota_entrega <= 2)} />
+      )}
     </div>
   );
 }
@@ -59,11 +64,44 @@ function Lista({ itens }: { itens?: string[] }) {
   return <ul className="list-disc pl-4 space-y-0.5">{itens.map((x, i) => <li key={i}>{x}</li>)}</ul>;
 }
 
+const STATUS_EE: Record<string, { icone: string; cor: string }> = {
+  entregue: { icone: "✓", cor: "text-emerald-300" },
+  parcial: { icone: "◐", cor: "text-amber-300" },
+  nao_entregue: { icone: "✗", cor: "text-red-300" },
+};
+
+/** Avaliação da entrega do time numa semana da Estruturação Estratégica. */
+function BlocoEE({ e }: { e: AvaliacaoEE }) {
+  return (
+    <Bloco titulo={`🧭 Estruturação Estratégica${e.semana ? ` · Semana ${e.semana}` : ""}${e.etapa ? ` – ${e.etapa}` : ""} · entrega ${e.nota_entrega}/5`}>
+      <div className="rounded border border-white/5 bg-black/20 p-1.5 space-y-1">
+        <ul className="space-y-0.5">
+          {(e.entregas ?? []).map((x, i) => (
+            <li key={i}>
+              <span className={STATUS_EE[x.status]?.cor}>{STATUS_EE[x.status]?.icone ?? "•"}</span> <b>{x.item}</b>
+              {x.comentario && <span className="text-brand-muted"> — {x.comentario}</span>}
+            </li>
+          ))}
+        </ul>
+        <p className={e.cliente_validou ? "text-emerald-300" : "text-amber-300"}>
+          {e.cliente_validou ? "✓ Cliente validou a entrega" : "⚠ Cliente não validou de forma clara"}
+        </p>
+        {!!e.pontos_fortes?.length && <div><p className="text-brand-muted">Pontos fortes</p><Lista itens={e.pontos_fortes} /></div>}
+        {!!e.lacunas?.length && <div><p className="text-brand-muted">Lacunas</p><Lista itens={e.lacunas} /></div>}
+        {!!e.pendencias_proxima_semana?.length && (
+          <div><p className="text-brand-muted">Pendências para a próxima semana</p><Lista itens={e.pendencias_proxima_semana} /></div>
+        )}
+      </div>
+    </Bloco>
+  );
+}
+
 /** Análise completa (detalhes). */
 export function DetalhesAnalise({ a }: { a: Partial<AnaliseExtra> }) {
   const c = a.conducao;
   return (
     <div>
+      {a.estruturacao && <BlocoEE e={a.estruturacao} />}
       {!!a.plano_acao?.length && (
         <Bloco titulo="🛠️ Plano de ação sugerido">
           <ul className="space-y-1.5">
