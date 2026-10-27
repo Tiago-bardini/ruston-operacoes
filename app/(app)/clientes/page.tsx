@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { ClienteView, Pessoa, Squad, EtapaCliente, TierCliente, FcaView } from "@/lib/types";
 import {
@@ -12,13 +12,19 @@ import { ModalSubirChurn, efetivarChurn, abrirRetencao } from "@/components/chur
 import { ModalEeFinalizada, finalizarEE } from "@/components/clientes/EeFinalizada";
 import {
   TagSemanaEE, carregarSemanasEE, salvarSemanaEE,
-  TagContratoCliente, carregarTagsContrato, salvarTagContrato, type TagContrato,
+  TagContratoCliente, carregarTagsContrato, salvarTagContrato, type TagContrato, TAG_CONTRATO_LABEL,
 } from "@/components/clientes/TagSemanaEE";
 
 const ETAPAS: EtapaCliente[] = ["onboarding", "estruturacao_estrategica", "byline", "em_recuperacao", "suspenso"];
 const TIERS: TierCliente[] = ["tiny", "small", "medium", "large"];
 
 type View = "kanban_etapa" | "lista" | "kanban_gp" | "kanban_squad";
+
+type Filtros = {
+  busca: string; squad: string; gp: string; etapa: string; tag: string; semana: string; fca: string; vencendo: boolean;
+};
+const filtrosVazios: Filtros = { busca: "", squad: "", gp: "", etapa: "", tag: "", semana: "", fca: "", vencendo: false };
+const CHAVE_PREFS = "carteira:prefs";
 
 const emptyForm = {
   nome: "",
@@ -49,13 +55,28 @@ export default function ClientesPage() {
   const [churnModal, setChurnModal] = useState<ClienteView | null>(null);
   const [eeModal, setEeModal] = useState<ClienteView | null>(null);
   const { isGerente, squadId: perfilSquadId } = useUsuarioPerfil();
-  const [view, setView] = useState<View>("kanban_etapa");
+  const [view, setView] = useState<View>("kanban_gp");
+  const [filtros, setFiltros] = useState<Filtros>(filtrosVazios);
   const [form, setForm] = useState(emptyForm);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [filterSquad, setFilterSquad] = useState<string>("");
+
+  // Visão e filtros ficam salvos neste navegador ao voltar pra tela
+  useEffect(() => {
+    try {
+      const salvo = JSON.parse(localStorage.getItem(CHAVE_PREFS) ?? "null");
+      if (salvo?.view) setView(salvo.view);
+      if (salvo?.filtros) setFiltros({ ...filtrosVazios, ...salvo.filtros });
+    } catch { /* sem localStorage: usa o padrão */ }
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem(CHAVE_PREFS, JSON.stringify({ view, filtros })); } catch { /* ignora */ }
+  }, [view, filtros]);
+
+  function alternar(campo: "fca" | "etapa", valor: string) {
+    setFiltros((f) => ({ ...f, [campo]: f[campo] === valor ? "" : valor }));
+  }
 
   async function load() {
     setLoading(true);
@@ -179,14 +200,23 @@ export default function ClientesPage() {
     (p) => p.cargo === "coordenador" || p.cargo === "gerente"
   );
 
+  // Base da carteira: perfil (coordenador vê só o squad) + só ativos.
+  // Churn efetivado fica em /churn (aba Efetivados)
+  const base = useMemo(() => clientes.filter((c) => {
+    if (!isGerente && perfilSquadId && c.squad_id !== perfilSquadId) return false;
+    return c.ativo && !c.churn_realizado;
+  }), [clientes, isGerente, perfilSquadId]);
+
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return clientes.filter((c) => {
-      // Coordenador/Investidor: só vê clientes do próprio squad
-      if (!isGerente && perfilSquadId && c.squad_id !== perfilSquadId) return false;
-      // Só ativos — churn efetivado fica em /churn (aba Efetivados)
-      if (!c.ativo || c.churn_realizado) return false;
-      if (filterSquad && c.squad_id !== filterSquad) return false;
+    const q = filtros.busca.trim().toLowerCase();
+    return base.filter((c) => {
+      if (filtros.squad && c.squad_id !== filtros.squad) return false;
+      if (filtros.gp && (filtros.gp === "sem" ? c.account_id : c.account_id !== filtros.gp)) return false;
+      if (filtros.etapa && c.etapa !== filtros.etapa) return false;
+      if (filtros.tag && (filtros.tag === "sem" ? c.tag_contrato : c.tag_contrato !== filtros.tag)) return false;
+      if (filtros.semana && (filtros.semana === "sem" ? c.semana_ee : String(c.semana_ee ?? "") !== filtros.semana)) return false;
+      if (filtros.fca && (fcasRecentes[c.id]?.bandeira ?? "sem_dado") !== filtros.fca) return false;
+      if (filtros.vencendo && !vencendoLogo(c)) return false;
       if (!q) return true;
       return (
         c.nome.toLowerCase().includes(q) ||
@@ -195,9 +225,9 @@ export default function ClientesPage() {
         (c.squad_nome ?? "").toLowerCase().includes(q)
       );
     });
-  }, [clientes, search, filterSquad, isGerente, perfilSquadId]);
+  }, [base, filtros, fcasRecentes]);
 
-  // Alerta: churns pendentes de subir no sistema (data <= hoje E não subiu)
+  // Churns pendentes de subir no sistema (data <= hoje E não subiu)
   const churnsPendentes = useMemo(() => {
     const hoje = new Date().toISOString().slice(0, 10);
     return clientes.filter((c) =>
@@ -209,138 +239,97 @@ export default function ClientesPage() {
   }, [clientes]);
 
   const totalMRR = filtered.reduce((s, c) => s + (Number(c.mrr) || 0), 0);
+  const nFcaVermelho = base.filter((c) => fcasRecentes[c.id]?.bandeira === "vermelho").length;
+  const nVencendo = base.filter(vencendoLogo).length;
+  const nEmEE = base.filter((c) => c.etapa === "estruturacao_estrategica").length;
+  const filtrosAtivos = Object.entries(filtros).some(([, v]) => v);
+  const gps = pessoas.filter((p) => p.cargo === "gestor_projetos");
 
-  // Contratos com vencimento próximo (30 e 60 dias) — pra alerta no topo
-  // Clientes com FCA vermelho (usa FCA mais recente)
-  const clientesVermelhos = useMemo(() => {
-    return filtered.filter((c) => fcasRecentes[c.id]?.bandeira === "vermelho");
-  }, [filtered, fcasRecentes]);
-
-  const vencendo = useMemo(() => {
-    const criticos: ClienteView[] = [];
-    const atencao: ClienteView[] = [];
-    const vencidos: ClienteView[] = [];
-    filtered.forEach((c) => {
-      const s = statusVencimento(c.data_vencimento_contrato);
-      if (s === "vencido") vencidos.push(c);
-      else if (s === "critico") criticos.push(c);
-      else if (s === "atencao") atencao.push(c);
-    });
-    return { vencidos, criticos, atencao };
-  }, [filtered]);
+  const acoes: AcoesCliente = {
+    onEdit: edit,
+    onRemove: remove,
+    onFinalizarEE: setEeModal,
+    onSubirChurn: setChurnModal,
+    onSemanaEE: mudarSemanaEE,
+    onTagContrato: mudarTagContrato,
+    onMove: moveEtapa,
+  };
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Clientes</h1>
+          <h1 className="text-2xl font-bold">Carteira</h1>
           <p className="text-sm text-brand-muted">
             {filtered.length} clientes · MRR {formatBRL(totalMRR)}
+            {filtrosAtivos && <span className="text-brand"> · filtrado</span>}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <select className="input max-w-[180px]" value={filterSquad}
-            onChange={(e) => setFilterSquad(e.target.value)}>
-            <option value="">Todos os squads</option>
-            {squads.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
-          </select>
-          <input
-            className="input max-w-xs"
-            placeholder="Buscar..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <button className="btn" onClick={() => { setEditingId(null); setForm(emptyForm); setFormOpen(!formOpen); }}>
-            {formOpen ? "Fechar" : "+ Novo cliente"}
-          </button>
-        </div>
+        <button className="btn" onClick={() => { setEditingId(null); setForm(emptyForm); setFormOpen(!formOpen); }}>
+          {formOpen ? "Fechar" : "+ Novo cliente"}
+        </button>
       </div>
 
-      {/* Alerta de contratos vencendo */}
-      {clientesVermelhos.length > 0 && (
-        <div className="mb-4 card border border-red-500/40 bg-red-500/5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-red-300">FCA Vermelho — Atenção crítica</p>
-              <p className="mt-1 text-lg font-bold text-red-300">
-                {clientesVermelhos.length} cliente{clientesVermelhos.length > 1 ? "s" : ""} com FCA abaixo de 6
-              </p>
-              <p className="mt-1 text-[10px] text-brand-muted">
-                {clientesVermelhos.map((c) => c.nome).join(" · ")}
-              </p>
-            </div>
-            <a href="/fca" className="btn text-xs">Ver FCA</a>
-          </div>
-        </div>
-      )}
+      {/* Indicadores: clicar filtra a carteira */}
+      <div className="mb-4 flex flex-wrap gap-2">
+        <Indicador label="clientes" valor={base.length} ativo={!filtrosAtivos}
+          onClick={() => setFiltros(filtrosVazios)} />
+        <Indicador label="MRR" valor={formatBRL(base.reduce((s, c) => s + (Number(c.mrr) || 0), 0))} />
+        <Indicador icone="🔴" label="FCA vermelho" valor={nFcaVermelho} cor="text-red-300"
+          ativo={filtros.fca === "vermelho"} onClick={() => alternar("fca", "vermelho")} />
+        <Indicador icone="⏱" label="vencendo em 30d" valor={nVencendo} cor="text-orange-300"
+          ativo={filtros.vencendo} onClick={() => setFiltros((f) => ({ ...f, vencendo: !f.vencendo }))} />
+        <Indicador icone="🧭" label="em E.E" valor={nEmEE} cor="text-sky-300"
+          ativo={filtros.etapa === "estruturacao_estrategica"} onClick={() => alternar("etapa", "estruturacao_estrategica")} />
+        {churnsPendentes.length > 0 && (
+          <a href="/churn?aba=efetivados" title={churnsPendentes.map((c) => c.nome).join(" · ")}>
+            <Indicador icone="⚠" label="churn pendente no CRM" valor={churnsPendentes.length} cor="text-purple-300" />
+          </a>
+        )}
+      </div>
 
-      {churnsPendentes.length > 0 && (
-        <div className="mb-4 card border border-purple-500/40 bg-purple-500/5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-purple-300">Churn pendente de subir no sistema</p>
-              <p className="mt-1 text-lg font-bold text-purple-300">
-                {churnsPendentes.length} cliente{churnsPendentes.length > 1 ? "s" : ""} pra processar no CRM externo
-              </p>
-              <p className="mt-1 text-[10px] text-brand-muted">
-                {churnsPendentes.map((c) => c.nome).join(" · ")}
-              </p>
-            </div>
-            <a href="/churn?aba=efetivados" className="btn text-xs">Ver churns</a>
-          </div>
-        </div>
-      )}
+      {/* Filtros */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <input className="input h-8 max-w-[200px] py-1 text-xs" placeholder="Buscar cliente, GP..."
+          value={filtros.busca} onChange={(e) => setFiltros((f) => ({ ...f, busca: e.target.value }))} />
+        {isGerente && (
+          <FiltroChip label="Squad" valor={filtros.squad} onChange={(v) => setFiltros((f) => ({ ...f, squad: v }))}
+            opcoes={squads.map((s) => ({ v: s.id, l: s.nome }))} />
+        )}
+        <FiltroChip label="GP" valor={filtros.gp} onChange={(v) => setFiltros((f) => ({ ...f, gp: v }))}
+          opcoes={[...gps.map((p) => ({ v: p.id, l: p.nome })), { v: "sem", l: "Sem GP" }]} />
+        <FiltroChip label="Etapa" valor={filtros.etapa} onChange={(v) => setFiltros((f) => ({ ...f, etapa: v }))}
+          opcoes={ETAPAS.map((et) => ({ v: et, l: ETAPA_LABEL[et] }))} />
+        <FiltroChip label="Tag" valor={filtros.tag} onChange={(v) => setFiltros((f) => ({ ...f, tag: v }))}
+          opcoes={[...(Object.keys(TAG_CONTRATO_LABEL) as TagContrato[]).map((t) => ({ v: t, l: TAG_CONTRATO_LABEL[t] })), { v: "sem", l: "Sem tag" }]} />
+        <FiltroChip label="Semana" valor={filtros.semana} onChange={(v) => setFiltros((f) => ({ ...f, semana: v }))}
+          opcoes={[...[1, 2, 3, 4, 5].map((s) => ({ v: String(s), l: `S${s}` })), { v: "sem", l: "Sem semana" }]} />
+        <FiltroChip label="FCA" valor={filtros.fca} onChange={(v) => setFiltros((f) => ({ ...f, fca: v }))}
+          opcoes={[{ v: "verde", l: "🟢 Safe" }, { v: "amarelo", l: "🟡 Care" }, { v: "vermelho", l: "🔴 Danger" }, { v: "sem_dado", l: "Sem FCA" }]} />
+        {filtrosAtivos && (
+          <button className="text-xs text-brand-muted underline-offset-2 hover:text-gray-200 hover:underline"
+            onClick={() => setFiltros(filtrosVazios)}>limpar filtros</button>
+        )}
 
-      {(vencendo.vencidos.length + vencendo.criticos.length + vencendo.atencao.length) > 0 && (
-        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {vencendo.vencidos.length > 0 && (
-            <div className="card border border-red-500/40 bg-red-500/5">
-              <p className="text-[10px] uppercase tracking-wide text-red-300">Vencidos</p>
-              <p className="mt-1 text-2xl font-bold text-red-300">{vencendo.vencidos.length}</p>
-              <p className="mt-1 text-[10px] text-brand-muted line-clamp-2">
-                {vencendo.vencidos.map((c) => c.nome).join(" · ")}
-              </p>
-            </div>
-          )}
-          {vencendo.criticos.length > 0 && (
-            <div className="card border border-orange-500/40 bg-orange-500/5">
-              <p className="text-[10px] uppercase tracking-wide text-orange-300">Vencem em ≤ 30 dias</p>
-              <p className="mt-1 text-2xl font-bold text-orange-300">{vencendo.criticos.length}</p>
-              <p className="mt-1 text-[10px] text-brand-muted line-clamp-2">
-                {vencendo.criticos.map((c) => c.nome).join(" · ")}
-              </p>
-            </div>
-          )}
-          {vencendo.atencao.length > 0 && (
-            <div className="card border border-amber-500/40 bg-amber-500/5">
-              <p className="text-[10px] uppercase tracking-wide text-amber-300">Vencem em ≤ 60 dias</p>
-              <p className="mt-1 text-2xl font-bold text-amber-300">{vencendo.atencao.length}</p>
-              <p className="mt-1 text-[10px] text-brand-muted line-clamp-2">
-                {vencendo.atencao.map((c) => c.nome).join(" · ")}
-              </p>
-            </div>
-          )}
+        {/* Toggle de views */}
+        <div className="ml-auto inline-flex rounded-lg border border-white/10 bg-brand-panel/50 p-1">
+          {[
+            { v: "kanban_gp", label: "Por GP" },
+            { v: "kanban_etapa", label: "Por Etapa" },
+            { v: "kanban_squad", label: "Por Squad" },
+            { v: "lista", label: "Lista" },
+          ].map((it) => (
+            <button
+              key={it.v}
+              onClick={() => setView(it.v as View)}
+              className={`rounded-md px-3 py-1 text-xs font-medium transition ${
+                view === it.v ? "bg-brand text-white" : "text-brand-muted hover:text-gray-200"
+              }`}
+            >
+              {it.label}
+            </button>
+          ))}
         </div>
-      )}
-
-      {/* Toggle de views */}
-      <div className="mb-6 inline-flex rounded-lg border border-white/10 bg-brand-panel/50 p-1">
-        {[
-          { v: "kanban_etapa", label: "Kanban por Etapa" },
-          { v: "lista", label: "Lista" },
-          { v: "kanban_gp", label: "Kanban por GP" },
-          { v: "kanban_squad", label: "Kanban por Squad" },
-        ].map((it) => (
-          <button
-            key={it.v}
-            onClick={() => setView(it.v as View)}
-            className={`rounded-md px-4 py-1.5 text-xs font-medium transition ${
-              view === it.v ? "bg-brand text-white" : "text-brand-muted hover:text-gray-200"
-            }`}
-          >
-            {it.label}
-          </button>
-        ))}
       </div>
 
       {/* Formulário */}
@@ -493,19 +482,19 @@ export default function ClientesPage() {
       )}
 
       {!loading && filtered.length > 0 && view === "kanban_etapa" && (
-        <KanbanEtapa clientes={filtered} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} onSemanaEE={mudarSemanaEE} onTagContrato={mudarTagContrato} onMove={moveEtapa} />
+        <KanbanEtapa clientes={filtered} fcas={fcasRecentes} acoes={acoes} />
       )}
 
       {!loading && filtered.length > 0 && view === "lista" && (
-        <Lista clientes={filtered} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} onSemanaEE={mudarSemanaEE} onTagContrato={mudarTagContrato} />
+        <Lista clientes={filtered} fcas={fcasRecentes} acoes={acoes} />
       )}
 
       {!loading && filtered.length > 0 && view === "kanban_gp" && (
-        <KanbanGP clientes={filtered} pessoas={pessoas} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} onSemanaEE={mudarSemanaEE} onTagContrato={mudarTagContrato} />
+        <KanbanGP clientes={filtered} gps={gps} fcas={fcasRecentes} acoes={acoes} />
       )}
 
       {!loading && filtered.length > 0 && view === "kanban_squad" && (
-        <KanbanSquad clientes={filtered} squads={squads} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} onSemanaEE={mudarSemanaEE} onTagContrato={mudarTagContrato} />
+        <KanbanSquad clientes={filtered} squads={squads} fcas={fcasRecentes} acoes={acoes} />
       )}
 
       {/* Modal SUBIR CHURN */}
@@ -565,304 +554,369 @@ export default function ClientesPage() {
 
 /* -------- SUB-COMPONENTES -------- */
 
-function KanbanEtapa({
-  clientes, onEdit, onRemove, onFinalizarEE, onSemanaEE, onTagContrato, onMove,
-}: {
-  clientes: ClienteView[];
+type AcoesCliente = {
   onEdit: (c: ClienteView) => void;
   onRemove: (id: string) => void;
   onFinalizarEE: (c: ClienteView) => void;
+  onSubirChurn: (c: ClienteView) => void;
   onSemanaEE: (c: ClienteView, semana: number | null) => void;
   onTagContrato: (c: ClienteView, tag: TagContrato | null) => void;
   onMove: (c: ClienteView, e: EtapaCliente) => void;
+};
+type Fcas = Record<string, FcaView>;
+
+/** Contrato vencido ou vencendo em até 30 dias — o que pede ação agora. */
+function vencendoLogo(c: ClienteView) {
+  const s = statusVencimento(c.data_vencimento_contrato);
+  return s === "vencido" || s === "critico";
+}
+
+const BOLINHA_FCA: Record<string, string> = {
+  verde: "bg-emerald-500",
+  amarelo: "bg-amber-500",
+  vermelho: "bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.7)]",
+  sem_dado: "bg-white/20",
+};
+const LABEL_FCA: Record<string, string> = { verde: "Safe", amarelo: "Care", vermelho: "Danger", sem_dado: "Sem FCA" };
+
+function BolinhaFca({ fca }: { fca?: FcaView }) {
+  const b = fca?.bandeira ?? "sem_dado";
+  return (
+    <span className={`mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full ${BOLINHA_FCA[b]}`}
+      title={`FCA: ${LABEL_FCA[b]}${fca?.nota_final != null ? ` · nota ${Number(fca.nota_final).toFixed(1)}` : ""}`} />
+  );
+}
+
+function Indicador({ icone, label, valor, cor, ativo, onClick }: {
+  icone?: string; label: string; valor: number | string; cor?: string; ativo?: boolean; onClick?: () => void;
 }) {
+  const Tag = onClick ? "button" : "div";
+  return (
+    <Tag onClick={onClick}
+      className={`inline-flex items-baseline gap-1.5 rounded-lg border px-3 py-1.5 text-xs transition ${
+        ativo ? "border-brand/60 bg-brand/15" : "border-white/10 bg-white/[0.03]"
+      } ${onClick ? "cursor-pointer hover:border-white/25" : ""}`}>
+      {icone && <span>{icone}</span>}
+      <span className={`text-sm font-bold ${cor ?? "text-white"}`}>{valor}</span>
+      <span className="text-brand-muted">{label}</span>
+    </Tag>
+  );
+}
+
+function FiltroChip({ label, valor, opcoes, onChange }: {
+  label: string; valor: string; opcoes: { v: string; l: string }[]; onChange: (v: string) => void;
+}) {
+  const atual = opcoes.find((o) => o.v === valor);
+  return (
+    <label className={`relative inline-flex h-8 cursor-pointer items-center gap-1 rounded-full border px-3 text-xs transition ${
+      valor ? "border-brand/60 bg-brand/15 text-white" : "border-white/10 text-brand-muted hover:border-white/25 hover:text-gray-200"}`}>
+      {label}{atual ? `: ${atual.l}` : ""} <span className="text-[8px]">▼</span>
+      <select value={valor} onChange={(e) => onChange(e.target.value)}
+        className="absolute inset-0 h-full w-full cursor-pointer opacity-0">
+        <option value="" className="bg-brand-panel text-gray-100">Todos</option>
+        {opcoes.map((o) => <option key={o.v} value={o.v} className="bg-brand-panel text-gray-100">{o.l}</option>)}
+      </select>
+    </label>
+  );
+}
+
+/** Resumo do topo de cada coluna: clientes · MRR · FCA vermelho · vencendo. */
+function ResumoColuna({ items, fcas }: { items: ClienteView[]; fcas: Fcas }) {
+  const soma = items.reduce((s, c) => s + (Number(c.mrr) || 0), 0);
+  const vermelhos = items.filter((c) => fcas[c.id]?.bandeira === "vermelho").length;
+  const vencendo = items.filter(vencendoLogo).length;
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 text-[10px] text-brand-muted">
+      <span>{items.length} clientes</span>
+      <span>· {formatBRL(soma)}</span>
+      {vermelhos > 0 && <span className="font-semibold text-red-300">· 🔴 {vermelhos}</span>}
+      {vencendo > 0 && <span className="font-semibold text-orange-300">· ⏱ {vencendo}</span>}
+    </p>
+  );
+}
+
+function Coluna({ titulo, avatar, items, fcas, acoes, mostrar, tracejada }: {
+  titulo: string;
+  avatar?: ReactNode;
+  items: ClienteView[];
+  fcas: Fcas;
+  acoes: AcoesCliente;
+  mostrar: "gp" | "etapa";
+  tracejada?: boolean;
+}) {
+  return (
+    <div className={`rounded-xl border bg-black/20 p-3 ${tracejada ? "border-dashed border-white/10" : "border-white/5"}`}>
+      <div className="mb-3 flex items-center gap-2 px-1">
+        {avatar}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold">{titulo}</p>
+          <ResumoColuna items={items} fcas={fcas} />
+        </div>
+      </div>
+      <div className="space-y-2">
+        {items.map((c) => <ClienteCard key={c.id} c={c} fca={fcas[c.id]} acoes={acoes} mostrar={mostrar} />)}
+        {items.length === 0 && <p className="px-1 py-4 text-center text-xs text-brand-muted">vazio</p>}
+      </div>
+    </div>
+  );
+}
+
+function KanbanEtapa({ clientes, fcas, acoes }: { clientes: ClienteView[]; fcas: Fcas; acoes: AcoesCliente }) {
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-      {ETAPAS.map((et) => {
-        const items = clientes.filter((c) => c.etapa === et);
-        const soma = items.reduce((s, c) => s + (Number(c.mrr) || 0), 0);
-        return (
-          <div key={et} className="rounded-xl border border-white/5 bg-black/20 p-3">
-            <div className="mb-2 flex items-center justify-between px-1">
-              <span className="text-sm font-semibold">{ETAPA_LABEL[et]}</span>
-              <span className="badge bg-white/5 text-brand-muted border-white/10">{items.length}</span>
-            </div>
-            <p className="mb-3 px-1 text-[10px] text-brand-muted">{formatBRL(soma)}</p>
-            <div className="space-y-3">
-              {items.map((c) => (
-                <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onSemanaEE={onSemanaEE} onTagContrato={onTagContrato} onMove={onMove} />
-              ))}
-              {items.length === 0 && <p className="px-1 py-4 text-center text-xs text-brand-muted">vazio</p>}
-            </div>
-          </div>
-        );
-      })}
+      {ETAPAS.map((et) => (
+        <Coluna key={et} titulo={ETAPA_LABEL[et]} items={clientes.filter((c) => c.etapa === et)}
+          fcas={fcas} acoes={acoes} mostrar="gp" />
+      ))}
     </div>
   );
 }
 
-function Lista({
-  clientes, onEdit, onRemove, onFinalizarEE, onSemanaEE, onTagContrato,
-}: {
-  clientes: ClienteView[];
-  onEdit: (c: ClienteView) => void;
-  onRemove: (id: string) => void;
-  onFinalizarEE: (c: ClienteView) => void;
-  onSemanaEE: (c: ClienteView, semana: number | null) => void;
-  onTagContrato: (c: ClienteView, tag: TagContrato | null) => void;
-}) {
-  return (
-    <div className="card overflow-x-auto p-0">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-white/5 text-left text-xs uppercase tracking-wide text-brand-muted">
-            <th className="px-4 py-3">Cliente</th>
-            <th className="px-4 py-3">Etapa</th>
-            <th className="px-4 py-3">MRR</th>
-            <th className="px-4 py-3">Tier</th>
-            <th className="px-4 py-3">GP</th>
-            <th className="px-4 py-3">Squad</th>
-            <th className="px-4 py-3">LT</th>
-            <th className="px-4 py-3">Vencimento</th>
-            <th className="px-4 py-3"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {clientes.map((c) => (
-            <tr key={c.id} className="border-b border-white/5 last:border-0">
-              <td className="px-4 py-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-medium">{c.nome}</p>
-                  <TagSemanaEE semana={c.semana_ee} onChange={(s) => onSemanaEE(c, s)} />
-                  <TagContratoCliente tag={c.tag_contrato} onChange={(t) => onTagContrato(c, t)} />
-                </div>
-                {c.codigo_interno && <p className="text-xs text-brand-muted">#{c.codigo_interno}</p>}
-              </td>
-              <td className="px-4 py-3">
-                <span className={`badge ${ETAPA_COLOR[c.etapa]}`}>{ETAPA_LABEL[c.etapa]}</span>
-              </td>
-              <td className="px-4 py-3 font-medium text-brand">{formatBRL(c.mrr)}</td>
-              <td className="px-4 py-3 text-brand-muted">{c.tier ? TIER_LABEL[c.tier] : "—"}</td>
-              <td className="px-4 py-3 text-brand-muted">{c.account_nome ?? "—"}</td>
-              <td className="px-4 py-3 text-brand-muted">{c.squad_nome ?? "—"}</td>
-              <td className="px-4 py-3 text-brand-muted">{c.lt_meses != null ? `${c.lt_meses} m` : "—"}</td>
-              <td className="px-4 py-3">
-                {c.data_vencimento_contrato ? (
-                  <span className={`badge ${STATUS_VENCIMENTO_COLOR[statusVencimento(c.data_vencimento_contrato)]}`}>
-                    {formatDate(c.data_vencimento_contrato)}
-                    {(() => {
-                      const d = diasParaVencimento(c.data_vencimento_contrato);
-                      if (d == null) return null;
-                      if (d < 0) return ` · ${-d}d atrás`;
-                      return ` · ${d}d`;
-                    })()}
-                  </span>
-                ) : (
-                  <span className="text-xs text-brand-muted">—</span>
-                )}
-              </td>
-              <td className="px-4 py-3 text-right space-x-3">
-                <a href={`/planejamento?cliente=${c.id}`}
-                  className="inline-flex items-center gap-1 rounded-md border border-brand/40 bg-brand/15 px-2 py-1 text-xs font-semibold text-white hover:bg-brand/30">
-                  📊 Planejamento
-                </a>
-                <button onClick={() => onEdit(c)} className="text-xs text-brand-muted hover:text-gray-200">editar</button>
-                <button onClick={() => onFinalizarEE(c)} className="text-xs text-brand-muted hover:text-sky-300">E.E finalizada</button>
-                <button onClick={() => onRemove(c.id)} className="text-xs text-brand-muted hover:text-red-400">excluir</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function KanbanGP({
-  clientes, pessoas, onEdit, onRemove, onFinalizarEE, onSemanaEE, onTagContrato,
-}: {
-  clientes: ClienteView[];
-  pessoas: Pessoa[];
-  onEdit: (c: ClienteView) => void;
-  onRemove: (id: string) => void;
-  onFinalizarEE: (c: ClienteView) => void;
-  onSemanaEE: (c: ClienteView, semana: number | null) => void;
-  onTagContrato: (c: ClienteView, tag: TagContrato | null) => void;
-}) {
-  // Agrupa por account_id (GP)
-  const gps = pessoas.filter((p) => p.cargo === "gestor_projetos");
+function KanbanGP({ clientes, gps, fcas, acoes }: { clientes: ClienteView[]; gps: Pessoa[]; fcas: Fcas; acoes: AcoesCliente }) {
   const semGP = clientes.filter((c) => !c.account_id);
+  // Com filtro ativo, GP sem nenhum cliente no resultado não ocupa espaço
+  const colunas = gps.map((gp) => ({ gp, items: clientes.filter((c) => c.account_id === gp.id) }))
+    .filter((x) => x.items.length > 0);
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-      {gps.map((gp) => {
-        const items = clientes.filter((c) => c.account_id === gp.id);
-        const soma = items.reduce((s, c) => s + (Number(c.mrr) || 0), 0);
-        return (
-          <div key={gp.id} className="rounded-xl border border-white/5 bg-black/20 p-3">
-            <div className="mb-2 flex items-center gap-2 px-1">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand/20 font-bold text-brand">
-                {gp.nome.charAt(0).toUpperCase()}
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-semibold">{gp.nome}</p>
-                <p className="text-[10px] text-brand-muted">{items.length} clientes · {formatBRL(soma)}</p>
-              </div>
+      {colunas.map(({ gp, items }) => (
+        <Coluna key={gp.id} titulo={gp.nome} items={items} fcas={fcas} acoes={acoes} mostrar="etapa"
+          avatar={
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand/20 text-sm font-bold text-brand">
+              {gp.nome.charAt(0).toUpperCase()}
             </div>
-            <div className="mt-3 space-y-3">
-              {items.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onSemanaEE={onSemanaEE} onTagContrato={onTagContrato} compact />)}
-              {items.length === 0 && <p className="px-1 py-4 text-center text-xs text-brand-muted">vazio</p>}
-            </div>
-          </div>
-        );
-      })}
-
+          } />
+      ))}
       {semGP.length > 0 && (
-        <div className="rounded-xl border border-dashed border-white/10 bg-black/20 p-3">
-          <div className="mb-2 flex items-center gap-2 px-1">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 font-bold text-brand-muted">?</div>
-            <div className="flex-1">
-              <p className="text-sm font-semibold">Sem GP</p>
-              <p className="text-[10px] text-brand-muted">{semGP.length} clientes</p>
-            </div>
-          </div>
-          <div className="mt-3 space-y-3">
-            {semGP.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onSemanaEE={onSemanaEE} onTagContrato={onTagContrato} compact />)}
-          </div>
-        </div>
+        <Coluna titulo="Sem GP" items={semGP} fcas={fcas} acoes={acoes} mostrar="etapa" tracejada
+          avatar={<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/5 font-bold text-brand-muted">?</div>} />
       )}
     </div>
   );
 }
 
-function KanbanSquad({
-  clientes, squads, onEdit, onRemove, onFinalizarEE, onSemanaEE, onTagContrato,
-}: {
-  clientes: ClienteView[];
-  squads: Squad[];
-  onEdit: (c: ClienteView) => void;
-  onRemove: (id: string) => void;
-  onFinalizarEE: (c: ClienteView) => void;
-  onSemanaEE: (c: ClienteView, semana: number | null) => void;
-  onTagContrato: (c: ClienteView, tag: TagContrato | null) => void;
-}) {
+function KanbanSquad({ clientes, squads, fcas, acoes }: { clientes: ClienteView[]; squads: Squad[]; fcas: Fcas; acoes: AcoesCliente }) {
   // Data-driven: cada squad da tabela vira uma coluna automaticamente
   const semSquad = clientes.filter((c) => !c.squad_id);
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
       {squads.map((sq) => {
         const items = clientes.filter((c) => c.squad_id === sq.id);
-        const soma = items.reduce((s, c) => s + (Number(c.mrr) || 0), 0);
+        if (items.length === 0) return null;
         return (
-          <div key={sq.id} className="rounded-xl border border-white/5 bg-black/20 p-3">
-            <div className="mb-2 flex items-center gap-2 px-1">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg font-bold text-white"
-                   style={{ backgroundColor: sq.cor || "#1a1a1a" }}>
+          <Coluna key={sq.id} titulo={sq.nome} items={items} fcas={fcas} acoes={acoes} mostrar="gp"
+            avatar={
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white"
+                style={{ backgroundColor: sq.cor || "#1a1a1a" }}>
                 {sq.nome.charAt(0)}
               </div>
-              <div className="flex-1">
-                <p className="text-sm font-semibold tracking-wider">{sq.nome}</p>
-                <p className="text-[10px] text-brand-muted">{items.length} clientes · {formatBRL(soma)}</p>
-              </div>
-            </div>
-            <div className="mt-3 space-y-3">
-              {items.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onSemanaEE={onSemanaEE} onTagContrato={onTagContrato} compact />)}
-              {items.length === 0 && <p className="px-1 py-4 text-center text-xs text-brand-muted">vazio</p>}
-            </div>
-          </div>
+            } />
         );
       })}
-
       {semSquad.length > 0 && (
-        <div className="rounded-xl border border-dashed border-white/10 bg-black/20 p-3">
-          <div className="mb-2 flex items-center gap-2 px-1">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 font-bold text-brand-muted">?</div>
-            <div className="flex-1">
-              <p className="text-sm font-semibold">Sem squad</p>
-              <p className="text-[10px] text-brand-muted">{semSquad.length} clientes</p>
-            </div>
-          </div>
-          <div className="mt-3 space-y-3">
-            {semSquad.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onSemanaEE={onSemanaEE} onTagContrato={onTagContrato} compact />)}
-          </div>
-        </div>
+        <Coluna titulo="Sem squad" items={semSquad} fcas={fcas} acoes={acoes} mostrar="gp" tracejada
+          avatar={<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/5 font-bold text-brand-muted">?</div>} />
       )}
     </div>
   );
 }
 
-function ClienteCard({
-  c, onEdit, onRemove, onFinalizarEE, onSemanaEE, onTagContrato, onMove, compact,
-}: {
-  c: ClienteView;
-  onEdit: (c: ClienteView) => void;
-  onRemove: (id: string) => void;
-  onFinalizarEE: (c: ClienteView) => void;
-  onSemanaEE: (c: ClienteView, semana: number | null) => void;
-  onTagContrato: (c: ClienteView, tag: TagContrato | null) => void;
-  onMove?: (c: ClienteView, e: EtapaCliente) => void;
-  compact?: boolean;
-}) {
+/** Menu "⋯": mover de etapa e as ações que tiram o cliente da carteira, longe do clique acidental. */
+function MenuAcoes({ c, acoes }: { c: ClienteView; acoes: AcoesCliente }) {
   return (
-    <div className="card p-3">
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-semibold leading-snug">{c.nome}</p>
+    <details className="relative">
+      <summary className="cursor-pointer list-none rounded px-1.5 py-0.5 text-sm text-brand-muted hover:bg-white/5 hover:text-gray-200 [&::-webkit-details-marker]:hidden"
+        title="Mais ações">⋯</summary>
+      {/* Fecha o menu depois de escolher */}
+      <div className="absolute right-0 z-30 mt-1 w-48 rounded-lg border border-white/10 bg-brand-panel p-1 text-left text-xs shadow-lg"
+        onClick={(e) => { (e.currentTarget.parentElement as HTMLDetailsElement).open = false; }}>
+        <p className="px-2 pb-1 pt-1.5 text-[10px] uppercase tracking-wide text-brand-muted">Mover de etapa</p>
+        {ETAPAS.filter((et) => et !== c.etapa).map((et) => (
+          <button key={et} onClick={() => acoes.onMove(c, et)}
+            className="block w-full rounded px-2 py-1.5 text-left text-gray-200 hover:bg-white/5">{ETAPA_LABEL[et]}</button>
+        ))}
+        <div className="my-1 border-t border-white/10" />
+        <button onClick={() => acoes.onFinalizarEE(c)}
+          className="block w-full rounded px-2 py-1.5 text-left text-sky-300 hover:bg-white/5">🧭 E.E Finalizada</button>
+        <button onClick={() => acoes.onSubirChurn(c)}
+          className="block w-full rounded px-2 py-1.5 text-left text-purple-300 hover:bg-white/5">⚠ Subir Churn</button>
+        <button onClick={() => acoes.onRemove(c.id)}
+          className="block w-full rounded px-2 py-1.5 text-left text-red-400 hover:bg-white/5">🗑 Excluir</button>
+      </div>
+    </details>
+  );
+}
+
+function AvisoVencimento({ c }: { c: ClienteView }) {
+  const status = statusVencimento(c.data_vencimento_contrato);
+  if (status !== "vencido" && status !== "critico") return null;
+  const dias = diasParaVencimento(c.data_vencimento_contrato) ?? 0;
+  return (
+    <span className={`rounded border px-1.5 py-0.5 text-[10px] ${STATUS_VENCIMENTO_COLOR[status]}`}>
+      {status === "vencido" ? `⚠ vencido há ${-dias}d` : `⏱ vence em ${dias}d`}
+    </span>
+  );
+}
+
+/** Tags S? e "+ tag" vazias só aparecem ao passar o mouse (no celular, sempre). */
+function TagsCliente({ c, acoes }: { c: ClienteView; acoes: AcoesCliente }) {
+  return (
+    <>
+      <span className={c.semana_ee ? "inline-flex" : "inline-flex md:hidden md:group-hover:inline-flex"}>
+        <TagSemanaEE semana={c.semana_ee} onChange={(s) => acoes.onSemanaEE(c, s)} />
+      </span>
+      <span className={c.tag_contrato ? "inline-flex" : "inline-flex md:hidden md:group-hover:inline-flex"}>
+        <TagContratoCliente tag={c.tag_contrato} onChange={(t) => acoes.onTagContrato(c, t)} />
+      </span>
+    </>
+  );
+}
+
+function ClienteCard({ c, fca, acoes, mostrar }: {
+  c: ClienteView;
+  fca?: FcaView;
+  acoes: AcoesCliente;
+  mostrar: "gp" | "etapa";
+}) {
+  const detalhe = mostrar === "gp"
+    ? (c.account_nome ? `GP ${c.account_nome}` : "sem GP")
+    : ETAPA_LABEL[c.etapa];
+  return (
+    <div className="group card p-2.5">
+      {/* Linha 1: FCA + nome + tags */}
+      <div className="flex items-start gap-2">
+        <BolinhaFca fca={fca} />
+        <p className="min-w-0 flex-1 text-sm font-semibold leading-snug">{c.nome}</p>
         <div className="flex shrink-0 flex-wrap justify-end gap-1">
-          <TagSemanaEE semana={c.semana_ee} onChange={(s) => onSemanaEE(c, s)} />
-          <TagContratoCliente tag={c.tag_contrato} onChange={(t) => onTagContrato(c, t)} />
+          <TagsCliente c={c} acoes={acoes} />
         </div>
       </div>
-      <div className="mt-1.5 flex items-center justify-between gap-2">
-        <p className="min-w-0 truncate text-xs font-semibold text-brand">{formatBRL(c.mrr)}/mês</p>
-        {/* No Kanban por Etapa a coluna já diz a fase — aqui fica só o atalho pra mover */}
-        {onMove ? (
-          <label className="relative inline-flex shrink-0 cursor-pointer items-center gap-1 overflow-hidden rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-brand-muted transition hover:border-white/20 hover:text-gray-200"
-            title="Mover de etapa">
-            Mover <span className="text-[8px]">▼</span>
-            <select
-              value={c.etapa}
-              onChange={(e) => onMove(c, e.target.value as EtapaCliente)}
-              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-            >
-              {ETAPAS.map((et) => <option key={et} value={et} className="bg-brand-panel text-gray-100">{ETAPA_LABEL[et]}</option>)}
-              <option value="cancelado" className="bg-brand-panel text-gray-100">Cancelado</option>
-            </select>
-          </label>
-        ) : !compact && (
-          <span className={`badge max-w-[120px] shrink-0 truncate text-[10px] ${ETAPA_COLOR[c.etapa]}`}>{ETAPA_LABEL[c.etapa]}</span>
-        )}
+
+      {/* Linha 2: MRR + GP (ou etapa, na visão por GP) */}
+      <div className="mt-1 flex items-baseline gap-1.5 pl-[18px] text-xs">
+        <span className="font-bold text-brand">{formatBRL(c.mrr)}</span>
+        <span className="truncate text-brand-muted">· {detalhe}</span>
       </div>
-      <div className="mt-1.5 flex flex-wrap gap-x-1.5 text-[10px] text-brand-muted">
-        {c.tier && <span>{TIER_LABEL[c.tier]}</span>}
-        {c.squad_nome && <span>· {c.squad_nome}</span>}
-        {c.lt_meses != null && <span>· {c.lt_meses}m</span>}
-        {c.account_nome && !compact && <span>· GP {c.account_nome}</span>}
-      </div>
-      {c.data_vencimento_contrato && (() => {
-        const status = statusVencimento(c.data_vencimento_contrato);
-        if (status === "ok" || status === "sem_data") return null;
-        const dias = diasParaVencimento(c.data_vencimento_contrato);
-        return (
-          <div className={`mt-2 rounded border px-2 py-1 text-[10px] ${STATUS_VENCIMENTO_COLOR[status]}`}>
-            {status === "vencido"
-              ? `⚠ Vencido há ${-(dias ?? 0)} dias`
-              : `⏱ Vence em ${dias} dias (${formatDate(c.data_vencimento_contrato)})`}
-          </div>
-        );
-      })()}
-      <div className="mt-3 flex items-center justify-between gap-2 border-t border-white/5 pt-2.5">
-        <a href={`/planejamento?cliente=${c.id}`}
-          className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-brand/40 bg-brand/15 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-brand/30">
-          📊 Planejamento
-        </a>
-        <div className="flex items-center gap-1 text-brand-muted">
-          <button onClick={() => onEdit(c)} title="Editar"
-            className="rounded px-1.5 py-0.5 text-sm hover:bg-white/5 hover:text-gray-200">✎</button>
-          <button onClick={() => onFinalizarEE(c)} title="E.E Finalizada (não fechou a assessoria)"
-            className="rounded px-1.5 py-0.5 text-sm hover:bg-white/5 hover:text-sky-300">🧭</button>
-          <button onClick={() => onRemove(c.id)} title="Excluir"
-            className="rounded px-1.5 py-0.5 text-sm hover:bg-white/5 hover:text-red-400">🗑</button>
+
+      {/* Linha 3: só o que pede ação */}
+      {vencendoLogo(c) && (
+        <div className="mt-1.5 pl-[18px]"><AvisoVencimento c={c} /></div>
+      )}
+
+      {/* Detalhes e ações: aparecem ao passar o mouse (sempre visíveis no celular) */}
+      <div className="mt-2 flex items-center justify-between gap-2 border-t border-white/5 pt-2 md:hidden md:group-focus-within:flex md:group-hover:flex">
+        <p className="min-w-0 truncate text-[10px] text-brand-muted">
+          {[c.tier && TIER_LABEL[c.tier], c.squad_nome, c.lt_meses != null && `LT ${c.lt_meses}m`]
+            .filter(Boolean).join(" · ")}
+        </p>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <a href={`/planejamento?cliente=${c.id}`} title="Planejamento"
+            className="rounded px-1.5 py-0.5 text-sm hover:bg-white/5">📊</a>
+          <button onClick={() => acoes.onEdit(c)} title="Editar"
+            className="rounded px-1.5 py-0.5 text-sm text-brand-muted hover:bg-white/5 hover:text-gray-200">✎</button>
+          <MenuAcoes c={c} acoes={acoes} />
         </div>
       </div>
+    </div>
+  );
+}
+
+type Ordem = "nome" | "mrr" | "fca" | "lt" | "vencimento";
+
+function Lista({ clientes, fcas, acoes }: { clientes: ClienteView[]; fcas: Fcas; acoes: AcoesCliente }) {
+  const [ordem, setOrdem] = useState<{ campo: Ordem; asc: boolean }>({ campo: "nome", asc: true });
+  const ordenados = useMemo(() => {
+    const valor = (c: ClienteView): number | string => {
+      switch (ordem.campo) {
+        case "mrr": return Number(c.mrr) || 0;
+        case "fca": return fcas[c.id]?.nota_final ?? -1;
+        case "lt": return c.lt_meses ?? -1;
+        case "vencimento": return c.data_vencimento_contrato ?? "9999";
+        default: return c.nome.toLowerCase();
+      }
+    };
+    return [...clientes].sort((a, b) => {
+      const va = valor(a), vb = valor(b);
+      const r = va < vb ? -1 : va > vb ? 1 : 0;
+      return ordem.asc ? r : -r;
+    });
+  }, [clientes, fcas, ordem]);
+
+  function ordenar(campo: Ordem) {
+    // Primeiro clique: nome e vencimento crescente; valores (MRR, FCA, LT) do maior pro menor
+    setOrdem((o) => ({ campo, asc: o.campo === campo ? !o.asc : campo === "nome" || campo === "vencimento" }));
+  }
+  const th = (campo: Ordem, label: string) => (
+    <th className="px-3 py-3">
+      <button className="inline-flex items-center gap-1 uppercase hover:text-gray-200" onClick={() => ordenar(campo)}>
+        {label}{ordem.campo === campo && <span>{ordem.asc ? "▲" : "▼"}</span>}
+      </button>
+    </th>
+  );
+
+  return (
+    <div className="card overflow-x-auto p-0">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-white/5 text-left text-xs uppercase tracking-wide text-brand-muted">
+            {th("nome", "Cliente")}
+            <th className="px-3 py-3">Etapa</th>
+            {th("mrr", "MRR")}
+            {th("fca", "FCA")}
+            <th className="px-3 py-3">GP</th>
+            <th className="px-3 py-3">Squad</th>
+            {th("lt", "LT")}
+            {th("vencimento", "Vencimento")}
+            <th className="px-3 py-3"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {ordenados.map((c) => {
+            const fca = fcas[c.id];
+            return (
+              <tr key={c.id} className="group border-b border-white/5 last:border-0 hover:bg-white/[0.02]">
+                <td className="px-3 py-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium">{c.nome}</p>
+                    <TagsCliente c={c} acoes={acoes} />
+                  </div>
+                </td>
+                <td className="px-3 py-2.5">
+                  <span className={`badge ${ETAPA_COLOR[c.etapa]}`}>{ETAPA_LABEL[c.etapa]}</span>
+                </td>
+                <td className="px-3 py-2.5 font-medium text-brand">{formatBRL(c.mrr)}</td>
+                <td className="px-3 py-2.5">
+                  <span className="inline-flex items-center gap-1.5 text-xs text-brand-muted">
+                    <BolinhaFca fca={fca} />
+                    {fca?.nota_final != null ? Number(fca.nota_final).toFixed(1) : "—"}
+                  </span>
+                </td>
+                <td className="px-3 py-2.5 text-brand-muted">{c.account_nome ?? "—"}</td>
+                <td className="px-3 py-2.5 text-brand-muted">{c.squad_nome ?? "—"}</td>
+                <td className="px-3 py-2.5 text-brand-muted">{c.lt_meses != null ? `${c.lt_meses} m` : "—"}</td>
+                <td className="px-3 py-2.5">
+                  {c.data_vencimento_contrato ? (
+                    <span className={`badge ${STATUS_VENCIMENTO_COLOR[statusVencimento(c.data_vencimento_contrato)]}`}>
+                      {formatDate(c.data_vencimento_contrato)}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-brand-muted">—</span>
+                  )}
+                </td>
+                <td className="px-3 py-2.5">
+                  <div className="flex items-center justify-end gap-0.5">
+                    <a href={`/planejamento?cliente=${c.id}`} title="Planejamento"
+                      className="rounded px-1.5 py-0.5 text-sm hover:bg-white/5">📊</a>
+                    <button onClick={() => acoes.onEdit(c)} title="Editar"
+                      className="rounded px-1.5 py-0.5 text-sm text-brand-muted hover:bg-white/5 hover:text-gray-200">✎</button>
+                    <MenuAcoes c={c} acoes={acoes} />
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
