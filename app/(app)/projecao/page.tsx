@@ -11,7 +11,7 @@ import { TagSemanaEE, carregarSemanasEE, TagContratoCliente, carregarTagsContrat
 
 type Area = { id: string; nome: string; tipo: "fixa" | "squad"; ordem: number };
 type OrgPessoa = {
-  id: string; area_id: string; nome: string; cargo: string | null; foto_url: string | null;
+  id: string; area_id: string; subsecao_id: string | null; nome: string; cargo: string | null; foto_url: string | null;
   tem_carteira: boolean; ruston_pessoa_id: string | null; capacidade: number | null;
 };
 type SimCliente = {
@@ -20,7 +20,10 @@ type SimCliente = {
   novo?: boolean; removido?: boolean;
 };
 type SimGp = { id: string; nome: string; area_id: string; foto_url: string | null; capacidade: number | null; ficticio?: boolean };
-type Cenario = { clientes: SimCliente[]; gpsExtras: SimGp[]; areaDoGp: Record<string, string> };
+type Subsecao = { id: string; area_id: string; nome: string; ordem: number };
+/** Cadeira do time: cargo + quem senta nela. nome vazio = vaga em aberto. */
+type Cadeira = { id: string; area_id: string; subsecao_id: string | null; nome: string; cargo: string; nomeReal?: string; areaReal?: string; nova?: boolean; removida?: boolean };
+type Cenario = { clientes: SimCliente[]; gpsExtras: SimGp[]; areaDoGp: Record<string, string>; cadeiras?: Cadeira[] };
 
 const CHAVE = "projecao:cenario:v2";
 const FORA = "__fora__";
@@ -49,7 +52,8 @@ export default function ProjecaoPage() {
   const [loading, setLoading] = useState(true);
   const [squads, setSquads] = useState<Area[]>([]);
   const [fixas, setFixas] = useState<Area[]>([]);
-  const [membros, setMembros] = useState<OrgPessoa[]>([]);
+  const [subsecoes, setSubsecoes] = useState<Subsecao[]>([]);
+  const [cadeirasReais, setCadeirasReais] = useState<Cadeira[]>([]);
   const [gpsReais, setGpsReais] = useState<SimGp[]>([]);
   const [reais, setReais] = useState<SimCliente[]>([]);
   const [cenario, setCenario] = useState<Cenario>({ clientes: [], gpsExtras: [], areaDoGp: {} });
@@ -58,11 +62,12 @@ export default function ProjecaoPage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: a }, { data: p }, { data: cli }, { data: pc }, semanas, tags] = await Promise.all([
+    const [{ data: a }, { data: p }, { data: cli }, { data: pc }, { data: sub }, semanas, tags] = await Promise.all([
       supabase.from("ruston_org_areas").select("id,nome,tipo,ordem").eq("ativo", true).order("ordem"),
-      supabase.from("ruston_org_pessoas").select("id,area_id,nome,cargo,foto_url,tem_carteira,ruston_pessoa_id,capacidade").eq("ativo", true).order("linha").order("coluna"),
+      supabase.from("ruston_org_pessoas").select("id,area_id,subsecao_id,nome,cargo,foto_url,tem_carteira,ruston_pessoa_id,capacidade").eq("ativo", true).order("linha").order("coluna"),
       supabase.from("ruston_clientes").select("id,nome,account_id,mrr,churn_realizado,subiu_no_sistema,etapa").eq("ativo", true),
       supabase.from("ruston_pessoas").select("id,nome"),
+      supabase.from("ruston_org_subsecoes").select("id,area_id,nome,ordem").eq("ativo", true).order("ordem"),
       carregarSemanasEE(supabase),
       carregarTagsContrato(supabase),
     ]);
@@ -96,12 +101,18 @@ export default function ProjecaoPage() {
       }));
     setSquads(sq);
     setFixas(todasAreas.filter((x) => x.tipo !== "squad"));
-    setMembros(pessoasOrg);
+    setSubsecoes((sub as Subsecao[]) ?? []);
+    const cadeiras: Cadeira[] = pessoasOrg.map((x) => ({
+      id: x.id, area_id: x.area_id, subsecao_id: x.subsecao_id ?? null,
+      nome: x.nome, cargo: (x.cargo ?? "").replace(/\n/g, " "), nomeReal: x.nome, areaReal: x.area_id,
+    }));
+    setCadeirasReais(cadeiras);
     setGpsReais(gps);
     setReais(clientes);
     let salvo: Cenario | null = null;
     try { const t = localStorage.getItem(CHAVE); if (t) salvo = JSON.parse(t); } catch {}
-    setCenario(salvo ?? { clientes, gpsExtras: [], areaDoGp: {} });
+    // cenário salvo antes das cadeiras existirem é completado com o time real
+    setCenario(salvo ? { ...salvo, cadeiras: salvo.cadeiras ?? cadeiras } : { clientes, gpsExtras: [], areaDoGp: {}, cadeiras });
     setLoading(false);
   }
 
@@ -117,8 +128,30 @@ export default function ProjecaoPage() {
   function resetar() {
     if (!confirm("Voltar a projeção para os dados reais de hoje? As simulações feitas aqui serão descartadas.")) return;
     try { localStorage.removeItem(CHAVE); } catch {}
-    setCenario({ clientes: reais, gpsExtras: [], areaDoGp: {} });
+    setCenario({ clientes: reais, gpsExtras: [], areaDoGp: {}, cadeiras: cadeirasReais });
   }
+
+  const mudarCadeira = (id: string, campos: Partial<Cadeira>) =>
+    atualizar((c) => ({ ...c, cadeiras: (c.cadeiras ?? []).map((x) => (x.id === id ? { ...x, ...campos } : x)) }));
+  function removerCadeira(cad: Cadeira) {
+    atualizar((c) => ({
+      ...c,
+      cadeiras: cad.nova
+        ? (c.cadeiras ?? []).filter((x) => x.id !== cad.id)
+        : (c.cadeiras ?? []).map((x) => (x.id === cad.id ? { ...x, removida: true } : x)),
+    }));
+  }
+  function adicionarCadeira(area_id: string, subsecao_id: string | null) {
+    const cargo = prompt("Cargo da nova cadeira (ex: Gestor de Tráfego):");
+    if (!cargo?.trim()) return;
+    const nome = prompt("Quem senta nela? (deixe vazio para vaga em aberto)") ?? "";
+    atualizar((c) => ({ ...c, cadeiras: [...(c.cadeiras ?? []), { id: `cad:${Date.now()}`, area_id, subsecao_id, cargo: cargo.trim(), nome: nome.trim(), nova: true }] }));
+  }
+  const timeProps = (area_id: string) => ({
+    area_id, areas: [...fixas, ...squads], subsecoes: subsecoes.filter((x) => x.area_id === area_id),
+    cadeiras: (cenario.cadeiras ?? []).filter((x) => x.area_id === area_id && !x.removida),
+    onMudar: mudarCadeira, onRemover: removerCadeira, onAdicionar: adicionarCadeira,
+  });
 
   const mudarCliente = (id: string, campos: Partial<SimCliente>) =>
     atualizar((c) => ({ ...c, clientes: c.clientes.map((x) => (x.id === id ? { ...x, ...campos } : x)) }));
@@ -162,7 +195,8 @@ export default function ProjecaoPage() {
     if (c.novo || c.removido) return true;
     const r = reaisPorId.get(c.id);
     return !r || r.gp !== c.gp || r.mrr !== c.mrr;
-  }).length + cenario.gpsExtras.length + Object.keys(cenario.areaDoGp).length;
+  }).length + cenario.gpsExtras.length + Object.keys(cenario.areaDoGp).length
+    + (cenario.cadeiras ?? []).filter((x) => x.nova || x.removida || x.nome !== x.nomeReal || x.area_id !== x.areaReal).length;
 
   if (loadingPerfil) return <p className="text-brand-muted">Carregando...</p>;
   if (!isGerente) return <p className="text-brand-muted">Esta tela é exclusiva do gerente.</p>;
@@ -210,7 +244,12 @@ export default function ProjecaoPage() {
 
       {aba === "todos" && fixas.length > 0 && (
         <div className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {fixas.map((f) => <CartaoTime key={f.id} area={f} membros={membros.filter((m) => m.area_id === f.id)} />)}
+          {fixas.map((f) => (
+            <div key={f.id} className="rounded-2xl border-2 border-red-500/60 bg-white/[0.02] p-5">
+              <h2 className="mb-3 text-center text-sm font-bold uppercase tracking-widest text-white">{f.nome}</h2>
+              <Time {...timeProps(f.id)} />
+            </div>
+          ))}
         </div>
       )}
 
@@ -228,7 +267,7 @@ export default function ProjecaoPage() {
                   MRR projetado · {compacto(mrrSquad)} · {cliSquad.length} clientes <Delta v={mrrSquad - mrrSquadReal} />
                 </p>
               </div>
-              <Membros membros={membros.filter((m) => m.area_id === sq.id)} />
+              {sq.id !== FORA && <Time {...timeProps(sq.id)} />}
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {gpsSquad.map((g) => (
                   <CartaoGp key={g.id} gp={g} squads={squads}
@@ -284,22 +323,27 @@ export default function ProjecaoPage() {
   );
 }
 
-function Membros({ membros }: { membros: OrgPessoa[] }) {
-  if (membros.length === 0) return null;
+/** Time em lista: cada cadeira (cargo) com o nome de quem senta nela. Editável só na projeção. */
+function Time({ area_id, areas, subsecoes, cadeiras, onMudar, onRemover, onAdicionar }: {
+  area_id: string; areas: Area[]; subsecoes: Subsecao[]; cadeiras: Cadeira[];
+  onMudar: (id: string, campos: Partial<Cadeira>) => void; onRemover: (c: Cadeira) => void;
+  onAdicionar: (area_id: string, subsecao_id: string | null) => void;
+}) {
+  const grupos: { id: string | null; nome: string | null }[] = [{ id: null, nome: null }, ...subsecoes.map((x) => ({ id: x.id, nome: x.nome }))];
+  // cadeira trazida de outro time chega com subseção de lá: cai no grupo do topo
+  const idsSub = new Set(subsecoes.map((x) => x.id));
   return (
-    <div className="mb-4 flex flex-wrap justify-center gap-3">
-      {membros.map((m) => {
-        const iniciais = m.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
+    <div className="mb-5 space-y-3">
+      {grupos.map((g) => {
+        const lista = cadeiras.filter((c) => (g.id === null ? !c.subsecao_id || !idsSub.has(c.subsecao_id) : c.subsecao_id === g.id));
         return (
-          <div key={m.id} className="flex w-20 flex-col items-center gap-1 text-center">
-            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border-2 border-red-500/40 bg-gradient-to-br from-red-600 to-red-800">
-              {m.foto_url
-                ? // eslint-disable-next-line @next/next/no-img-element
-                  <img src={m.foto_url} alt={m.nome} className="h-full w-full object-cover" />
-                : <span className="text-xs font-black text-white">{iniciais}</span>}
+          <div key={g.id ?? "topo"}>
+            {g.nome && <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-brand-muted">{g.nome}</p>}
+            <div className="divide-y divide-white/5 rounded-lg border border-white/10">
+              {lista.map((c) => <LinhaCadeira key={c.id} c={c} areas={areas} onMudar={onMudar} onRemover={onRemover} />)}
+              {lista.length === 0 && <p className="px-3 py-2 text-[11px] italic text-brand-muted">Sem pessoas</p>}
             </div>
-            <p className="text-[9px] font-bold uppercase leading-tight text-white">{m.nome}</p>
-            {m.cargo && <p className="text-[8px] leading-tight text-red-300">{m.cargo}</p>}
+            <button onClick={() => onAdicionar(area_id, g.id)} className="mt-1 text-[10px] text-brand-muted hover:text-brand">+ cadeira</button>
           </div>
         );
       })}
@@ -307,11 +351,27 @@ function Membros({ membros }: { membros: OrgPessoa[] }) {
   );
 }
 
-function CartaoTime({ area, membros }: { area: Area; membros: OrgPessoa[] }) {
+function LinhaCadeira({ c, areas, onMudar, onRemover }: {
+  c: Cadeira; areas: Area[]; onMudar: (id: string, campos: Partial<Cadeira>) => void; onRemover: (c: Cadeira) => void;
+}) {
+  const trocou = !c.nova && c.nome !== c.nomeReal;
+  const veioDeFora = !c.nova && c.area_id !== c.areaReal;
   return (
-    <div className="rounded-2xl border-2 border-red-500/60 bg-white/[0.02] p-5">
-      <h2 className="mb-4 text-center text-sm font-bold uppercase tracking-widest text-white">{area.nome}</h2>
-      <Membros membros={membros} />
+    <div className={`group flex items-center gap-2 px-3 py-1.5 ${c.nova ? "bg-violet-500/10" : trocou || veioDeFora ? "bg-sky-500/10" : ""}`}>
+      <span className="w-2/5 truncate text-[11px] text-red-300" title={c.cargo}>{c.cargo || "—"}</span>
+      <input
+        defaultValue={c.nome} key={c.nome} placeholder="vaga em aberto"
+        onBlur={(e) => { const v = e.target.value.trim(); if (v !== c.nome) onMudar(c.id, { nome: v }); }}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+        className={`min-w-0 flex-1 border-b border-transparent bg-transparent text-xs font-bold uppercase outline-none focus:border-emerald-400 ${c.nome ? "text-white" : "italic text-amber-300 placeholder:text-amber-300/70"}`}
+      />
+      {trocou && c.nomeReal && <span className="text-[9px] text-brand-muted line-through">{c.nomeReal}</span>}
+      {c.nova && <span className="text-[8px] font-bold text-violet-300">NOVA</span>}
+      <select value={c.area_id} onChange={(e) => onMudar(c.id, { area_id: e.target.value })} title="Mover para outro time (projeção)"
+        className="max-w-[80px] rounded border border-white/10 bg-brand-panel px-1 py-0.5 text-[9px] text-brand-muted opacity-0 group-hover:opacity-100">
+        {areas.map((a) => <option key={a.id} value={a.id}>{a.nome}</option>)}
+      </select>
+      <button onClick={() => onRemover(c)} title="Tirar a cadeira (projeção)" className="text-xs text-brand-muted opacity-0 hover:text-red-300 group-hover:opacity-100">✕</button>
     </div>
   );
 }
