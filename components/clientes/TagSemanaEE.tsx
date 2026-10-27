@@ -51,3 +51,68 @@ export function TagSemanaEE({ semana, onChange, size = "sm" }: {
     </label>
   );
 }
+
+/* ---------- Tag do modelo de contrato (migration 015) ---------- */
+
+export type TagContrato = "pontual" | "pontual_assessoria" | "ee_assessoria";
+
+export const TAG_CONTRATO_LABEL: Record<TagContrato, string> = {
+  pontual: "Pontual",
+  pontual_assessoria: "Pontual+Assessoria",
+  ee_assessoria: "E.E+Assessoria",
+};
+
+const TAG_CONTRATO_COR: Record<TagContrato, string> = {
+  pontual: "border-amber-500/40 bg-amber-500/15 text-amber-300",
+  pontual_assessoria: "border-violet-500/40 bg-violet-500/15 text-violet-300",
+  ee_assessoria: "border-emerald-500/40 bg-emerald-500/15 text-emerald-300",
+};
+
+/** Separado das semanas: se a coluna ainda não existir, só essas tags somem. */
+export async function carregarTagsContrato(supabase: SupabaseClient): Promise<Record<string, TagContrato>> {
+  const { data, error } = await supabase.from("ruston_clientes")
+    .select("id, tag_contrato").eq("ativo", true).not("tag_contrato", "is", null);
+  if (error) return {};
+  const mapa: Record<string, TagContrato> = {};
+  (data ?? []).forEach((c: { id: string; tag_contrato: TagContrato }) => { mapa[c.id] = c.tag_contrato; });
+  return mapa;
+}
+
+export async function salvarTagContrato(supabase: SupabaseClient, clienteId: string, tag: TagContrato | null) {
+  const { error } = await supabase.from("ruston_clientes").update({ tag_contrato: tag }).eq("id", clienteId);
+  return error;
+}
+
+/** Tag "Pontual", "Pontual+Assessoria" ou "E.E+Assessoria". Com onChange vira seletor. */
+export function TagContratoCliente({ tag, onChange, size = "sm" }: {
+  tag: TagContrato | null | undefined;
+  onChange?: (t: TagContrato | null) => void;
+  size?: "sm" | "xs";
+}) {
+  const texto = size === "xs" ? "text-[8px] px-1.5 py-0.5" : "text-[10px] px-1.5 py-0.5";
+  if (!onChange) {
+    if (!tag) return null;
+    return (
+      <span className={`inline-flex shrink-0 items-center whitespace-nowrap rounded border font-bold ${TAG_CONTRATO_COR[tag]} ${texto}`}>
+        {TAG_CONTRATO_LABEL[tag]}
+      </span>
+    );
+  }
+  return (
+    <label className={`relative inline-flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap rounded border font-bold ${texto} ${
+      tag ? TAG_CONTRATO_COR[tag] : "border-dashed border-white/20 text-brand-muted hover:text-gray-200"}`}
+      title="Modelo de contrato">
+      {tag ? TAG_CONTRATO_LABEL[tag] : "+ tag"} <span className="text-[7px]">▼</span>
+      <select
+        value={tag ?? ""}
+        onChange={(e) => onChange((e.target.value || null) as TagContrato | null)}
+        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+      >
+        <option value="" className="bg-brand-panel text-gray-100">Sem tag</option>
+        {(Object.keys(TAG_CONTRATO_LABEL) as TagContrato[]).map((t) => (
+          <option key={t} value={t} className="bg-brand-panel text-gray-100">{TAG_CONTRATO_LABEL[t]}</option>
+        ))}
+      </select>
+    </label>
+  );
+}

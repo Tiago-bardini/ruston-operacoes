@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
-import { TagSemanaEE, carregarSemanasEE } from "@/components/clientes/TagSemanaEE";
+import { TagSemanaEE, carregarSemanasEE, TagContratoCliente, carregarTagsContrato, type TagContrato } from "@/components/clientes/TagSemanaEE";
 
 type Area = { id: string; nome: string; tipo: "fixa" | "squad"; cor: string; ordem: number; ativo: boolean };
 type Subsecao = { id: string; area_id: string; nome: string; ordem: number; ativo: boolean };
@@ -25,6 +25,7 @@ type ClienteAuto = {
   ativo: boolean;
   etapa?: string | null;
   semana_ee?: number | null;
+  tag_contrato?: TagContrato | null;
 };
 type FcaStatus = {
   cliente_id: string;
@@ -58,7 +59,7 @@ export default function OrganogramaPage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: a }, { data: s }, { data: p }, { data: c }, { data: pc }, { data: cli }, semanasEE] = await Promise.all([
+    const [{ data: a }, { data: s }, { data: p }, { data: c }, { data: pc }, { data: cli }, semanasEE, tagsContrato] = await Promise.all([
       supabase.from("ruston_org_areas").select("*").eq("ativo", true).order("ordem"),
       supabase.from("ruston_org_subsecoes").select("*").eq("ativo", true).order("ordem"),
       supabase.from("ruston_org_pessoas").select("*").eq("ativo", true).order("linha").order("coluna"),
@@ -68,6 +69,7 @@ export default function OrganogramaPage() {
         .select("id,nome,account_id,mrr,churn_realizado,subiu_no_sistema,data_vencimento_contrato,ativo,etapa")
         .eq("ativo", true),
       carregarSemanasEE(supabase),
+      carregarTagsContrato(supabase),
     ]);
     setAreas((a as Area[]) ?? []);
     setSubsecoes((s as Subsecao[]) ?? []);
@@ -77,7 +79,7 @@ export default function OrganogramaPage() {
     setClientesAuto(
       ((cli as ClienteAuto[]) ?? []).filter(
         (x) => !(x.churn_realizado === true && x.subiu_no_sistema === true)
-      ).map((x) => ({ ...x, semana_ee: semanasEE[x.id] ?? null }))
+      ).map((x) => ({ ...x, semana_ee: semanasEE[x.id] ?? null, tag_contrato: tagsContrato[x.id] ?? null }))
     );
     const { data: fcas } = await supabase
       .from("ruston_fca_view")
@@ -751,6 +753,7 @@ function ClienteAutoRow({ cliente, fca }: { cliente: ClienteAuto; fca?: FcaStatu
               title={`${bolinhaLabel[bandeira]}${fca?.nota_final != null ? ` · Nota ${fca.nota_final.toFixed(2)}` : ""}${fca ? ` · Última: ${fca.data_referencia}` : ""}`} />
             <p className="text-xs font-semibold uppercase text-white truncate">{cliente.nome}</p>
             {cliente.etapa === "estruturacao_estrategica" && <TagSemanaEE semana={cliente.semana_ee} size="xs" />}
+            <TagContratoCliente tag={cliente.tag_contrato} size="xs" />
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1 ml-5">
             {mrr && <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[8px] font-bold text-emerald-300">{mrr}</span>}

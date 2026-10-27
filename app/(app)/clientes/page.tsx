@@ -10,7 +10,10 @@ import {
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 import { ModalSubirChurn, efetivarChurn, abrirRetencao } from "@/components/churn/ChurnEfetivado";
 import { ModalEeFinalizada, finalizarEE } from "@/components/clientes/EeFinalizada";
-import { TagSemanaEE, carregarSemanasEE, salvarSemanaEE } from "@/components/clientes/TagSemanaEE";
+import {
+  TagSemanaEE, carregarSemanasEE, salvarSemanaEE,
+  TagContratoCliente, carregarTagsContrato, salvarTagContrato, type TagContrato,
+} from "@/components/clientes/TagSemanaEE";
 
 const ETAPAS: EtapaCliente[] = ["onboarding", "estruturacao_estrategica", "byline", "em_recuperacao", "suspenso"];
 const TIERS: TierCliente[] = ["tiny", "small", "medium", "large"];
@@ -56,15 +59,16 @@ export default function ClientesPage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: cs }, { data: ps }, { data: sq }, { data: fs }, semanasEE] = await Promise.all([
+    const [{ data: cs }, { data: ps }, { data: sq }, { data: fs }, semanasEE, tagsContrato] = await Promise.all([
       // Traz TODOS (ativos + churn) — o alerta de churn pendente usa os churnados
       supabase.from("ruston_clientes_view").select("*").order("nome"),
       supabase.from("ruston_pessoas").select("*").eq("ativo", true).order("nome"),
       supabase.from("ruston_squads").select("*").eq("ativo", true).order("nome"),
       supabase.from("ruston_fca_view").select("*").order("ano", { ascending: false }).order("mes", { ascending: false }),
       carregarSemanasEE(supabase),
+      carregarTagsContrato(supabase),
     ]);
-    setClientes(((cs as ClienteView[]) ?? []).map((c) => ({ ...c, semana_ee: semanasEE[c.id] ?? null })));
+    setClientes(((cs as ClienteView[]) ?? []).map((c) => ({ ...c, semana_ee: semanasEE[c.id] ?? null, tag_contrato: tagsContrato[c.id] ?? null })));
     setPessoas((ps as Pessoa[]) ?? []);
     setSquads((sq as Squad[]) ?? []);
     // Reduz para o FCA mais recente por cliente_id
@@ -155,6 +159,11 @@ export default function ClientesPage() {
   async function mudarSemanaEE(c: ClienteView, semana: number | null) {
     const error = await salvarSemanaEE(supabase, c.id, semana);
     if (!error) setClientes((cs) => cs.map((x) => (x.id === c.id ? { ...x, semana_ee: semana } : x)));
+  }
+
+  async function mudarTagContrato(c: ClienteView, tag: TagContrato | null) {
+    const error = await salvarTagContrato(supabase, c.id, tag);
+    if (!error) setClientes((cs) => cs.map((x) => (x.id === c.id ? { ...x, tag_contrato: tag } : x)));
   }
 
   async function remove(id: string) {
@@ -484,19 +493,19 @@ export default function ClientesPage() {
       )}
 
       {!loading && filtered.length > 0 && view === "kanban_etapa" && (
-        <KanbanEtapa clientes={filtered} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} onSemanaEE={mudarSemanaEE} onMove={moveEtapa} />
+        <KanbanEtapa clientes={filtered} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} onSemanaEE={mudarSemanaEE} onTagContrato={mudarTagContrato} onMove={moveEtapa} />
       )}
 
       {!loading && filtered.length > 0 && view === "lista" && (
-        <Lista clientes={filtered} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} onSemanaEE={mudarSemanaEE} />
+        <Lista clientes={filtered} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} onSemanaEE={mudarSemanaEE} onTagContrato={mudarTagContrato} />
       )}
 
       {!loading && filtered.length > 0 && view === "kanban_gp" && (
-        <KanbanGP clientes={filtered} pessoas={pessoas} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} onSemanaEE={mudarSemanaEE} />
+        <KanbanGP clientes={filtered} pessoas={pessoas} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} onSemanaEE={mudarSemanaEE} onTagContrato={mudarTagContrato} />
       )}
 
       {!loading && filtered.length > 0 && view === "kanban_squad" && (
-        <KanbanSquad clientes={filtered} squads={squads} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} onSemanaEE={mudarSemanaEE} />
+        <KanbanSquad clientes={filtered} squads={squads} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} onSemanaEE={mudarSemanaEE} onTagContrato={mudarTagContrato} />
       )}
 
       {/* Modal SUBIR CHURN */}
@@ -557,13 +566,14 @@ export default function ClientesPage() {
 /* -------- SUB-COMPONENTES -------- */
 
 function KanbanEtapa({
-  clientes, onEdit, onRemove, onFinalizarEE, onSemanaEE, onMove,
+  clientes, onEdit, onRemove, onFinalizarEE, onSemanaEE, onTagContrato, onMove,
 }: {
   clientes: ClienteView[];
   onEdit: (c: ClienteView) => void;
   onRemove: (id: string) => void;
   onFinalizarEE: (c: ClienteView) => void;
   onSemanaEE: (c: ClienteView, semana: number | null) => void;
+  onTagContrato: (c: ClienteView, tag: TagContrato | null) => void;
   onMove: (c: ClienteView, e: EtapaCliente) => void;
 }) {
   return (
@@ -580,7 +590,7 @@ function KanbanEtapa({
             <p className="mb-3 px-1 text-[10px] text-brand-muted">{formatBRL(soma)}</p>
             <div className="space-y-3">
               {items.map((c) => (
-                <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onSemanaEE={onSemanaEE} onMove={onMove} />
+                <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onSemanaEE={onSemanaEE} onTagContrato={onTagContrato} onMove={onMove} />
               ))}
               {items.length === 0 && <p className="px-1 py-4 text-center text-xs text-brand-muted">vazio</p>}
             </div>
@@ -592,13 +602,14 @@ function KanbanEtapa({
 }
 
 function Lista({
-  clientes, onEdit, onRemove, onFinalizarEE, onSemanaEE,
+  clientes, onEdit, onRemove, onFinalizarEE, onSemanaEE, onTagContrato,
 }: {
   clientes: ClienteView[];
   onEdit: (c: ClienteView) => void;
   onRemove: (id: string) => void;
   onFinalizarEE: (c: ClienteView) => void;
   onSemanaEE: (c: ClienteView, semana: number | null) => void;
+  onTagContrato: (c: ClienteView, tag: TagContrato | null) => void;
 }) {
   return (
     <div className="card overflow-x-auto p-0">
@@ -620,11 +631,12 @@ function Lista({
           {clientes.map((c) => (
             <tr key={c.id} className="border-b border-white/5 last:border-0">
               <td className="px-4 py-3">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <p className="font-medium">{c.nome}</p>
                   {c.etapa === "estruturacao_estrategica" && (
                     <TagSemanaEE semana={c.semana_ee} onChange={(s) => onSemanaEE(c, s)} />
                   )}
+                  <TagContratoCliente tag={c.tag_contrato} onChange={(t) => onTagContrato(c, t)} />
                 </div>
                 {c.codigo_interno && <p className="text-xs text-brand-muted">#{c.codigo_interno}</p>}
               </td>
@@ -669,7 +681,7 @@ function Lista({
 }
 
 function KanbanGP({
-  clientes, pessoas, onEdit, onRemove, onFinalizarEE, onSemanaEE,
+  clientes, pessoas, onEdit, onRemove, onFinalizarEE, onSemanaEE, onTagContrato,
 }: {
   clientes: ClienteView[];
   pessoas: Pessoa[];
@@ -677,6 +689,7 @@ function KanbanGP({
   onRemove: (id: string) => void;
   onFinalizarEE: (c: ClienteView) => void;
   onSemanaEE: (c: ClienteView, semana: number | null) => void;
+  onTagContrato: (c: ClienteView, tag: TagContrato | null) => void;
 }) {
   // Agrupa por account_id (GP)
   const gps = pessoas.filter((p) => p.cargo === "gestor_projetos");
@@ -698,7 +711,7 @@ function KanbanGP({
               </div>
             </div>
             <div className="mt-3 space-y-3">
-              {items.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onSemanaEE={onSemanaEE} compact />)}
+              {items.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onSemanaEE={onSemanaEE} onTagContrato={onTagContrato} compact />)}
               {items.length === 0 && <p className="px-1 py-4 text-center text-xs text-brand-muted">vazio</p>}
             </div>
           </div>
@@ -715,7 +728,7 @@ function KanbanGP({
             </div>
           </div>
           <div className="mt-3 space-y-3">
-            {semGP.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onSemanaEE={onSemanaEE} compact />)}
+            {semGP.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onSemanaEE={onSemanaEE} onTagContrato={onTagContrato} compact />)}
           </div>
         </div>
       )}
@@ -724,7 +737,7 @@ function KanbanGP({
 }
 
 function KanbanSquad({
-  clientes, squads, onEdit, onRemove, onFinalizarEE, onSemanaEE,
+  clientes, squads, onEdit, onRemove, onFinalizarEE, onSemanaEE, onTagContrato,
 }: {
   clientes: ClienteView[];
   squads: Squad[];
@@ -732,6 +745,7 @@ function KanbanSquad({
   onRemove: (id: string) => void;
   onFinalizarEE: (c: ClienteView) => void;
   onSemanaEE: (c: ClienteView, semana: number | null) => void;
+  onTagContrato: (c: ClienteView, tag: TagContrato | null) => void;
 }) {
   // Data-driven: cada squad da tabela vira uma coluna automaticamente
   const semSquad = clientes.filter((c) => !c.squad_id);
@@ -753,7 +767,7 @@ function KanbanSquad({
               </div>
             </div>
             <div className="mt-3 space-y-3">
-              {items.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onSemanaEE={onSemanaEE} compact />)}
+              {items.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onSemanaEE={onSemanaEE} onTagContrato={onTagContrato} compact />)}
               {items.length === 0 && <p className="px-1 py-4 text-center text-xs text-brand-muted">vazio</p>}
             </div>
           </div>
@@ -770,7 +784,7 @@ function KanbanSquad({
             </div>
           </div>
           <div className="mt-3 space-y-3">
-            {semSquad.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onSemanaEE={onSemanaEE} compact />)}
+            {semSquad.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onSemanaEE={onSemanaEE} onTagContrato={onTagContrato} compact />)}
           </div>
         </div>
       )}
@@ -779,13 +793,14 @@ function KanbanSquad({
 }
 
 function ClienteCard({
-  c, onEdit, onRemove, onFinalizarEE, onSemanaEE, onMove, compact,
+  c, onEdit, onRemove, onFinalizarEE, onSemanaEE, onTagContrato, onMove, compact,
 }: {
   c: ClienteView;
   onEdit: (c: ClienteView) => void;
   onRemove: (id: string) => void;
   onFinalizarEE: (c: ClienteView) => void;
   onSemanaEE: (c: ClienteView, semana: number | null) => void;
+  onTagContrato: (c: ClienteView, tag: TagContrato | null) => void;
   onMove?: (c: ClienteView, e: EtapaCliente) => void;
   compact?: boolean;
 }) {
@@ -793,9 +808,12 @@ function ClienteCard({
     <div className="card p-3">
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-semibold leading-snug">{c.nome}</p>
-        {c.etapa === "estruturacao_estrategica" && (
-          <TagSemanaEE semana={c.semana_ee} onChange={(s) => onSemanaEE(c, s)} />
-        )}
+        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+          {c.etapa === "estruturacao_estrategica" && (
+            <TagSemanaEE semana={c.semana_ee} onChange={(s) => onSemanaEE(c, s)} />
+          )}
+          <TagContratoCliente tag={c.tag_contrato} onChange={(t) => onTagContrato(c, t)} />
+        </div>
       </div>
       <div className="mt-1.5 flex items-center justify-between gap-2">
         <p className="min-w-0 truncate text-xs font-semibold text-brand">{formatBRL(c.mrr)}/mês</p>
