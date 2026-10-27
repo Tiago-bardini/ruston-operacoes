@@ -9,6 +9,7 @@ import {
 } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 import { ModalSubirChurn, efetivarChurn, abrirRetencao } from "@/components/churn/ChurnEfetivado";
+import { ModalEeFinalizada, finalizarEE } from "@/components/clientes/EeFinalizada";
 
 const ETAPAS: EtapaCliente[] = ["onboarding", "estruturacao_estrategica", "byline", "em_recuperacao", "suspenso"];
 const TIERS: TierCliente[] = ["tiny", "small", "medium", "large"];
@@ -42,6 +43,7 @@ export default function ClientesPage() {
   const [squads, setSquads] = useState<Squad[]>([]);
   const [fcasRecentes, setFcasRecentes] = useState<Record<string, FcaView>>({});
   const [churnModal, setChurnModal] = useState<ClienteView | null>(null);
+  const [eeModal, setEeModal] = useState<ClienteView | null>(null);
   const { isGerente, squadId: perfilSquadId } = useUsuarioPerfil();
   const [view, setView] = useState<View>("kanban_etapa");
   const [form, setForm] = useState(emptyForm);
@@ -475,19 +477,19 @@ export default function ClientesPage() {
       )}
 
       {!loading && filtered.length > 0 && view === "kanban_etapa" && (
-        <KanbanEtapa clientes={filtered} onEdit={edit} onRemove={remove} onMove={moveEtapa} />
+        <KanbanEtapa clientes={filtered} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} onMove={moveEtapa} />
       )}
 
       {!loading && filtered.length > 0 && view === "lista" && (
-        <Lista clientes={filtered} onEdit={edit} onRemove={remove} />
+        <Lista clientes={filtered} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} />
       )}
 
       {!loading && filtered.length > 0 && view === "kanban_gp" && (
-        <KanbanGP clientes={filtered} pessoas={pessoas} onEdit={edit} onRemove={remove} />
+        <KanbanGP clientes={filtered} pessoas={pessoas} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} />
       )}
 
       {!loading && filtered.length > 0 && view === "kanban_squad" && (
-        <KanbanSquad clientes={filtered} squads={squads} onEdit={edit} onRemove={remove} />
+        <KanbanSquad clientes={filtered} squads={squads} onEdit={edit} onRemove={remove} onFinalizarEE={setEeModal} />
       )}
 
       {/* Modal SUBIR CHURN */}
@@ -504,9 +506,32 @@ export default function ClientesPage() {
         />
       )}
 
-      {/* Botão flutuante SUBIR CHURN quando editando */}
+      {/* Modal E.E FINALIZADA */}
+      {eeModal && (
+        <ModalEeFinalizada
+          cliente={eeModal}
+          onFechar={() => setEeModal(null)}
+          onConfirmar={async (payload) => {
+            const error = await finalizarEE(supabase, eeModal, payload);
+            if (error) return; // o AvisoErro já mostra a falha
+            setEeModal(null);
+            load();
+          }}
+        />
+      )}
+
+      {/* Botões flutuantes SUBIR CHURN / E.E FINALIZADA quando editando */}
       {formOpen && editingId && (
-        <div className="fixed bottom-4 right-4 z-40">
+        <div className="fixed bottom-4 right-4 z-40 flex gap-2">
+          <button
+            className="btn bg-sky-600 hover:bg-sky-700 border-sky-500 text-white text-xs"
+            onClick={() => {
+              const c = clientes.find((x) => x.id === editingId);
+              if (c) { setFormOpen(false); setEeModal(c); }
+            }}
+          >
+            🧭 E.E Finalizada
+          </button>
           <button
             className="btn bg-purple-600 hover:bg-purple-700 border-purple-500 text-white text-xs"
             onClick={() => {
@@ -525,11 +550,12 @@ export default function ClientesPage() {
 /* -------- SUB-COMPONENTES -------- */
 
 function KanbanEtapa({
-  clientes, onEdit, onRemove, onMove,
+  clientes, onEdit, onRemove, onFinalizarEE, onMove,
 }: {
   clientes: ClienteView[];
   onEdit: (c: ClienteView) => void;
   onRemove: (id: string) => void;
+  onFinalizarEE: (c: ClienteView) => void;
   onMove: (c: ClienteView, e: EtapaCliente) => void;
 }) {
   return (
@@ -546,7 +572,7 @@ function KanbanEtapa({
             <p className="mb-3 px-1 text-[10px] text-brand-muted">{formatBRL(soma)}</p>
             <div className="space-y-3">
               {items.map((c) => (
-                <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onMove={onMove} />
+                <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} onMove={onMove} />
               ))}
               {items.length === 0 && <p className="px-1 py-4 text-center text-xs text-brand-muted">vazio</p>}
             </div>
@@ -558,11 +584,12 @@ function KanbanEtapa({
 }
 
 function Lista({
-  clientes, onEdit, onRemove,
+  clientes, onEdit, onRemove, onFinalizarEE,
 }: {
   clientes: ClienteView[];
   onEdit: (c: ClienteView) => void;
   onRemove: (id: string) => void;
+  onFinalizarEE: (c: ClienteView) => void;
 }) {
   return (
     <div className="card overflow-x-auto p-0">
@@ -616,6 +643,7 @@ function Lista({
                   📊 Planejamento
                 </a>
                 <button onClick={() => onEdit(c)} className="text-xs text-brand-muted hover:text-gray-200">editar</button>
+                <button onClick={() => onFinalizarEE(c)} className="text-xs text-brand-muted hover:text-sky-300">E.E finalizada</button>
                 <button onClick={() => onRemove(c.id)} className="text-xs text-brand-muted hover:text-red-400">excluir</button>
               </td>
             </tr>
@@ -627,12 +655,13 @@ function Lista({
 }
 
 function KanbanGP({
-  clientes, pessoas, onEdit, onRemove,
+  clientes, pessoas, onEdit, onRemove, onFinalizarEE,
 }: {
   clientes: ClienteView[];
   pessoas: Pessoa[];
   onEdit: (c: ClienteView) => void;
   onRemove: (id: string) => void;
+  onFinalizarEE: (c: ClienteView) => void;
 }) {
   // Agrupa por account_id (GP)
   const gps = pessoas.filter((p) => p.cargo === "gestor_projetos");
@@ -654,7 +683,7 @@ function KanbanGP({
               </div>
             </div>
             <div className="mt-3 space-y-3">
-              {items.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} compact />)}
+              {items.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} compact />)}
               {items.length === 0 && <p className="px-1 py-4 text-center text-xs text-brand-muted">vazio</p>}
             </div>
           </div>
@@ -671,7 +700,7 @@ function KanbanGP({
             </div>
           </div>
           <div className="mt-3 space-y-3">
-            {semGP.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} compact />)}
+            {semGP.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} compact />)}
           </div>
         </div>
       )}
@@ -680,12 +709,13 @@ function KanbanGP({
 }
 
 function KanbanSquad({
-  clientes, squads, onEdit, onRemove,
+  clientes, squads, onEdit, onRemove, onFinalizarEE,
 }: {
   clientes: ClienteView[];
   squads: Squad[];
   onEdit: (c: ClienteView) => void;
   onRemove: (id: string) => void;
+  onFinalizarEE: (c: ClienteView) => void;
 }) {
   // Data-driven: cada squad da tabela vira uma coluna automaticamente
   const semSquad = clientes.filter((c) => !c.squad_id);
@@ -707,7 +737,7 @@ function KanbanSquad({
               </div>
             </div>
             <div className="mt-3 space-y-3">
-              {items.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} compact />)}
+              {items.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} compact />)}
               {items.length === 0 && <p className="px-1 py-4 text-center text-xs text-brand-muted">vazio</p>}
             </div>
           </div>
@@ -724,7 +754,7 @@ function KanbanSquad({
             </div>
           </div>
           <div className="mt-3 space-y-3">
-            {semSquad.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} compact />)}
+            {semSquad.map((c) => <ClienteCard key={c.id} c={c} onEdit={onEdit} onRemove={onRemove} onFinalizarEE={onFinalizarEE} compact />)}
           </div>
         </div>
       )}
@@ -733,11 +763,12 @@ function KanbanSquad({
 }
 
 function ClienteCard({
-  c, onEdit, onRemove, onMove, compact,
+  c, onEdit, onRemove, onFinalizarEE, onMove, compact,
 }: {
   c: ClienteView;
   onEdit: (c: ClienteView) => void;
   onRemove: (id: string) => void;
+  onFinalizarEE: (c: ClienteView) => void;
   onMove?: (c: ClienteView, e: EtapaCliente) => void;
   compact?: boolean;
 }) {
@@ -790,6 +821,8 @@ function ClienteCard({
         <div className="flex items-center gap-1 text-brand-muted">
           <button onClick={() => onEdit(c)} title="Editar"
             className="rounded px-1.5 py-0.5 text-sm hover:bg-white/5 hover:text-gray-200">✎</button>
+          <button onClick={() => onFinalizarEE(c)} title="E.E Finalizada (não fechou a assessoria)"
+            className="rounded px-1.5 py-0.5 text-sm hover:bg-white/5 hover:text-sky-300">🧭</button>
           <button onClick={() => onRemove(c.id)} title="Excluir"
             className="rounded px-1.5 py-0.5 text-sm hover:bg-white/5 hover:text-red-400">🗑</button>
         </div>

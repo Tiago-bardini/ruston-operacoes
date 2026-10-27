@@ -25,6 +25,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/clientes", label: "Carteira" },
       { href: "/planejamento", label: "Planejamento" },
       { href: "/churn", label: "Churn" },
+      { href: "/ee-finalizadas", label: "E.E Finalizada" },
       { href: "/reunioes", label: "Reuniões" },
       { href: "/entregas", label: "Entregas" },
     ],

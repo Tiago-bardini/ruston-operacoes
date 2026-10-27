@@ -672,3 +672,23 @@ export function squadExcluido(nome: string): boolean {
   const prefixo = (nome || "").slice(0, 3).toLowerCase();
   return prefixo === "iss" || prefixo === "isa";
 }
+
+/** Cliente terminou a Estruturação Estratégica e não fechou a assessoria (migration 013). */
+export type EeFinalizada = {
+  id: string;
+  cliente_id: string | null;
+  cliente_nome: string;
+  data_finalizacao: string;
+  motivo: string | null;
+  observacoes: string | null;
+  mrr: number | null;
+  fee: number | null;
+  gp_id: string | null;
+  gp_nome: string | null;
+  coordenador_nome: string | null;
+  squad_id: string | null;
+  squad_nome: string | null;
+  registrado_por: string | null;
+  reativado_em: string | null;
+  created_at: string;
+};
