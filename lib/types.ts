@@ -488,7 +488,7 @@ export interface Cliente {
   link_debriefing_churn: string | null;
   whatsapp: string | null;
   semana_ee?: number | null; // semana da E.E (S1–S5), migration 014
-  tag_contrato?: "ee" | "pontual" | "pontual_assessoria" | "ee_assessoria" | null; // migration 015
+  tag_contrato?: "ee" | "pontual" | "ee_pontual" | "pontual_assessoria" | "ee_assessoria" | null; // migration 015
   coordenador_id: string | null;
   account_id: string | null;
   gestor_trafego_id: string | null;

@@ -54,11 +54,12 @@ export function TagSemanaEE({ semana, onChange, size = "sm" }: {
 
 /* ---------- Tag do modelo de contrato (migration 015) ---------- */
 
-export type TagContrato = "ee" | "pontual" | "pontual_assessoria" | "ee_assessoria";
+export type TagContrato = "ee" | "pontual" | "ee_pontual" | "pontual_assessoria" | "ee_assessoria";
 
 export const TAG_CONTRATO_LABEL: Record<TagContrato, string> = {
   ee: "E.E",
   pontual: "Pontual",
+  ee_pontual: "E.E+Pontual",
   pontual_assessoria: "Pontual+Assessoria",
   ee_assessoria: "E.E+Assessoria",
 };
@@ -66,6 +67,7 @@ export const TAG_CONTRATO_LABEL: Record<TagContrato, string> = {
 const TAG_CONTRATO_COR: Record<TagContrato, string> = {
   ee: "border-sky-500/40 bg-sky-500/15 text-sky-300",
   pontual: "border-amber-500/40 bg-amber-500/15 text-amber-300",
+  ee_pontual: "border-orange-500/40 bg-orange-500/15 text-orange-300",
   pontual_assessoria: "border-violet-500/40 bg-violet-500/15 text-violet-300",
   ee_assessoria: "border-emerald-500/40 bg-emerald-500/15 text-emerald-300",
 };
@@ -85,7 +87,7 @@ export async function salvarTagContrato(supabase: SupabaseClient, clienteId: str
   return error;
 }
 
-/** Tag "E.E", "Pontual", "Pontual+Assessoria" ou "E.E+Assessoria". Com onChange vira seletor. */
+/** Tag "E.E", "Pontual", "E.E+Pontual", "Pontual+Assessoria" ou "E.E+Assessoria". Com onChange vira seletor. */
 export function TagContratoCliente({ tag, onChange, size = "sm" }: {
   tag: TagContrato | null | undefined;
   onChange?: (t: TagContrato | null) => void;
