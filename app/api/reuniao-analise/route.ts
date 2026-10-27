@@ -23,7 +23,7 @@ export async function POST(req: Request) {
 
   const supabase = createClient(SB_URL, SB_SERVICE, { auth: { persistSession: false } });
 
-  // 1:1 por telefone: o coordenador manda o resumo da conversa em texto (sem áudio)
+  // 1:1 COO X Cliente ou GE - EE: o resumo da conversa vem em texto (sem áudio)
   if ((req.headers.get("content-type") ?? "").includes("application/json")) {
     return resumo1a1(req, supabase, ANTHROPIC_KEY);
   }
@@ -109,12 +109,13 @@ async function resumo1a1(req: Request, supabase: SupabaseClient, anthropicKey: s
   const resumo = String(body?.resumo ?? "").trim();
   if (!body?.cliente_id) return NextResponse.json({ error: "cliente_id obrigatorio" }, { status: 400 });
   if (resumo.length < 50) return NextResponse.json({ error: "Escreva um resumo com pelo menos algumas frases" }, { status: 400 });
+  const geEe = body.variante === "ge_ee";
 
   let analise: AnaliseReuniao;
   let tokens = { tokens_entrada: 0, tokens_saida: 0 };
   try {
     const r = await chamarClaude(
-      promptReuniao({ cliente: body.cliente_nome ?? "", interna: false, transcricao: resumo, resumo1a1: true }),
+      promptReuniao({ cliente: body.cliente_nome ?? "", interna: false, transcricao: resumo, resumo: geEe ? "ge_ee" : "coo" }),
       anthropicKey,
     );
     analise = r.json;
@@ -126,8 +127,8 @@ async function resumo1a1(req: Request, supabase: SupabaseClient, anthropicKey: s
   const { data: reuniao, error } = await supabase.from("ruston_reunioes_cliente").insert({
     cliente_id: body.cliente_id,
     tipo_reuniao: body.tipo_reuniao || "periodica",
-    origem: "telefone",
-    titulo: "1:1 COO X Cliente",
+    origem: geEe ? "ge_ee" : "telefone",
+    titulo: geEe ? "GE - EE" : "1:1 COO X Cliente",
     data_reuniao: body.data_reuniao || new Date().toISOString().slice(0, 10),
     duracao_minutos: Number(body.duracao_minutos) || null,
     presentes: body.presentes || null,

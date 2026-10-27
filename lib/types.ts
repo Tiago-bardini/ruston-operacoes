@@ -151,7 +151,7 @@ export interface ReuniaoCliente {
   created_at: string;
   updated_at: string;
   // Reuniões do Google Meet / análise de IA (migration 005)
-  origem?: "manual" | "audio" | "google_meet" | "telefone";
+  origem?: "manual" | "audio" | "google_meet" | "telefone" | "ge_ee";
   titulo?: string | null;
   interna?: boolean;
   participantes?: string[] | null;

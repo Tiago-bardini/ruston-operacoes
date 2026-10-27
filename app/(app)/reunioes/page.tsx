@@ -11,7 +11,7 @@ import {
 } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 import { SelosAnalise, DetalhesAnalise } from "@/components/AnaliseIA";
-import { Form1a1, Modal1a1 } from "@/components/reunioes/Form1a1";
+import { Form1a1, Modal1a1, TITULO_1A1, type Variante1a1 } from "@/components/reunioes/Form1a1";
 
 export default function ReunioesPage() {
   const supabase = createClient();
@@ -24,7 +24,7 @@ export default function ReunioesPage() {
   const [modalCliente, setModalCliente] = useState<ReuniaoStatus | null>(null);
   const { isGerente, podeEditar, squadId: perfilSquadId } = useUsuarioPerfil();
   const [semCliente, setSemCliente] = useState<ReuniaoCliente[]>([]);
-  const [novo1a1, setNovo1a1] = useState(false);
+  const [novo1a1, setNovo1a1] = useState<Variante1a1 | null>(null);
 
   async function load() {
     setLoading(true);
@@ -73,15 +73,20 @@ export default function ReunioesPage() {
           </p>
         </div>
         {podeEditar && (
-          <button className="btn" onClick={() => setNovo1a1(true)}>📞 1:1 COO X Cliente</button>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn" onClick={() => setNovo1a1("coo")}>{TITULO_1A1.coo}</button>
+            <button className="btn" onClick={() => setNovo1a1("ge_ee")}>{TITULO_1A1.ge_ee}</button>
+          </div>
         )}
       </div>
 
       {novo1a1 && (
         <Modal1a1
+          key={novo1a1}
+          variante={novo1a1}
           clientes={statusList.filter((s) => isGerente || !perfilSquadId || s.cliente_squad_id === perfilSquadId)}
-          onFechar={() => setNovo1a1(false)}
-          onSalvo={() => { setNovo1a1(false); load(); }} />
+          onFechar={() => setNovo1a1(null)}
+          onSalvo={() => { setNovo1a1(null); load(); }} />
       )}
 
       {/* Cards de status */}
@@ -215,7 +220,7 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
   const [reunioes, setReunioes] = useState<ReuniaoCliente[]>([]);
   const [loading, setLoading] = useState(true);
   const [novaReuniao, setNovaReuniao] = useState(false);
-  const [novo1a1, setNovo1a1] = useState(false);
+  const [novo1a1, setNovo1a1] = useState<Variante1a1 | null>(null);
   const [editandoCadencia, setEditandoCadencia] = useState(false);
   const [novaCadencia, setNovaCadencia] = useState(statusCliente.cadencia_dias);
   const [novoTipoCadencia, setNovoTipoCadencia] = useState(statusCliente.tipo_cadencia);
@@ -310,10 +315,13 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
           <p className="text-sm font-semibold">Histórico · {reunioes.length} reuniões</p>
           {podeEditar && (
             <div className="flex gap-2">
-              <button className="btn-ghost text-xs" onClick={() => { setNovo1a1(!novo1a1); setNovaReuniao(false); }}>
-                {novo1a1 ? "Fechar 1:1" : "📞 1:1 COO X Cliente"}
-              </button>
-              <button className="btn text-xs" onClick={() => { setNovaReuniao(!novaReuniao); setNovo1a1(false); }}>
+              {(["coo", "ge_ee"] as const).map((v) => (
+                <button key={v} className="btn-ghost text-xs"
+                  onClick={() => { setNovo1a1(novo1a1 === v ? null : v); setNovaReuniao(false); }}>
+                  {novo1a1 === v ? "Fechar" : TITULO_1A1[v]}
+                </button>
+              ))}
+              <button className="btn text-xs" onClick={() => { setNovaReuniao(!novaReuniao); setNovo1a1(null); }}>
                 {novaReuniao ? "Fechar" : "+ Nova reunião"}
               </button>
             </div>
@@ -321,9 +329,10 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
         </div>
 
         {podeEditar && novo1a1 && (
-          <Form1a1 clienteId={statusCliente.cliente_id} clienteNome={statusCliente.cliente_nome}
-            onSalvo={() => { setNovo1a1(false); loadReunioes(); onAtualizado(); }}
-            onCancelar={() => setNovo1a1(false)} />
+          <Form1a1 key={novo1a1} variante={novo1a1}
+            clienteId={statusCliente.cliente_id} clienteNome={statusCliente.cliente_nome}
+            onSalvo={() => { setNovo1a1(null); loadReunioes(); onAtualizado(); }}
+            onCancelar={() => setNovo1a1(null)} />
         )}
 
         {podeEditar && novaReuniao && (
@@ -357,6 +366,7 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
                       {r.origem === "google_meet" && <span className="ml-2 rounded bg-sky-500/15 px-1.5 text-[10px] text-sky-300">🎥 Meet</span>}
                       {r.origem === "audio" && <span className="ml-2 rounded bg-sky-500/15 px-1.5 text-[10px] text-sky-300">🎙 Áudio</span>}
                       {r.origem === "telefone" && <span className="ml-2 rounded bg-sky-500/15 px-1.5 text-[10px] text-sky-300">📞 1:1 COO X Cliente</span>}
+                      {r.origem === "ge_ee" && <span className="ml-2 rounded bg-sky-500/15 px-1.5 text-[10px] text-sky-300">📞 GE - EE</span>}
                       {r.interna && <span className="ml-2 rounded bg-white/10 px-1.5 text-[10px] text-brand-muted">interna</span>}
                     </p>
                     {r.titulo && <p className="text-xs text-gray-300">{r.titulo}</p>}
@@ -393,9 +403,11 @@ function ModalReunioes({ statusCliente, pessoas, onFechar, onAtualizado }: {
                     <p className="text-xs whitespace-pre-wrap">{r.proximos_passos}</p>
                   </div>
                 )}
-                {r.origem === "telefone" && r.transcricao && (
+                {(r.origem === "telefone" || r.origem === "ge_ee") && r.transcricao && (
                   <details className="mt-2">
-                    <summary className="cursor-pointer text-[11px] text-brand">Ver resumo escrito pelo coordenador</summary>
+                    <summary className="cursor-pointer text-[11px] text-brand">
+                      Ver resumo escrito pelo {r.origem === "ge_ee" ? "gerente" : "coordenador"}
+                    </summary>
                     <p className="mt-1 text-xs whitespace-pre-wrap text-gray-300">{r.transcricao}</p>
                   </details>
                 )}

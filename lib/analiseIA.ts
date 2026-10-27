@@ -96,8 +96,16 @@ export async function chamarClaude(prompt: string, apiKey: string, maxTokens = 6
 }
 
 /** Prompt da reunião. `interna` = só o time Ruston/V4 falando sobre o cliente. */
-export function promptReuniao(opts: { cliente: string; titulo?: string; interna: boolean; transcricao: string; resumo1a1?: boolean }) {
-  const contexto = opts.resumo1a1
+/** Resumo escrito à mão: "coo" = 1:1 COO X Cliente · "ge_ee" = gerente com o cliente após a Estruturação Estratégica */
+export type ResumoManual = "coo" | "ge_ee";
+
+export function promptReuniao(opts: { cliente: string; titulo?: string; interna: boolean; transcricao: string; resumo?: ResumoManual }) {
+  const contexto = opts.resumo === "ge_ee"
+    ? `Esta foi a reunião/ligação do GERENTE da Ruston com o cliente "${opts.cliente}" depois da entrega da Estruturação Estratégica.
+Não há transcrição: o texto abaixo é o RESUMO escrito pelo gerente. Avalie como o cliente recebeu a Estruturação Estratégica,
+se está confiante para seguir, e os riscos e oportunidades para a fase seguinte.
+Em "conducao", avalie pelo resumo se a conversa fechou próximos passos com dono e prazo (sem informação, nota 3).`
+    : opts.resumo === "coo"
     ? `Esta foi uma conversa 1:1 por telefone entre o coordenador da Ruston e o cliente "${opts.cliente}".
 Não há transcrição: o texto abaixo é o RESUMO escrito pelo coordenador depois da ligação. Analise o cliente pelo que ele relatou.
 Em "conducao", avalie pelo resumo se a conversa fechou próximos passos com dono e prazo (sem informação, nota 3).`
@@ -134,7 +142,7 @@ ${REGRAS_EXTRAS}
 - Se não identificar algo, use lista vazia, false ou "nenhum"/"nenhuma"
 - Português brasileiro, direto e prático
 
-${opts.resumo1a1 ? "Resumo do coordenador" : "Transcrição"}:
+${opts.resumo === "ge_ee" ? "Resumo do gerente" : opts.resumo === "coo" ? "Resumo do coordenador" : "Transcrição"}:
 ${opts.transcricao.slice(0, 150000)}`;
 }
 

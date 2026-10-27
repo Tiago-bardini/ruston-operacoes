@@ -4,11 +4,19 @@ import { useState } from "react";
 import type { TipoReuniao } from "@/lib/types";
 import { TIPO_REUNIAO_LABEL } from "@/lib/types";
 
-/** 1:1 COO X Cliente: o coordenador escreve o resumo da conversa e a IA analisa
- *  (mesma análise das reuniões do Meet). Salva no histórico do cliente. */
-export function Form1a1({ clienteId, clienteNome, onSalvo, onCancelar }: {
+export type Variante1a1 = "coo" | "ge_ee";
+
+export const TITULO_1A1: Record<Variante1a1, string> = {
+  coo: "📞 1:1 COO X Cliente",
+  ge_ee: "📞 GE - EE",
+};
+
+/** Resumo escrito à mão que a IA analisa (mesma análise das reuniões do Meet). Salva no histórico do cliente.
+ *  coo = 1:1 do coordenador com o cliente · ge_ee = gerente com o cliente após a Estruturação Estratégica */
+export function Form1a1({ clienteId, clienteNome, variante = "coo", onSalvo, onCancelar }: {
   clienteId: string;
   clienteNome: string;
+  variante?: Variante1a1;
   onSalvo: () => void;
   onCancelar: () => void;
 }) {
@@ -28,7 +36,7 @@ export function Form1a1({ clienteId, clienteNome, onSalvo, onCancelar }: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cliente_id: clienteId, cliente_nome: clienteNome, tipo_reuniao: tipo,
-          data_reuniao: data, duracao_minutos: duracao, resumo,
+          data_reuniao: data, duracao_minutos: duracao, resumo, variante,
         }),
       });
       const r = await res.json();
@@ -45,7 +53,10 @@ export function Form1a1({ clienteId, clienteNome, onSalvo, onCancelar }: {
 
   return (
     <div className="mb-4 space-y-3 rounded-lg border border-sky-500/30 bg-sky-500/5 p-4">
-      <p className="text-sm font-semibold text-sky-300">📞 1:1 COO X Cliente</p>
+      <p className="text-sm font-semibold text-sky-300">{TITULO_1A1[variante]}</p>
+      {variante === "ge_ee" && (
+        <p className="text-[11px] text-brand-muted">Reunião/ligação do gerente com o cliente após a Estruturação Estratégica</p>
+      )}
       <div className="grid grid-cols-3 gap-2">
         <div>
           <label className="label">Data</label>
@@ -66,7 +77,9 @@ export function Form1a1({ clienteId, clienteNome, onSalvo, onCancelar }: {
       <div>
         <label className="label">Resumo da conversa</label>
         <textarea rows={7} className="input" value={resumo} onChange={(e) => setResumo(e.target.value)}
-          placeholder="Como o cliente está, o que elogiou ou reclamou, como vê o resultado, mudanças no negócio (verba, decisor, lançamentos), se falou de outra agência, o que foi combinado e quem ficou responsável..." />
+          placeholder={variante === "ge_ee"
+            ? "Como o cliente recebeu a Estruturação Estratégica, o que gostou ou questionou, se está confiante para seguir, expectativas, riscos, o que foi combinado e quem ficou responsável..."
+            : "Como o cliente está, o que elogiou ou reclamou, como vê o resultado, mudanças no negócio (verba, decisor, lançamentos), se falou de outra agência, o que foi combinado e quem ficou responsável..."} />
         <p className="mt-1 text-[10px] text-brand-muted">
           A IA analisa o resumo (temperatura, risco de churn, upsell, plano de ação). Conta na cadência e alimenta o Radar de Churn.
         </p>
@@ -84,8 +97,9 @@ export function Form1a1({ clienteId, clienteNome, onSalvo, onCancelar }: {
 }
 
 /** Modal com seletor de cliente, para abrir o 1:1 direto do topo da tela de Reuniões. */
-export function Modal1a1({ clientes, onFechar, onSalvo }: {
+export function Modal1a1({ clientes, variante = "coo", onFechar, onSalvo }: {
   clientes: { cliente_id: string; cliente_nome: string }[];
+  variante?: Variante1a1;
   onFechar: () => void;
   onSalvo: () => void;
 }) {
@@ -96,7 +110,7 @@ export function Modal1a1({ clientes, onFechar, onSalvo }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 overflow-y-auto" onClick={onFechar}>
       <div className="w-full max-w-2xl rounded-xl bg-brand-panel p-6 shadow-lg my-8" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-start justify-between">
-          <h3 className="text-lg font-bold">Novo 1:1 COO X Cliente</h3>
+          <h3 className="text-lg font-bold">Novo {TITULO_1A1[variante].replace("📞 ", "")}</h3>
           <button onClick={onFechar} className="text-brand-muted hover:text-gray-200 text-xl">×</button>
         </div>
         <div className="mb-3">
@@ -108,7 +122,7 @@ export function Modal1a1({ clientes, onFechar, onSalvo }: {
         </div>
         {cliente && (
           <Form1a1 key={cliente.cliente_id} clienteId={cliente.cliente_id} clienteNome={cliente.cliente_nome}
-            onSalvo={onSalvo} onCancelar={onFechar} />
+            variante={variante} onSalvo={onSalvo} onCancelar={onFechar} />
         )}
       </div>
     </div>
