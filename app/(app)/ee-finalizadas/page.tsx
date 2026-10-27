@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { EeFinalizada, Squad } from "@/lib/types";
+import type { EeFinalizada, Pessoa, Squad } from "@/lib/types";
 import { formatBRL, formatDate } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
-import { reativarEE } from "@/components/clientes/EeFinalizada";
+import { ModalReativarEE, reativarEE } from "@/components/clientes/EeFinalizada";
 
 /** Histórico de clientes que terminaram a Estruturação Estratégica e não fecharam a assessoria.
  *  A baixa é dada na Carteira (🧭 E.E Finalizada). Não conta como churn. */
@@ -14,6 +14,8 @@ export default function EeFinalizadasPage() {
   const { isGerente, isCoordenador, squadId: perfilSquadId } = useUsuarioPerfil();
   const [registros, setRegistros] = useState<EeFinalizada[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);
+  const [pessoas, setPessoas] = useState<Pessoa[]>([]);
+  const [reativando, setReativando] = useState<EeFinalizada | null>(null);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [filterSquad, setFilterSquad] = useState("");
@@ -22,24 +24,20 @@ export default function EeFinalizadasPage() {
 
   async function load() {
     setLoading(true);
-    const [{ data, error }, { data: sq }] = await Promise.all([
+    const [{ data, error }, { data: sq }, { data: ps }] = await Promise.all([
       supabase.from("ruston_ee_finalizadas").select("*").order("data_finalizacao", { ascending: false }),
       supabase.from("ruston_squads").select("*").eq("ativo", true).order("nome"),
+      supabase.from("ruston_pessoas").select("*").eq("ativo", true).order("nome"),
     ]);
     setErro(error ? error.message : null);
     setRegistros((data ?? []) as EeFinalizada[]);
     setSquads((sq ?? []) as Squad[]);
+    setPessoas((ps ?? []) as Pessoa[]);
     setLoading(false);
   }
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
-  async function reativar(r: EeFinalizada) {
-    if (!r.cliente_id) return;
-    if (!confirm(`${r.cliente_nome} fechou a assessoria? O cliente volta para a carteira do GP.`)) return;
-    const error = await reativarEE(supabase, r.id, r.cliente_id);
-    if (!error) load();
-  }
 
   const anos = useMemo(() => {
     const set = new Set(registros.map((r) => r.data_finalizacao.slice(0, 4)));
@@ -157,7 +155,7 @@ export default function EeFinalizadasPage() {
                 </td>
                 <td className="px-4 py-3 text-right">
                   {!r.reativado_em && r.cliente_id && (isGerente || isCoordenador) && (
-                    <button onClick={() => reativar(r)} className="text-xs text-brand-muted hover:text-emerald-300"
+                    <button onClick={() => setReativando(r)} className="text-xs text-brand-muted hover:text-emerald-300"
                       title="O cliente fechou a assessoria: volta para a carteira">
                       reativar
                     </button>
@@ -168,6 +166,21 @@ export default function EeFinalizadasPage() {
           </tbody>
         </table>
       </div>
+
+      {reativando && reativando.cliente_id && (
+        <ModalReativarEE
+          registro={reativando}
+          pessoas={pessoas}
+          squads={squads}
+          onFechar={() => setReativando(null)}
+          onConfirmar={async (payload) => {
+            const error = await reativarEE(supabase, reativando.id, reativando.cliente_id!, payload);
+            if (error) return; // o AvisoErro já mostra a falha
+            setReativando(null);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }
