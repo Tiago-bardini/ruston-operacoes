@@ -4,6 +4,7 @@ import type { PerfilUsuario } from "@/lib/types";
 // que bloqueia o acesso direto pela URL. Rota fora da lista = todos os perfis.
 export const ROTAS_RESTRITAS: { prefixo: string; perfis: PerfilUsuario[] }[] = [
   { prefixo: "/painel-gerente", perfis: ["gerente"] },
+  { prefixo: "/projecao", perfis: ["gerente"] },
   { prefixo: "/cockpit", perfis: ["gerente", "coordenador"] },
   { prefixo: "/usuarios", perfis: ["gerente"] },
   { prefixo: "/log-alteracoes", perfis: ["gerente"] },
