@@ -2,7 +2,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-/** Semana da Estruturação Estratégica (S1 a S5) de cada cliente em E.E (migration 014).
+/** Semana da Estruturação Estratégica (S1 a S5) do cliente (migration 014). Disponível em todos os clientes.
  *  Lido direto de ruston_clientes: a view não traz a coluna nova. Se a coluna ainda não
  *  existir, volta vazio e a tela segue funcionando sem as tags. */
 export async function carregarSemanasEE(supabase: SupabaseClient): Promise<Record<string, number>> {

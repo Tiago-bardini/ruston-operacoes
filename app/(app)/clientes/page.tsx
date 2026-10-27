@@ -633,9 +633,7 @@ function Lista({
               <td className="px-4 py-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-medium">{c.nome}</p>
-                  {c.etapa === "estruturacao_estrategica" && (
-                    <TagSemanaEE semana={c.semana_ee} onChange={(s) => onSemanaEE(c, s)} />
-                  )}
+                  <TagSemanaEE semana={c.semana_ee} onChange={(s) => onSemanaEE(c, s)} />
                   <TagContratoCliente tag={c.tag_contrato} onChange={(t) => onTagContrato(c, t)} />
                 </div>
                 {c.codigo_interno && <p className="text-xs text-brand-muted">#{c.codigo_interno}</p>}
@@ -809,9 +807,7 @@ function ClienteCard({
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-semibold leading-snug">{c.nome}</p>
         <div className="flex shrink-0 flex-wrap justify-end gap-1">
-          {c.etapa === "estruturacao_estrategica" && (
-            <TagSemanaEE semana={c.semana_ee} onChange={(s) => onSemanaEE(c, s)} />
-          )}
+          <TagSemanaEE semana={c.semana_ee} onChange={(s) => onSemanaEE(c, s)} />
           <TagContratoCliente tag={c.tag_contrato} onChange={(t) => onTagContrato(c, t)} />
         </div>
       </div>

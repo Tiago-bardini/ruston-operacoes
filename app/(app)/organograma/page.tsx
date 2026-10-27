@@ -752,7 +752,7 @@ function ClienteAutoRow({ cliente, fca }: { cliente: ClienteAuto; fca?: FcaStatu
             <span className={`inline-block h-3 w-3 rounded-full flex-shrink-0 ${bolinhaClasses[bandeira]}`}
               title={`${bolinhaLabel[bandeira]}${fca?.nota_final != null ? ` · Nota ${fca.nota_final.toFixed(2)}` : ""}${fca ? ` · Última: ${fca.data_referencia}` : ""}`} />
             <p className="text-xs font-semibold uppercase text-white truncate">{cliente.nome}</p>
-            {cliente.etapa === "estruturacao_estrategica" && <TagSemanaEE semana={cliente.semana_ee} size="xs" />}
+            <TagSemanaEE semana={cliente.semana_ee} size="xs" />
             <TagContratoCliente tag={cliente.tag_contrato} size="xs" />
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1 ml-5">
