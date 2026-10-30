@@ -8,6 +8,7 @@ import {
   avaliarRiscoChurn, carregarDadosRadar,
   type AvaliacaoRisco, type DadosClienteRadar, type FonteRisco, type NivelRisco,
 } from "@/lib/radarChurn";
+import Tratativas, { diasDesde, type Tratativa } from "@/components/saude/Tratativas";
 
 type Linha = DadosClienteRadar & { av: AvaliacaoRisco };
 
@@ -29,11 +30,15 @@ const ORDEM: Record<NivelRisco, number> = { critico: 0, atencao: 1, saudavel: 2,
 
 const FONTE_LABEL: Record<FonteRisco, string> = { fca: "FCA", whatsapp: "WhatsApp", reunioes: "Reuniões" };
 
+// Cliente crítico sem tratativa registrada há mais que isso ganha alerta
+const DIAS_ALERTA_TRATATIVA = 7;
+
 export default function RadarChurn() {
   const supabase = createClient();
   const { loading: loadingPerfil, isGerente, squadId } = useUsuarioPerfil();
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [diags, setDiags] = useState<Record<string, Diagnostico>>({});
+  const [tratativas, setTratativas] = useState<Record<string, Tratativa[]>>({});
   const [loading, setLoading] = useState(true);
   const [nivel, setNivel] = useState<NivelRisco | "">("");
   const [squad, setSquad] = useState("");
@@ -45,9 +50,10 @@ export default function RadarChurn() {
     if (loadingPerfil) return;
     (async () => {
       setLoading(true);
-      const [dados, { data: dg }] = await Promise.all([
+      const [dados, { data: dg }, { data: tr }] = await Promise.all([
         carregarDadosRadar(supabase),
         supabase.from("ruston_diagnostico_churn").select("cliente_id, diagnostico, gerado_em, gerado_por, dados_ate"),
+        supabase.from("ruston_tratativas_churn").select("*").order("data_acao", { ascending: false }).order("criado_em", { ascending: false }),
       ]);
       setLinhas(
         dados
@@ -57,6 +63,9 @@ export default function RadarChurn() {
           .sort((a, b) => ORDEM[a.av.nivel] - ORDEM[b.av.nivel] || b.av.risco - a.av.risco || (Number(b.cliente.mrr) || 0) - (Number(a.cliente.mrr) || 0))
       );
       setDiags(Object.fromEntries(((dg ?? []) as (Diagnostico & { cliente_id: string })[]).map((x) => [x.cliente_id, x])));
+      const porCliente: Record<string, Tratativa[]> = {};
+      ((tr ?? []) as Tratativa[]).forEach((t) => { (porCliente[t.cliente_id] ??= []).push(t); });
+      setTratativas(porCliente);
       setLoading(false);
     })();
     // eslint-disable-next-line
@@ -131,7 +140,9 @@ export default function RadarChurn() {
           <CardCliente key={l.cliente.id} l={l} aberto={aberto === l.cliente.id}
             onToggle={() => setAberto(aberto === l.cliente.id ? null : l.cliente.id)}
             diag={diags[l.cliente.id]}
-            onDiag={(d) => setDiags((s) => ({ ...s, [l.cliente.id]: d }))} />
+            onDiag={(d) => setDiags((s) => ({ ...s, [l.cliente.id]: d }))}
+            tratativas={tratativas[l.cliente.id] ?? []}
+            onTratativas={(lista) => setTratativas((s) => ({ ...s, [l.cliente.id]: lista }))} />
         ))}
         {visiveis.length === 0 && <div className="card text-center text-brand-muted">Nenhum cliente nesse filtro.</div>}
       </div>
@@ -144,18 +155,25 @@ export default function RadarChurn() {
   );
 }
 
-function CardCliente({ l, aberto, onToggle, diag, onDiag }: {
+function CardCliente({ l, aberto, onToggle, diag, onDiag, tratativas, onTratativas }: {
   l: Linha;
   aberto: boolean;
   onToggle: () => void;
   diag?: Diagnostico;
   onDiag: (d: Diagnostico) => void;
+  tratativas: Tratativa[];
+  onTratativas: (lista: Tratativa[]) => void;
 }) {
   const { av, cliente } = l;
   const cfg = NIVEL[av.nivel];
   const [gerando, setGerando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const desatualizado = !!diag && (diag.dados_ate ?? "") < (av.ultimoDado ?? "");
+  // Tratativa nova também desatualiza o diagnóstico (a IA lê o que já foi feito)
+  const ultimaTratativa = tratativas[0];
+  const ultimoRegistroTratativa = tratativas.reduce((m, t) => Math.max(m, new Date(t.criado_em).getTime()), 0);
+  const desatualizado = !!diag && ((diag.dados_ate ?? "") < (av.ultimoDado ?? "") || ultimoRegistroTratativa > new Date(diag.gerado_em).getTime());
+  const diasSemTratativa = ultimaTratativa ? diasDesde(ultimaTratativa.data_acao) : null;
+  const alertaTratativa = av.nivel === "critico" && (diasSemTratativa == null || diasSemTratativa >= DIAS_ALERTA_TRATATIVA);
 
   async function gerar() {
     setGerando(true);
@@ -164,7 +182,7 @@ function CardCliente({ l, aberto, onToggle, diag, onDiag }: {
       const res = await fetch("/api/diagnostico-churn", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cliente_id: cliente.id }),
+        body: JSON.stringify({ cliente_id: cliente.id, forcar: desatualizado }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error ?? "Falha ao gerar");
@@ -185,6 +203,11 @@ function CardCliente({ l, aberto, onToggle, diag, onDiag }: {
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-semibold">{cliente.nome}</p>
             <span className={`badge text-[10px] ${cfg.borda} ${cfg.fundo} ${cfg.texto}`}>{cfg.label}</span>
+            {alertaTratativa && (
+              <span className="badge border-red-500/40 bg-red-500/15 text-[10px] text-red-300">
+                ⚠ {diasSemTratativa == null ? "Sem tratativa registrada" : `Sem tratativa há ${diasSemTratativa} dias`}
+              </span>
+            )}
             {av.fontesEmAlerta.length >= 2 && (
               <span className="badge border-red-500/30 bg-red-500/10 text-[10px] text-red-300">
                 {av.fontesEmAlerta.length} fontes em alerta
@@ -195,6 +218,7 @@ function CardCliente({ l, aberto, onToggle, diag, onDiag }: {
             {formatBRL(cliente.mrr)}/mês
             {cliente.squad_nome && ` · ${cliente.squad_nome}`}
             {cliente.account_nome && ` · GP ${cliente.account_nome}`}
+            {ultimaTratativa && ` · Última tratativa: ${diasSemTratativa === 0 ? "hoje" : `há ${diasSemTratativa} dia${diasSemTratativa === 1 ? "" : "s"}`}`}
           </p>
           {av.sinais.length > 0 && !aberto && (
             <p className="mt-1.5 line-clamp-1 text-xs text-gray-300">
@@ -261,7 +285,7 @@ function CardCliente({ l, aberto, onToggle, diag, onDiag }: {
             )}
             {diag && (
               <div className="space-y-2 text-xs">
-                {desatualizado && <p className="text-[10px] text-amber-300">Chegou dado novo depois deste diagnóstico.</p>}
+                {desatualizado && <p className="text-[10px] text-amber-300">Chegou dado ou tratativa nova depois deste diagnóstico.</p>}
                 {diag.diagnostico.parecer && <p className="text-gray-200">{diag.diagnostico.parecer}</p>}
                 {diag.diagnostico.causa_raiz && (
                   <p><span className="text-brand-muted">Causa raiz: </span>{diag.diagnostico.causa_raiz}</p>
@@ -279,6 +303,10 @@ function CardCliente({ l, aberto, onToggle, diag, onDiag }: {
                 </p>
               </div>
             )}
+          </div>
+
+          <div className="border-t border-white/5 pt-4 lg:col-span-3">
+            <Tratativas clienteId={cliente.id} tratativas={tratativas} onChange={onTratativas} />
           </div>
         </div>
       )}

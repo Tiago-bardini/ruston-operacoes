@@ -50,6 +50,19 @@ export async function POST(req: Request) {
   if (fca) linhas.push(`Último FCA (${fca.data_referencia}): fato: ${corta(fca.fato, 250)} | causa: ${corta(fca.causa, 200)}`);
   d.whatsapp.filter((w) => w.resumo_curto).slice(0, 2).forEach((w) => linhas.push(`WhatsApp: ${corta(w.resumo_curto, 300)}`));
   d.reunioes.filter((r) => r.resumo).slice(0, 2).forEach((r) => linhas.push(`Reunião ${r.data_reuniao}: ${corta(r.resumo, 300)}`));
+  // O que o time já fez: a IA não deve sugerir de novo o que já foi tentado
+  const { data: tratativas } = await supabase
+    .from("ruston_tratativas_churn")
+    .select("data_acao, tipo, descricao, resultado, proximo_passo")
+    .eq("cliente_id", cliente_id)
+    .order("data_acao", { ascending: false })
+    .limit(5);
+  if (tratativas?.length) {
+    linhas.push(`Tratativas já realizadas pelo time (mais recente primeiro):`);
+    tratativas.forEach((t) => linhas.push(
+      `- ${t.data_acao} [${t.tipo}, resultado: ${t.resultado}] ${corta(t.descricao, 200)}${t.proximo_passo ? ` | próximo passo: ${corta(t.proximo_passo, 100)}` : ""}`
+    ));
+  }
   if (av.acoes.length) {
     linhas.push(`Ações já sugeridas:`);
     av.acoes.slice(0, 4).forEach((a) => linhas.push(`- ${corta(a.ponto, 80)} → ${corta(a.sugestao, 120)}`));
@@ -61,7 +74,7 @@ ${linhas.join("\n")}
 
 Responda APENAS um JSON válido:
 {"parecer":"2 a 3 frases sobre a situação real do cliente","causa_raiz":"1 frase","acoes":[{"acao":"passo concreto","responsavel":"account | gestor de tráfego | coordenador | gerente","prazo":"ex.: 48h"}]}
-Máximo 3 ações, específicas deste cliente, sem repetir texto genérico.`;
+Máximo 3 ações, específicas deste cliente, sem repetir texto genérico. Não repita o que já está nas tratativas realizadas: se uma tratativa ficou "sem_efeito", proponha outro caminho; se está "em_andamento", diga o que falta para concluir.`;
 
   let res: Response | null = null;
   let modelo = MODELOS[0];
