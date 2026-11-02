@@ -3,7 +3,7 @@
 // está salvo (sem chamar IA) — a tela e a rota de diagnóstico usam o mesmo cálculo.
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type FonteRisco = "fca" | "whatsapp" | "reunioes";
+export type FonteRisco = "fca" | "whatsapp" | "reunioes" | "pesquisas";
 export type NivelRisco = "critico" | "atencao" | "saudavel" | "sem_dado";
 
 export interface SinalRisco {
@@ -43,6 +43,8 @@ export interface DadosClienteRadar {
     resumo: string | null; recl: Recl; conc: Conc; res: Res; plano: Plano;
   }[]; // analisadas, mais recente primeiro
   cadencia: { dias_sem_reuniao: number; cadencia_dias: number; ultima_reuniao: string | null } | null;
+  // Pesquisas respondidas pelo cliente (migration 020), mais recente primeiro
+  pesquisas: { tipo: string; semana_ee: number | null; nota: number | null; respondida_em: string }[];
 }
 
 export interface AvaliacaoRisco {
@@ -62,6 +64,7 @@ const dataBR = (iso: string) => {
   const [, m, d] = iso.slice(0, 10).split("-");
   return `${d}/${m}`;
 };
+const NOME_PESQUISA: Record<string, string> = { planejamento: "pós-planejamento", checkin: "pós-check-in", ee: "da E.E" };
 const nota = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 export function avaliarRiscoChurn(d: DadosClienteRadar): AvaliacaoRisco {
@@ -136,13 +139,29 @@ export function avaliarRiscoChurn(d: DadosClienteRadar): AvaliacaoRisco {
     re = Math.min(MAX_FONTE, re);
   }
 
+  // ---------- Pesquisas do cliente (nota de 0 a 5) ----------
+  let pq: number | null = null;
+  const pesqs = d.pesquisas.filter((p) => p.nota != null);
+  if (pesqs.length) {
+    pq = 0;
+    const ult = pesqs[0];
+    const n = Number(ult.nota);
+    const qual = `pesquisa ${NOME_PESQUISA[ult.tipo] ?? ult.tipo}${ult.semana_ee ? ` S${ult.semana_ee}` : ""} de ${dataBR(ult.respondida_em)}`;
+    if (n < 2) { pq += 20; add("pesquisas", 20, `Nota ${nota(n)} de 5 na ${qual}`); }
+    else if (n < 3) { pq += 12; add("pesquisas", 12, `Nota ${nota(n)} de 5 na ${qual}`); }
+    else if (n < 3.5) { pq += 4; add("pesquisas", 4, `Nota mediana (${nota(n)} de 5) na ${qual}`); }
+    const baixas = pesqs.slice(0, 3).filter((p) => Number(p.nota) < 3).length;
+    if (baixas >= 2) { pq += 10; add("pesquisas", 10, `${baixas} das últimas 3 pesquisas com nota abaixo de 3`, true); }
+    pq = Math.min(MAX_FONTE, pq);
+  }
+
   // ---------- Junta ----------
-  const porFonte = { fca, whatsapp: wa, reunioes: re };
+  const porFonte = { fca, whatsapp: wa, reunioes: re, pesquisas: pq };
   const fontesEmAlerta = (Object.keys(porFonte) as FonteRisco[]).filter((f) => (porFonte[f] ?? 0) >= ALERTA_FONTE);
   // Duas ou três fontes apontando risco ao mesmo tempo = sinal mais confiável
   const bonus = fontesEmAlerta.length >= 3 ? 15 : fontesEmAlerta.length === 2 ? 10 : 0;
-  const temDado = fca != null || wa != null || re != null;
-  const risco = Math.min(100, (fca ?? 0) + (wa ?? 0) + (re ?? 0) + bonus);
+  const temDado = fca != null || wa != null || re != null || pq != null;
+  const risco = Math.min(100, (fca ?? 0) + (wa ?? 0) + (re ?? 0) + (pq ?? 0) + bonus);
   // Crítico também quando uma fonte sozinha bate no teto (ex.: FCA 3 em queda, reunião com risco alto)
   const fonteNoTeto = Object.values(porFonte).some((p) => (p ?? 0) >= 30);
   const nivel: NivelRisco = !temDado ? "sem_dado"
@@ -156,7 +175,7 @@ export function avaliarRiscoChurn(d: DadosClienteRadar): AvaliacaoRisco {
   acoes.sort((a, b) => (peso[a.prioridade] ?? 3) - (peso[b.prioridade] ?? 3));
 
   const datas = [
-    d.fcas[0]?.data_referencia, d.reunioes[0]?.data_reuniao,
+    d.fcas[0]?.data_referencia, d.reunioes[0]?.data_reuniao, d.pesquisas[0]?.respondida_em,
     ...d.whatsapp.map((w) => w.analise_em ?? undefined),
   ].filter((x): x is string => !!x).sort();
 
@@ -179,7 +198,7 @@ export async function carregarDadosRadar(supabase: SupabaseClient, clienteId?: s
     .eq("ativo", true);
   if (clienteId) qCli = qCli.eq("id", clienteId);
 
-  const [{ data: cs }, { data: fs }, { data: ws }, { data: ex }, { data: rs }, { data: st }] = await Promise.all([
+  const [{ data: cs }, { data: fs }, { data: ws }, { data: ex }, { data: rs }, { data: st }, { data: pqs }] = await Promise.all([
     qCli,
     so(supabase.from("ruston_fca_view").select("cliente_id, nota_final, data_referencia, fato, causa")
       .gte("data_referencia", desde)).order("data_referencia", { ascending: false }),
@@ -195,6 +214,10 @@ export async function carregarDadosRadar(supabase: SupabaseClient, clienteId?: s
       .not("cliente_id", "is", null).not("analisado_em", "is", null).gte("data_reuniao", desde))
       .order("data_reuniao", { ascending: false }).limit(3000),
     so(supabase.from("ruston_reunioes_status").select("cliente_id, dias_sem_reuniao, cadencia_dias, ultima_reuniao")),
+    // Sem a tabela (migration 020) volta erro e o radar segue sem essa fonte
+    so(supabase.from("ruston_pesquisas").select("cliente_id, tipo, semana_ee, nota, respondida_em")
+      .not("respondida_em", "is", null).eq("cancelada", false).gte("respondida_em", desde))
+      .order("respondida_em", { ascending: false }).limit(3000),
   ]);
 
   const extraPorConversa: Record<string, DadosClienteRadar["whatsapp"][number]["extra"]> = {};
@@ -209,6 +232,7 @@ export async function carregarDadosRadar(supabase: SupabaseClient, clienteId?: s
   const fcaMap = agrupar(fs as any[]);
   const waMap = agrupar(ws as any[]);
   const reMap = agrupar(rs as any[]);
+  const pqMap = agrupar(pqs as any[]);
   const stMap = Object.fromEntries(((st ?? []) as any[]).map((s) => [s.cliente_id, s]));
 
   return ((cs ?? []) as any[])
@@ -219,5 +243,6 @@ export async function carregarDadosRadar(supabase: SupabaseClient, clienteId?: s
       whatsapp: (waMap[c.id] ?? []).map((w: any) => ({ ...w, extra: extraPorConversa[w.conversa_id] ?? null })),
       reunioes: reMap[c.id] ?? [],
       cadencia: stMap[c.id] ?? null,
+      pesquisas: pqMap[c.id] ?? [],
     }));
 }

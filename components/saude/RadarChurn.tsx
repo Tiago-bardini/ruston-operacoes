@@ -28,7 +28,7 @@ const NIVEL: Record<NivelRisco, { label: string; texto: string; borda: string; f
 
 const ORDEM: Record<NivelRisco, number> = { critico: 0, atencao: 1, saudavel: 2, sem_dado: 3 };
 
-const FONTE_LABEL: Record<FonteRisco, string> = { fca: "FCA", whatsapp: "WhatsApp", reunioes: "Reuniões" };
+const FONTE_LABEL: Record<FonteRisco, string> = { fca: "FCA", whatsapp: "WhatsApp", reunioes: "Reuniões", pesquisas: "Pesquisas" };
 
 // Cliente crítico sem tratativa registrada há mais que isso ganha alerta
 const DIAS_ALERTA_TRATATIVA = 7;
@@ -95,7 +95,7 @@ export default function RadarChurn() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Radar de Churn</h1>
-          <p className="text-sm text-brand-muted">FCA + Radar WhatsApp + Reuniões num risco de 0 a 100, com o motivo de cada alerta</p>
+          <p className="text-sm text-brand-muted">FCA + Radar WhatsApp + Reuniões + Pesquisas num risco de 0 a 100, com o motivo de cada alerta</p>
         </div>
         <div className="text-right">
           <p className="text-[10px] uppercase tracking-wide text-brand-muted">MRR em risco (crítico + atenção)</p>
@@ -149,7 +149,7 @@ export default function RadarChurn() {
 
       <p className="text-[11px] text-brand-muted">
         Cada fonte soma até 35 pontos (FCA: nota e queda · WhatsApp: risco, concorrência, reclamação, silêncio · Reuniões: risco,
-        concorrência, insatisfação, cadência). Duas fontes em alerta somam +10 e três somam +15. Crítico: 50+ ou uma fonte no máximo · Atenção: 25+.
+        concorrência, insatisfação, cadência · Pesquisas: nota abaixo de 3,5 e notas baixas seguidas). Duas fontes em alerta somam +10 e três ou mais somam +15. Crítico: 50+ ou uma fonte no máximo · Atenção: 25+.
       </p>
     </div>
   );
@@ -238,8 +238,11 @@ function CardCliente({ l, aberto, onToggle, diag, onDiag, tratativas, onTratativ
       {aberto && (
         <div className="grid grid-cols-1 gap-4 border-t border-white/5 p-4 lg:grid-cols-3">
           <div>
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-brand-muted">Por que está em risco</p>
-            {av.sinais.length === 0 && <p className="text-xs text-brand-muted">Nenhum sinal de risco nas 3 fontes.</p>}
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-brand-muted">Por que está em risco</p>
+              <a href={`/pesquisas?cliente=${cliente.id}`} className="text-[10px] text-brand hover:underline">📝 Enviar pesquisa</a>
+            </div>
+            {av.sinais.length === 0 && <p className="text-xs text-brand-muted">Nenhum sinal de risco nas fontes.</p>}
             <ul className="space-y-1.5">
               {av.sinais.map((s, i) => (
                 <li key={i} className="flex gap-2 text-xs">
