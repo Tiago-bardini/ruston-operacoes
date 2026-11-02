@@ -141,6 +141,11 @@ export default function ChurnPage() {
       setConfirmando(s);
       return;
     }
+    // Revertido = cliente volta pra Carteira na etapa de antes (regra no banco, migration 019)
+    if (status === "revertido" && s.status !== "revertido") {
+      const nome = clientePorId.get(s.cliente_id)?.nome ?? "o cliente";
+      if (!confirm(`Marcar como revertido? ${nome} sai do churn e volta para a Carteira.`)) return;
+    }
     await supabase.from("ruston_churn_solicitacoes")
       .update({ status, updated_at: new Date().toISOString() }).eq("id", s.id);
     load();
