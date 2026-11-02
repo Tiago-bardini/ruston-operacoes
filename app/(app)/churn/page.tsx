@@ -21,7 +21,8 @@ function mesFechado(ano: number, mes: number): boolean {
 function somarChurn(lista: ChurnSolicitacao[]) {
   const naoRevertidas = lista.filter((s) => s.status !== "revertido");
   return {
-    qtd: lista.length,
+    // Revertido saiu do churn: não conta como solicitação do mês
+    qtd: naoRevertidas.length,
     mrrChurn: naoRevertidas.reduce((s, x) => s + Number(x.mrr || 0), 0),
     mrrConfirmado: lista.filter((s) => s.status === "confirmado").reduce((s, x) => s + Number(x.mrr || 0), 0),
     mrrRevertido: lista.filter((s) => s.status === "revertido").reduce((s, x) => s + Number(x.mrr || 0), 0),
@@ -43,6 +44,7 @@ export default function ChurnPage() {
   const [novaSolicitacao, setNovaSolicitacao] = useState(false);
   const [aba, setAba] = useState<"solicitacoes" | "efetivados">("solicitacoes");
   const [confirmando, setConfirmando] = useState<ChurnSolicitacao | null>(null);
+  const [verRevertidos, setVerRevertidos] = useState(false);
   const { isGerente, squadId: perfilSquadId } = useUsuarioPerfil();
 
   // Permite abrir direto numa subaba: /churn?aba=efetivados
@@ -244,7 +246,11 @@ export default function ChurnPage() {
         />
       )}
 
-      {aba === "solicitacoes" && (<>
+      {aba === "solicitacoes" && (() => {
+        // Revertido sai da lista do churn (o cliente voltou pra Carteira); fica só no histórico, sob demanda
+        const revertidas = solicitacoes.filter((s) => s.status === "revertido");
+        const visiveis = verRevertidos ? solicitacoes : solicitacoes.filter((s) => s.status !== "revertido");
+        return (<>
       {/* Indicadores */}
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat label="Solicitações no mês" valor={String(resumo.qtd)} />
@@ -291,7 +297,12 @@ export default function ChurnPage() {
 
       <div className="mb-3 flex items-center justify-between">
         <p className="text-sm font-semibold">
-          {MESES_LABEL[mes - 1]} / {ano} · {solicitacoes.length} solicitações
+          {MESES_LABEL[mes - 1]} / {ano} · {solicitacoes.length - revertidas.length} solicitações
+          {revertidas.length > 0 && (
+            <button className="ml-3 text-xs font-normal text-brand-muted hover:text-white" onClick={() => setVerRevertidos(!verRevertidos)}>
+              {verRevertidos ? "Ocultar revertidos" : `Ver ${revertidas.length} revertido${revertidas.length > 1 ? "s" : ""}`}
+            </button>
+          )}
         </p>
         <button className="btn text-xs" onClick={() => setNovaSolicitacao(!novaSolicitacao)}>
           {novaSolicitacao ? "Fechar" : "+ Nova solicitação"}
@@ -310,13 +321,13 @@ export default function ChurnPage() {
 
       {loading && <p className="text-brand-muted">Carregando...</p>}
 
-      {!loading && solicitacoes.length === 0 && !novaSolicitacao && (
+      {!loading && visiveis.length === 0 && !novaSolicitacao && (
         <div className="card text-center py-12">
           <p className="text-brand-muted">Nenhuma solicitação de churn em {MESES_LABEL[mes - 1]}/{ano}.</p>
         </div>
       )}
 
-      {!loading && solicitacoes.length > 0 && (
+      {!loading && visiveis.length > 0 && (
         <div className="card overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead>
@@ -331,10 +342,10 @@ export default function ChurnPage() {
               </tr>
             </thead>
             <tbody>
-              {solicitacoes.map((s) => {
+              {visiveis.map((s) => {
                 const c = clientePorId.get(s.cliente_id);
                 return (
-                  <tr key={s.id} className="border-b border-white/5 last:border-0">
+                  <tr key={s.id} className={`border-b border-white/5 last:border-0 ${s.status === "revertido" ? "opacity-50" : ""}`}>
                     <td className="px-4 py-3">
                       <p className="font-medium">{c?.nome ?? "—"}</p>
                       {c?.squad_nome && <p className="text-[10px] text-brand-muted">{c.squad_nome}</p>}
@@ -409,7 +420,8 @@ export default function ChurnPage() {
           </tbody>
         </table>
       </div>
-      </>)}
+      </>);
+      })()}
     </div>
   );
 }
