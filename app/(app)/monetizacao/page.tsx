@@ -84,6 +84,8 @@ export default function MonetizacaoPage() {
   const [squads, setSquads] = useState<Squad[]>([]);
   const [metas, setMetas] = useState<MetaSquad[]>([]);
   const [loading, setLoading] = useState(true);
+  // Clientes tirados da coluna "A Monetizar" (migration 021)
+  const [foraIds, setForaIds] = useState<Set<string>>(new Set());
   const [filtroSquad, setFiltroSquad] = useState<string>("");
   const [filtroGP, setFiltroGP] = useState<string>("");
   const hoje = new Date();
@@ -107,6 +109,9 @@ export default function MonetizacaoPage() {
       supabase.from("ruston_monetizacao_metas").select("*"),
       carregarSemanasEE(supabase),
     ]);
+    // Sem a coluna (migration 021 não rodada) a lista fica vazia e a tela segue normal
+    const { data: fora } = await supabase.from("ruston_clientes").select("id").eq("fora_a_monetizar", true);
+    setForaIds(new Set((fora ?? []).map((x: { id: string }) => x.id)));
     setOps((o as Oportunidade[]) ?? []);
     // Semana da E.E vem de ruston_clientes (a view não traz a coluna)
     setClientes(((c as ClienteView[]) ?? []).map((x) => ({ ...x, semana_ee: semanasEE[x.id] ?? null })));
@@ -144,10 +149,20 @@ export default function MonetizacaoPage() {
     });
   }, [clientes, isCoordenador, isGerente, squadId, filtroSquad, filtroGP]);
 
-  const clientesAMonetizar = useMemo(() => {
+  const [clientesAMonetizar, clientesTirados] = useMemo(() => {
     const idsComOp = new Set(ops.filter((o) => o.estagio !== "ganho" && o.estagio !== "perdido").map((o) => o.cliente_id));
-    return clientesFiltrados.filter((c) => (!c.mrr || Number(c.mrr) === 0) && !idsComOp.has(c.id));
-  }, [clientesFiltrados, ops]);
+    const candidatos = clientesFiltrados.filter((c) => (!c.mrr || Number(c.mrr) === 0) && !idsComOp.has(c.id));
+    return [candidatos.filter((c) => !foraIds.has(c.id)), candidatos.filter((c) => foraIds.has(c.id))];
+  }, [clientesFiltrados, ops, foraIds]);
+
+  async function marcarForaAMonetizar(c: ClienteView, fora: boolean) {
+    if (fora && !confirm(`Tirar ${c.nome} da coluna A Monetizar?
+
+O cliente não é excluído do sistema, só sai desta coluna. Dá para voltar depois em "Ver removidos".`)) return;
+    const { error } = await supabase.from("ruston_clientes").update({ fora_a_monetizar: fora }).eq("id", c.id);
+    if (error) { alert(error.message.includes("fora_a_monetizar") ? "Falta rodar o SQL da migration 021 no Supabase." : error.message); return; }
+    setForaIds((s) => { const n = new Set(s); if (fora) n.add(c.id); else n.delete(c.id); return n; });
+  }
 
   const metaEProgresso = useMemo(() => {
     const squadsVisiveis = squads.filter((sq) => {
@@ -321,6 +336,9 @@ export default function MonetizacaoPage() {
         <Kanban
           ops={opsFiltradas}
           clientesAMonetizar={clientesAMonetizar}
+          clientesTirados={clientesTirados}
+          onTirar={(c) => marcarForaAMonetizar(c, true)}
+          onVoltar={(c) => marcarForaAMonetizar(c, false)}
           arrastando={arrastando}
           setArrastando={setArrastando}
           moverEstagio={moverEstagio}
@@ -417,14 +435,16 @@ function MetaProgressCard({ mp, filtroMes }: { mp: any; filtroMes: string }) {
   );
 }
 
-function Kanban({ ops, clientesAMonetizar, arrastando, setArrastando, moverEstagio, podeEditar, onEditar, onRemover, onNovaOpDoCliente, onNovaOpDoClienteComEstagio, onEditarPlano }: {
-  ops: Oportunidade[]; clientesAMonetizar: ClienteView[]; arrastando: string | null; setArrastando: (id: string | null) => void;
+function Kanban({ ops, clientesAMonetizar, clientesTirados, onTirar, onVoltar, arrastando, setArrastando, moverEstagio, podeEditar, onEditar, onRemover, onNovaOpDoCliente, onNovaOpDoClienteComEstagio, onEditarPlano }: {
+  ops: Oportunidade[]; clientesAMonetizar: ClienteView[]; clientesTirados: ClienteView[];
+  onTirar: (c: ClienteView) => void; onVoltar: (c: ClienteView) => void; arrastando: string | null; setArrastando: (id: string | null) => void;
   moverEstagio: (opId: string, novoEstagio: Estagio) => Promise<void>; podeEditar: boolean;
   onEditar: (op: Oportunidade) => void; onRemover: (op: Oportunidade) => void;
   onNovaOpDoCliente: (c: ClienteView) => void; onNovaOpDoClienteComEstagio: (c: ClienteView, estagio: Estagio) => void;
   onEditarPlano: (c: ClienteView) => void;
 }) {
   const [arrastandoCliente, setArrastandoCliente] = useState<ClienteView | null>(null);
+  const [verTirados, setVerTirados] = useState(false);
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6"
       onDragEnd={() => { setArrastando(null); setArrastandoCliente(null); }}>
@@ -444,7 +464,13 @@ function Kanban({ ops, clientesAMonetizar, arrastando, setArrastando, moverEstag
                 className={`rounded-lg border p-2 bg-brand-panel/60 transition ${semPlano ? "border-red-500/40" : "border-white/10"} ${podeEditar ? "cursor-grab active:cursor-grabbing hover:border-purple-400" : ""} ${eu ? "opacity-40 scale-95" : ""}`}>
                 <div className="flex items-start justify-between gap-1">
                   <p className="text-xs font-semibold text-white leading-tight">{c.nome}</p>
-                  <TagSemanaEE semana={c.semana_ee} />
+                  <div className="flex shrink-0 items-center gap-1">
+                    <TagSemanaEE semana={c.semana_ee} />
+                    {podeEditar && (
+                      <button onClick={() => onTirar(c)} title="Tirar da coluna A Monetizar"
+                        className="rounded px-1 text-xs leading-none text-brand-muted hover:bg-red-500/20 hover:text-red-300">✕</button>
+                    )}
+                  </div>
                 </div>
                 <p className="text-[10px] text-brand-muted mt-0.5">
                   {c.etapa === "estruturacao_estrategica" ? "Estruturação Estratégica" : c.etapa} · GP: {c.account_nome ?? "—"}
@@ -462,6 +488,25 @@ function Kanban({ ops, clientesAMonetizar, arrastando, setArrastando, moverEstag
             );
           })}
           {clientesAMonetizar.length === 0 && <p className="text-center text-[10px] text-brand-muted italic py-4">🎉 Todos os clientes sem MRR já têm oportunidade</p>}
+          {clientesTirados.length > 0 && (
+            <div className="border-t border-white/5 pt-2">
+              <button onClick={() => setVerTirados(!verTirados)} className="text-[10px] text-brand-muted hover:text-gray-200">
+                {verTirados ? "Esconder" : "Ver"} removidos · {clientesTirados.length}
+              </button>
+              {verTirados && (
+                <div className="mt-1.5 space-y-1">
+                  {clientesTirados.map((c) => (
+                    <div key={c.id} className="flex items-center justify-between gap-2 rounded border border-white/5 px-2 py-1 opacity-70">
+                      <span className="truncate text-[10px]">{c.nome}</span>
+                      {podeEditar && (
+                        <button onClick={() => onVoltar(c)} className="shrink-0 text-[10px] text-purple-300 hover:underline">Voltar</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
