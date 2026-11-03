@@ -21,6 +21,8 @@ type Entrega = {
 
 const CHAVE_SESSAO = "ruston_aviso_ee_adiado";
 const DIAS = 30;
+// Entregas antes desta data não geram aviso (o aviso passou a valer a partir de 03/11/2026)
+const AVISO_DESDE = "2026-11-03";
 
 export default function AvisoEstruturacao() {
   const supabase = createClient();
@@ -30,7 +32,8 @@ export default function AvisoEstruturacao() {
   const [registrando, setRegistrando] = useState<Entrega | null>(null);
 
   async function carregar() {
-    const desde = new Date(Date.now() - DIAS * 86400000).toISOString().slice(0, 10);
+    const ultimosDias = new Date(Date.now() - DIAS * 86400000).toISOString().slice(0, 10);
+    const desde = ultimosDias > AVISO_DESDE ? ultimosDias : AVISO_DESDE;
     const [{ data: rs }, { data: ge }] = await Promise.all([
       supabase.from("ruston_reunioes_cliente")
         .select("id, cliente_id, titulo, data_reuniao, analise_ia, cliente:ruston_clientes(nome, squad_id)")
