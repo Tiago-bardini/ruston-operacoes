@@ -122,7 +122,7 @@ const EE_SEMANAS: Record<number, { tema: string; perguntas: Pergunta[] }> = {
   4: { tema: "Comercial", perguntas: [
     satisfacao(SEMANA_DESTA),
     { id: "diagnostico_comercial", texto: "O diagnóstico do atendimento (cliente oculto) mostrou com fidelidade como o seu comercial funciona hoje?", ...SIM_PARCIAL_NAO },
-    { id: "seguranca_aplicar", texto: "Você se sente seguro para colocar em prática o que foi proposto (CRM, qualificação, follow-up, objeções)?", tipo: "unica", obrigatoria: true,
+    { id: "seguranca_aplicar", texto: "Você se sente seguro para colocar em prática o que foi proposto?", tipo: "unica", obrigatoria: true,
       opcoes: ["Sim", "Em parte, preciso de ajuda", "Não"], pontos: [5, 3, 0] },
     { id: "aprendizado", texto: "Qual foi o principal aprendizado sobre o seu comercial?", tipo: "texto", obrigatoria: false },
     COMENTARIO_FINAL,
