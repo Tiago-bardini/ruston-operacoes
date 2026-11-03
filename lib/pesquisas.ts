@@ -87,14 +87,57 @@ const CHECKIN: Formulario = {
   ],
 };
 
-// EE: parte fixa nas semanas 1 a 4; na S5 (entrega final) entra o formulário completo do material.
-// TODO: perguntas específicas de cada semana (S1–S4) assim que o conteúdo das semanas for definido.
+// EE: perguntas por semana, a partir das reuniões da E.E (S1 kickoff, S2 mercado, S3 marketing, S4 comercial).
+// A S5 (entrega final) usa o link da pesquisa da matriz e não é gerada pelo sistema.
+export const SEMANA_EE_MATRIZ = 5;
+
+const SIM_PARCIAL_NAO = { tipo: "unica" as const, obrigatoria: true, opcoes: ["Sim", "Parcialmente", "Não"], pontos: [5, 3, 0] };
+const COMENTARIO_FINAL: Pergunta = { id: "comentario", titulo: "Espaço livre", texto: "Quer deixar algum comentário, elogio ou sugestão para o time?", tipo: "texto", obrigatoria: false };
+const satisfacao = (texto: string): Pergunta => ({ id: "satisfacao_semana", texto, tipo: "escala", obrigatoria: true, escala: ESCALA_0_5 });
+const SEMANA_DESTA = "De 0 a 5, quão satisfeito você ficou com a entrega desta semana?";
+
+const EE_SEMANAS: Record<number, { tema: string; perguntas: Pergunta[] }> = {
+  1: { tema: "Kickoff", perguntas: [
+    satisfacao("De 0 a 5, quão satisfeito você ficou com o kickoff do projeto?"),
+    { id: "clareza_cronograma", texto: "Ficou claro o que vai acontecer nas próximas 5 semanas e o que será entregue em cada uma?", ...SIM_PARCIAL_NAO },
+    { id: "entendeu_negocio", texto: "Você sentiu que o time da V4 entendeu o seu negócio, seus objetivos e suas metas?", ...SIM_PARCIAL_NAO },
+    { id: "faltou_falar", texto: "Tem algo importante sobre o seu negócio que você sente que não falamos e precisamos saber?", tipo: "texto", obrigatoria: false },
+    COMENTARIO_FINAL,
+  ] },
+  2: { tema: "Mercado", perguntas: [
+    satisfacao(SEMANA_DESTA),
+    { id: "personas", texto: "As personas apresentadas retratam bem os clientes que você atende hoje?", ...SIM_PARCIAL_NAO },
+    { id: "dados_mercado", texto: "Os dados de mercado e o potencial de faturamento trouxeram algo novo para você?", tipo: "unica", obrigatoria: true,
+      opcoes: ["Sim, muita coisa nova", "Algumas coisas", "Não, eu já sabia"], pontos: [5, 3, 0] },
+    { id: "aprendizado", texto: "Qual foi o principal aprendizado sobre o seu mercado ou sobre os seus concorrentes?", tipo: "texto", obrigatoria: false },
+    COMENTARIO_FINAL,
+  ] },
+  3: { tema: "Marketing", perguntas: [
+    satisfacao(SEMANA_DESTA),
+    { id: "diagnostico_marketing", texto: "O diagnóstico de marca, redes sociais, site e Google refletiu a realidade da sua empresa?", ...SIM_PARCIAL_NAO },
+    { id: "clareza_mudancas", texto: "Ficou claro o que vamos mudar no marketing e por onde vamos começar (anúncios, perfil, criativos)?", ...SIM_PARCIAL_NAO },
+    { id: "duvidas", texto: "Ficou alguma dúvida ou discordância sobre o que foi apresentado?", tipo: "texto", obrigatoria: false },
+    COMENTARIO_FINAL,
+  ] },
+  4: { tema: "Comercial", perguntas: [
+    satisfacao(SEMANA_DESTA),
+    { id: "diagnostico_comercial", texto: "O diagnóstico do atendimento (cliente oculto) mostrou com fidelidade como o seu comercial funciona hoje?", ...SIM_PARCIAL_NAO },
+    { id: "seguranca_aplicar", texto: "Você se sente seguro para colocar em prática o que foi proposto (CRM, qualificação, follow-up, objeções)?", tipo: "unica", obrigatoria: true,
+      opcoes: ["Sim", "Em parte, preciso de ajuda", "Não"], pontos: [5, 3, 0] },
+    { id: "aprendizado", texto: "Qual foi o principal aprendizado sobre o seu comercial?", tipo: "texto", obrigatoria: false },
+    COMENTARIO_FINAL,
+  ] },
+};
+
+// Pesquisa EE antiga, sem semana definida
 const EE_SEMANAL: Pergunta[] = [
-  { id: "satisfacao_semana", texto: "De 0 a 5, quão satisfeito você ficou com a entrega desta semana?", tipo: "escala", obrigatoria: true, escala: ESCALA_0_5 },
-  { id: "clareza_negocio", texto: "A entrega desta semana trouxe clareza sobre o seu negócio?", tipo: "unica", obrigatoria: true, opcoes: ["Sim", "Parcialmente", "Não"], pontos: [5, 3, 0] },
+  satisfacao(SEMANA_DESTA),
+  { id: "clareza_negocio", texto: "A entrega desta semana trouxe clareza sobre o seu negócio?", ...SIM_PARCIAL_NAO },
   { id: "aprendizado", texto: "Qual foi o principal aprendizado ou descoberta que você teve com essa entrega?", tipo: "texto", obrigatoria: false },
+  COMENTARIO_FINAL,
 ];
 
+// Mantido só para exibir pesquisas de S5 geradas antes da regra da matriz
 const EE_FINAL: Pergunta[] = [
   { id: "profundidade_diagnostico", texto: "De 0 a 5, quão satisfeito você ficou com a profundidade do Diagnóstico entregue?", tipo: "escala", obrigatoria: true, escala: ESCALA_0_5 },
   { id: "analises_gargalos", texto: "Como avalia as análises e gargalos apontados em Vendas, Marketing, Redes e Cliente Oculto?", tipo: "escala", obrigatoria: true, escala: ESCALA_0_5 },
@@ -105,14 +148,15 @@ const EE_FINAL: Pergunta[] = [
 export function formularioDe(tipo: TipoPesquisa, semana?: number | null): Formulario {
   if (tipo === "planejamento") return PLANEJAMENTO;
   if (tipo === "checkin") return CHECKIN;
-  const final = semana === 5;
+  const final = semana === SEMANA_EE_MATRIZ;
+  const doTema = semana ? EE_SEMANAS[semana] : undefined;
   return {
     tipo: "ee",
-    titulo: `Pesquisa de Satisfação EE${final ? " | Entrega final" : semana ? ` | Semana ${semana}` : ""}`,
+    titulo: `Pesquisa de Satisfação EE${final ? " | Entrega final" : semana ? ` | Semana ${semana}${doTema ? ` · ${doTema.tema}` : ""}` : ""}`,
     abertura: final
       ? "Esta pesquisa rápida leva menos de 2 minutos. Seu feedback é fundamental para sabermos se a Estruturação Estratégica (Marketing e Vendas) trouxe clareza sobre os pontos cegos e gargalos do seu negócio."
       : "Leva menos de 1 minuto. Queremos saber como foi a entrega desta semana da Estruturação Estratégica.",
-    perguntas: final ? EE_FINAL : EE_SEMANAL,
+    perguntas: final ? EE_FINAL : doTema?.perguntas ?? EE_SEMANAL,
   };
 }
 

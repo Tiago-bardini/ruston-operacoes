@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 import { carregarSemanasEE } from "@/components/clientes/TagSemanaEE";
 import {
-  TIPO_PESQUISA_LABEL, NOTA_ALERTA, nomePesquisa, formularioDe, corNota, comentariosDe,
+  TIPO_PESQUISA_LABEL, NOTA_ALERTA, SEMANA_EE_MATRIZ, nomePesquisa, formularioDe, corNota, comentariosDe,
   type Pesquisa, type TipoPesquisa,
 } from "@/lib/pesquisas";
 
@@ -270,6 +270,7 @@ function ModalGerar({ clientes, semanas, clienteInicial, onFechar, onGerada }: {
 
   async function gerar() {
     if (!clienteId) { setErro("Escolha o cliente."); return; }
+    if (tipo === "ee" && semana === SEMANA_EE_MATRIZ) return;
     setSalvando(true);
     setErro(null);
     const { data, error } = await supabase.from("ruston_pesquisas")
@@ -281,6 +282,8 @@ function ModalGerar({ clientes, semanas, clienteInicial, onFechar, onGerada }: {
   }
 
   const f = formularioDe(tipo, tipo === "ee" ? semana : null);
+  // S5: a pesquisa é o link da matriz, não gera pelo sistema
+  const semanaMatriz = tipo === "ee" && semana === SEMANA_EE_MATRIZ;
 
   return (
     <Modal titulo="Gerar pesquisa" onFechar={onFechar}>
@@ -310,21 +313,28 @@ function ModalGerar({ clientes, semanas, clienteInicial, onFechar, onGerada }: {
               {[1, 2, 3, 4, 5].map((s) => (
                 <button key={s} type="button" onClick={() => setSemana(s)}
                   className={`rounded-lg border py-2 text-xs font-bold transition ${semana === s ? "border-sky-400 bg-sky-500/15 text-sky-200" : "border-white/10 text-brand-muted hover:text-gray-200"}`}>
-                  S{s}{s === 5 && <span className="block text-[9px] font-normal">final</span>}
+                  S{s}{s === SEMANA_EE_MATRIZ && <span className="block text-[9px] font-normal">matriz</span>}
                 </button>
               ))}
             </div>
           </div>
         )}
-        <div className="rounded-lg border border-white/5 bg-black/20 p-3 text-xs text-gray-300">
-          <p className="mb-1 font-semibold text-gray-100">{f.titulo} · {f.perguntas.length} perguntas</p>
-          <ul className="list-disc space-y-0.5 pl-4">
-            {f.perguntas.map((q) => <li key={q.id}>{q.texto}</li>)}
-          </ul>
-        </div>
+        {semanaMatriz ? (
+          <div className="rounded-lg border border-sky-400/30 bg-sky-500/10 p-3 text-xs text-sky-100">
+            <p className="font-semibold">A S5 (entrega final) usa o link da pesquisa da matriz.</p>
+            <p className="mt-1 text-sky-200/80">Envie ao cliente o link oficial da matriz. Aqui no sistema não é gerada pesquisa para a S5.</p>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-white/5 bg-black/20 p-3 text-xs text-gray-300">
+            <p className="mb-1 font-semibold text-gray-100">{f.titulo} · {f.perguntas.length} perguntas</p>
+            <ul className="list-disc space-y-0.5 pl-4">
+              {f.perguntas.map((q) => <li key={q.id}>{q.texto}</li>)}
+            </ul>
+          </div>
+        )}
         {erro && <p className="text-xs text-red-300">{erro}</p>}
         <div className="flex gap-2">
-          <button className="btn flex-1" onClick={gerar} disabled={salvando}>{salvando ? "Gerando..." : "Gerar link e QR Code"}</button>
+          <button className="btn flex-1" onClick={gerar} disabled={salvando || semanaMatriz}>{salvando ? "Gerando..." : "Gerar link e QR Code"}</button>
           <button className="btn-ghost" onClick={onFechar}>Cancelar</button>
         </div>
       </div>
