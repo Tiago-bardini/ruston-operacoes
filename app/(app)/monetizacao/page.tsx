@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 import type { ClienteView, Pessoa, Squad } from "@/lib/types";
 import { formatBRL, MESES_LABEL } from "@/lib/types";
+import { TagSemanaEE, carregarSemanasEE } from "@/components/clientes/TagSemanaEE";
 
 type Estagio = "ideia" | "apresentado" | "negociacao" | "ganho" | "perdido";
 
@@ -98,15 +99,17 @@ export default function MonetizacaoPage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: o }, { data: c }, { data: p }, { data: s }, { data: m }] = await Promise.all([
+    const [{ data: o }, { data: c }, { data: p }, { data: s }, { data: m }, semanasEE] = await Promise.all([
       supabase.from("ruston_monetizacao_view").select("*").eq("ativo", true),
       supabase.from("ruston_clientes_view").select("*").eq("ativo", true).order("nome"),
       supabase.from("ruston_pessoas").select("*").eq("ativo", true).order("nome"),
       supabase.from("ruston_squads").select("*").eq("ativo", true).order("nome"),
       supabase.from("ruston_monetizacao_metas").select("*"),
+      carregarSemanasEE(supabase),
     ]);
     setOps((o as Oportunidade[]) ?? []);
-    setClientes((c as ClienteView[]) ?? []);
+    // Semana da E.E vem de ruston_clientes (a view não traz a coluna)
+    setClientes(((c as ClienteView[]) ?? []).map((x) => ({ ...x, semana_ee: semanasEE[x.id] ?? null })));
     setPessoas((p as Pessoa[]) ?? []);
     setSquads((s as Squad[]) ?? []);
     setMetas((m as MetaSquad[]) ?? []);
@@ -439,7 +442,10 @@ function Kanban({ ops, clientesAMonetizar, arrastando, setArrastando, moverEstag
                 onDragStart={() => { setArrastandoCliente(c); setArrastando(null); }}
                 onDragEnd={() => setArrastandoCliente(null)}
                 className={`rounded-lg border p-2 bg-brand-panel/60 transition ${semPlano ? "border-red-500/40" : "border-white/10"} ${podeEditar ? "cursor-grab active:cursor-grabbing hover:border-purple-400" : ""} ${eu ? "opacity-40 scale-95" : ""}`}>
-                <p className="text-xs font-semibold text-white leading-tight">{c.nome}</p>
+                <div className="flex items-start justify-between gap-1">
+                  <p className="text-xs font-semibold text-white leading-tight">{c.nome}</p>
+                  <TagSemanaEE semana={c.semana_ee} />
+                </div>
                 <p className="text-[10px] text-brand-muted mt-0.5">
                   {c.etapa === "estruturacao_estrategica" ? "Estruturação Estratégica" : c.etapa} · GP: {c.account_nome ?? "—"}
                 </p>
