@@ -54,7 +54,8 @@ export default function ClientesPage() {
   const [fcasRecentes, setFcasRecentes] = useState<Record<string, FcaView>>({});
   const [churnModal, setChurnModal] = useState<ClienteView | null>(null);
   const [eeModal, setEeModal] = useState<ClienteView | null>(null);
-  const { isGerente, squadId: perfilSquadId } = useUsuarioPerfil();
+  // Investidor só visualiza a Carteira; criar, editar, mover e excluir é do gerente e do coordenador
+  const { isGerente, podeEditar, squadId: perfilSquadId } = useUsuarioPerfil();
   const [view, setView] = useState<View>("kanban_gp");
   const [filtros, setFiltros] = useState<Filtros>(filtrosVazios);
   const [form, setForm] = useState(emptyForm);
@@ -246,6 +247,7 @@ export default function ClientesPage() {
   const gps = pessoas.filter((p) => p.cargo === "gestor_projetos");
 
   const acoes: AcoesCliente = {
+    podeEditar,
     onEdit: edit,
     onRemove: remove,
     onFinalizarEE: setEeModal,
@@ -265,9 +267,11 @@ export default function ClientesPage() {
             {filtrosAtivos && <span className="text-brand"> · filtrado</span>}
           </p>
         </div>
-        <button className="btn" onClick={() => { setEditingId(null); setForm(emptyForm); setFormOpen(!formOpen); }}>
-          {formOpen ? "Fechar" : "+ Novo cliente"}
-        </button>
+        {podeEditar && (
+          <button className="btn" onClick={() => { setEditingId(null); setForm(emptyForm); setFormOpen(!formOpen); }}>
+            {formOpen ? "Fechar" : "+ Novo cliente"}
+          </button>
+        )}
       </div>
 
       {/* Indicadores: clicar filtra a carteira */}
@@ -555,6 +559,7 @@ export default function ClientesPage() {
 /* -------- SUB-COMPONENTES -------- */
 
 type AcoesCliente = {
+  podeEditar: boolean;
   onEdit: (c: ClienteView) => void;
   onRemove: (id: string) => void;
   onFinalizarEE: (c: ClienteView) => void;
@@ -763,10 +768,10 @@ function TagsCliente({ c, acoes }: { c: ClienteView; acoes: AcoesCliente }) {
   return (
     <>
       <span className={c.semana_ee ? "inline-flex" : "inline-flex md:hidden md:group-hover:inline-flex"}>
-        <TagSemanaEE semana={c.semana_ee} onChange={(s) => acoes.onSemanaEE(c, s)} />
+        <TagSemanaEE semana={c.semana_ee} onChange={acoes.podeEditar ? (s) => acoes.onSemanaEE(c, s) : undefined} />
       </span>
       <span className={c.tag_contrato ? "inline-flex" : "inline-flex md:hidden md:group-hover:inline-flex"}>
-        <TagContratoCliente tag={c.tag_contrato} onChange={(t) => acoes.onTagContrato(c, t)} />
+        <TagContratoCliente tag={c.tag_contrato} onChange={acoes.podeEditar ? (t) => acoes.onTagContrato(c, t) : undefined} />
       </span>
     </>
   );
@@ -812,9 +817,11 @@ function ClienteCard({ c, fca, acoes, mostrar }: {
         <div className="flex shrink-0 items-center gap-0.5">
           <a href={`/planejamento?cliente=${c.id}`} title="Planejamento"
             className="rounded px-1.5 py-0.5 text-sm hover:bg-white/5">📊</a>
-          <button onClick={() => acoes.onEdit(c)} title="Editar"
-            className="rounded px-1.5 py-0.5 text-sm text-brand-muted hover:bg-white/5 hover:text-gray-200">✎</button>
-          <MenuAcoes c={c} acoes={acoes} />
+          {acoes.podeEditar && (<>
+            <button onClick={() => acoes.onEdit(c)} title="Editar"
+              className="rounded px-1.5 py-0.5 text-sm text-brand-muted hover:bg-white/5 hover:text-gray-200">✎</button>
+            <MenuAcoes c={c} acoes={acoes} />
+          </>)}
         </div>
       </div>
     </div>
@@ -907,9 +914,11 @@ function Lista({ clientes, fcas, acoes }: { clientes: ClienteView[]; fcas: Fcas;
                   <div className="flex items-center justify-end gap-0.5">
                     <a href={`/planejamento?cliente=${c.id}`} title="Planejamento"
                       className="rounded px-1.5 py-0.5 text-sm hover:bg-white/5">📊</a>
-                    <button onClick={() => acoes.onEdit(c)} title="Editar"
-                      className="rounded px-1.5 py-0.5 text-sm text-brand-muted hover:bg-white/5 hover:text-gray-200">✎</button>
-                    <MenuAcoes c={c} acoes={acoes} />
+                    {acoes.podeEditar && (<>
+                      <button onClick={() => acoes.onEdit(c)} title="Editar"
+                        className="rounded px-1.5 py-0.5 text-sm text-brand-muted hover:bg-white/5 hover:text-gray-200">✎</button>
+                      <MenuAcoes c={c} acoes={acoes} />
+                    </>)}
                   </div>
                 </td>
               </tr>
