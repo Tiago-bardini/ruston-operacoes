@@ -63,6 +63,8 @@ export interface AvaliacaoRisco {
 }
 
 const MAX_FONTE = 35;
+// Cobrança de NPS no check-in vale a partir da semana em que a regra começou
+const NPS_CHECKIN_DESDE = "2026-11-02";
 const ALERTA_FONTE = 15;
 
 const dataBR = (iso: string) => {
@@ -121,7 +123,8 @@ export function avaliarRiscoChurn(d: DadosClienteRadar): AvaliacaoRisco {
 
   // ---------- Reuniões ----------
   // Check-ins já analisados com a pergunta de NPS (os antigos não têm o campo)
-  const checkins = d.reunioes.filter((r) => ehCheckin(r.titulo) && r.nps && typeof r.nps.abordou === "boolean");
+  const checkins = d.reunioes.filter((r) =>
+    r.data_reuniao >= NPS_CHECKIN_DESDE && ehCheckin(r.titulo) && r.nps && typeof r.nps.abordou === "boolean");
   let seguidosSem = 0;
   for (const r of checkins) { if (r.nps!.abordou) break; seguidosSem++; }
   const npsCheckin = checkins[0]

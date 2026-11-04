@@ -22,8 +22,11 @@ type View = "kanban_etapa" | "lista" | "kanban_gp" | "kanban_squad";
 
 type Filtros = {
   busca: string; squad: string; gp: string; etapa: string; tag: string; semana: string; fca: string; vencendo: boolean;
+  semVencimento?: boolean;
 };
-const filtrosVazios: Filtros = { busca: "", squad: "", gp: "", etapa: "", tag: "", semana: "", fca: "", vencendo: false };
+const filtrosVazios: Filtros = { busca: "", squad: "", gp: "", etapa: "", tag: "", semana: "", fca: "", vencendo: false, semVencimento: false };
+// O pop-up de vencimento aparece uma vez por dia em cada navegador
+const CHAVE_AVISO_VENC = "carteira:aviso-vencimento";
 const CHAVE_PREFS = "carteira:prefs";
 
 const emptyForm = {
@@ -62,6 +65,7 @@ export default function ClientesPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [avisoVenc, setAvisoVenc] = useState(false);
 
   // Visão e filtros ficam salvos neste navegador ao voltar pra tela
   useEffect(() => {
@@ -115,7 +119,8 @@ export default function ClientesPage() {
       tier: form.tier || null,
       data_assinatura: form.data_assinatura || null,
       prazo_contrato_meses: form.prazo_contrato_meses ? Number(form.prazo_contrato_meses) : null,
-      data_vencimento_contrato: form.data_vencimento_contrato || null,
+      data_vencimento_contrato: form.data_vencimento_contrato
+        || calcularVencimento(form.data_assinatura, form.prazo_contrato_meses),
       contrato_url: form.contrato_url || null,
       whatsapp: form.whatsapp
         ? form.whatsapp.split(",")
@@ -218,6 +223,7 @@ export default function ClientesPage() {
       if (filtros.semana && (filtros.semana === "sem" ? c.semana_ee : String(c.semana_ee ?? "") !== filtros.semana)) return false;
       if (filtros.fca && (fcasRecentes[c.id]?.bandeira ?? "sem_dado") !== filtros.fca) return false;
       if (filtros.vencendo && !vencendoLogo(c)) return false;
+      if (filtros.semVencimento && semVencimento(c) === false) return false;
       if (!q) return true;
       return (
         c.nome.toLowerCase().includes(q) ||
@@ -242,6 +248,25 @@ export default function ClientesPage() {
   const totalMRR = filtered.reduce((s, c) => s + (Number(c.mrr) || 0), 0);
   const nFcaVermelho = base.filter((c) => fcasRecentes[c.id]?.bandeira === "vermelho").length;
   const nVencendo = base.filter(vencendoLogo).length;
+  const nSemVencimento = base.filter(semVencimento).length;
+  // Contratos que vencem em até 30 dias (ou já venceram), do mais urgente pro menos
+  const aVencer = useMemo(() => base.filter(vencendoLogo)
+    .sort((a, b) => (a.data_vencimento_contrato ?? "").localeCompare(b.data_vencimento_contrato ?? "")), [base]);
+
+  useEffect(() => {
+    if (loading || aVencer.length === 0) return;
+    const hoje = new Date().toISOString().slice(0, 10);
+    try {
+      if (localStorage.getItem(CHAVE_AVISO_VENC) === hoje) return;
+    } catch { /* sem localStorage: mostra sempre */ }
+    setAvisoVenc(true);
+  }, [loading, aVencer.length]);
+
+  function fecharAvisoVenc(filtrar = false) {
+    try { localStorage.setItem(CHAVE_AVISO_VENC, new Date().toISOString().slice(0, 10)); } catch { /* ignora */ }
+    setAvisoVenc(false);
+    if (filtrar) setFiltros({ ...filtrosVazios, vencendo: true });
+  }
   const nEmEE = base.filter((c) => c.etapa === "estruturacao_estrategica").length;
   const filtrosAtivos = Object.entries(filtros).some(([, v]) => v);
   const gps = pessoas.filter((p) => p.cargo === "gestor_projetos");
@@ -283,6 +308,10 @@ export default function ClientesPage() {
           ativo={filtros.fca === "vermelho"} onClick={() => alternar("fca", "vermelho")} />
         <Indicador icone="⏱" label="vencendo em 30d" valor={nVencendo} cor="text-orange-300"
           ativo={filtros.vencendo} onClick={() => setFiltros((f) => ({ ...f, vencendo: !f.vencendo }))} />
+        {nSemVencimento > 0 && (
+          <Indicador label="sem data de vencimento" valor={nSemVencimento} cor="text-zinc-300"
+            ativo={!!filtros.semVencimento} onClick={() => setFiltros((f) => ({ ...f, semVencimento: !f.semVencimento }))} />
+        )}
         <Indicador icone="🧭" label="em E.E" valor={nEmEE} cor="text-sky-300"
           ativo={filtros.etapa === "estruturacao_estrategica"} onClick={() => alternar("etapa", "estruturacao_estrategica")} />
         {churnsPendentes.length > 0 && (
@@ -382,16 +411,18 @@ export default function ClientesPage() {
             <div>
               <label className="label">Data assinatura</label>
               <input type="date" className="input" value={form.data_assinatura}
-                onChange={(e) => setForm({ ...form, data_assinatura: e.target.value })} />
+                onChange={(e) => setForm({ ...form, data_assinatura: e.target.value,
+                  data_vencimento_contrato: calcularVencimento(e.target.value, form.prazo_contrato_meses) ?? form.data_vencimento_contrato })} />
             </div>
             <div>
               <label className="label">Prazo contrato (meses)</label>
               <input type="number" min="1" className="input" placeholder="ex: 12"
                 value={form.prazo_contrato_meses}
-                onChange={(e) => setForm({ ...form, prazo_contrato_meses: e.target.value })} />
+                onChange={(e) => setForm({ ...form, prazo_contrato_meses: e.target.value,
+                  data_vencimento_contrato: calcularVencimento(form.data_assinatura, e.target.value) ?? form.data_vencimento_contrato })} />
             </div>
             <div>
-              <label className="label">Vencimento contrato</label>
+              <label className="label">Vencimento contrato <span className="text-[10px] text-brand-muted">(assinatura + prazo, automático)</span></label>
               <input type="date" className="input" value={form.data_vencimento_contrato}
                 onChange={(e) => setForm({ ...form, data_vencimento_contrato: e.target.value })} />
             </div>
@@ -502,6 +533,11 @@ export default function ClientesPage() {
       )}
 
       {/* Modal SUBIR CHURN */}
+      {avisoVenc && aVencer.length > 0 && (
+        <ModalAvisoVencimento clientes={aVencer} semData={nSemVencimento}
+          onFechar={() => fecharAvisoVenc()} onVer={() => fecharAvisoVenc(true)} />
+      )}
+
       {churnModal && (
         <ModalSubirChurn
           cliente={churnModal}
@@ -571,6 +607,66 @@ type AcoesCliente = {
 type Fcas = Record<string, FcaView>;
 
 /** Contrato vencido ou vencendo em até 30 dias — o que pede ação agora. */
+/** Assinatura + prazo em meses = vencimento ("YYYY-MM-DD"), ou null se faltar um dos dois. */
+function calcularVencimento(assinatura: string, prazoMeses: string): string | null {
+  const meses = Number(prazoMeses);
+  if (!assinatura || !meses) return null;
+  const [a, m, d] = assinatura.split("-").map(Number);
+  // 31/08 + 6 meses = 28/02 (não pula pro mês seguinte)
+  const ultimoDia = new Date(Date.UTC(a, m + meses, 0)).getUTCDate();
+  const dt = new Date(Date.UTC(a, m - 1 + meses, Math.min(d, ultimoDia)));
+  return dt.toISOString().slice(0, 10);
+}
+
+/** Cliente recorrente sem data de vencimento (E.E e pontual não têm renovação). */
+function semVencimento(c: ClienteView) {
+  if (c.data_vencimento_contrato) return false;
+  if (c.etapa === "estruturacao_estrategica" || c.tag_contrato === "ee" || c.tag_contrato === "pontual" || c.tag_contrato === "ee_pontual") return false;
+  return true;
+}
+
+function ModalAvisoVencimento({ clientes, semData, onFechar, onVer }: {
+  clientes: ClienteView[]; semData: number; onFechar: () => void; onVer: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onFechar}>
+      <div className="card w-full max-w-lg border border-orange-500/40" onClick={(e) => e.stopPropagation()}>
+        <p className="text-lg font-bold text-orange-300">
+          {clientes.length === 1 ? "1 contrato vence" : `${clientes.length} contratos vencem`} nos próximos 30 dias
+        </p>
+        <p className="mb-3 text-xs text-brand-muted">Hora de puxar a conversa de renovação com o cliente.</p>
+        <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
+          {clientes.map((c) => {
+            const dias = diasParaVencimento(c.data_vencimento_contrato) ?? 0;
+            return (
+              <div key={c.id} className="flex items-center justify-between gap-3 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">{c.nome}</p>
+                  <p className="text-[11px] text-brand-muted">
+                    {c.account_nome ? `GP ${c.account_nome}` : "Sem GP"} · MRR {formatBRL(c.mrr)} · vence {formatDate(c.data_vencimento_contrato)}
+                  </p>
+                </div>
+                <span className={`badge shrink-0 ${STATUS_VENCIMENTO_COLOR[statusVencimento(c.data_vencimento_contrato)]}`}>
+                  {dias < 0 ? `venceu há ${-dias} ${-dias === 1 ? "dia" : "dias"}` : dias === 0 ? "vence hoje" : `${dias} ${dias === 1 ? "dia" : "dias"}`}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        {semData > 0 && (
+          <p className="mt-3 text-[11px] text-amber-300">
+            {semData} {semData === 1 ? "cliente recorrente está" : "clientes recorrentes estão"} sem data de vencimento na Carteira e não entram neste aviso.
+          </p>
+        )}
+        <div className="mt-4 flex justify-end gap-2">
+          <button className="btn-ghost text-xs" onClick={onFechar}>Fechar</button>
+          <button className="btn" onClick={onVer}>Ver na carteira</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function vencendoLogo(c: ClienteView) {
   const s = statusVencimento(c.data_vencimento_contrato);
   return s === "vencido" || s === "critico";
