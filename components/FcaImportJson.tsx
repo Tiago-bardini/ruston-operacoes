@@ -121,10 +121,10 @@ export default function FcaImportJson({ onDone }: { onDone?: () => void }) {
       // 1) Tenta por ID
       if (input.cliente_id) {
         const { data: c } = await supabase
-          .from("ruston_clientes").select("id, nome")
+          .from("ruston_clientes").select("id, nome, ativo")
           .eq("id", input.cliente_id).maybeSingle();
-        if (c) { clienteId = c.id; clienteNome = c.nome; }
-        else erro = "cliente_id não encontrado";
+        if (c && c.ativo) { clienteId = c.id; clienteNome = c.nome; }
+        else erro = c ? `${c.nome} não está mais ativo (churn): FCA não importado` : "cliente_id não encontrado";
       }
 
       // 2) Tenta por nome com match EXATO primeiro, depois ILIKE

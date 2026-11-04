@@ -188,11 +188,12 @@ export async function GET(req: Request) {
     });
   });
 
-  // 2) Conversas com cliente vinculado
+  // 2) Conversas com cliente vinculado e ativo (cliente encerrado não é mais analisado)
   const { data: conversas } = await supabase
     .from("ruston_whatsapp_conversas")
-    .select("id, nome, cliente_id, ultima_mensagem_em")
+    .select("id, nome, cliente_id, ultima_mensagem_em, ruston_clientes!inner(ativo)")
     .not("cliente_id", "is", null)
+    .eq("ruston_clientes.ativo", true)
     .order("ultima_mensagem_em", { ascending: false })
     .limit(limit);
 

@@ -219,10 +219,12 @@ export default function FcaPage() {
       supabase.from("ruston_fca_view").select("*").eq("data_referencia", dataRef),
       supabase.from("ruston_fca_view").select("*").in("data_referencia", sextas.slice(0, 12)),
     ]);
+    // Só clientes ativos: churn confirmado sai do FCA (inclusive do consolidado)
+    const ativos = new Set(((cs as ClienteView[]) ?? []).map((c) => c.id));
     setClientes((cs as ClienteView[]) ?? []);
     setSquads((sq as Squad[]) ?? []);
-    setAvaliacoes((fs as FcaView[]) ?? []);
-    setHistorico((fh as FcaView[]) ?? []);
+    setAvaliacoes(((fs as FcaView[]) ?? []).filter((f) => ativos.has(f.cliente_id)));
+    setHistorico(((fh as FcaView[]) ?? []).filter((f) => ativos.has(f.cliente_id)));
     setLoading(false);
   }
 

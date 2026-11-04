@@ -58,7 +58,7 @@ export default function RadarWhatsappPage() {
 
   async function carregar() {
     setLoading(true);
-    const [{ data }, { data: sq }, { data: ex }] = await Promise.all([
+    const [{ data }, { data: sq }, { data: ex }, { data: inativos }] = await Promise.all([
       supabase.from("ruston_whatsapp_radar_view").select("*").limit(5000),
       supabase.from("ruston_squads").select("id,nome").eq("ativo", true).order("nome"),
       supabase.from("ruston_whatsapp_analises")
@@ -66,14 +66,17 @@ export default function RadarWhatsappPage() {
         .not("analise_extra", "is", null)
         .order("criado_em", { ascending: false })
         .limit(3000),
+      // Cliente encerrado (churn confirmado etc.) sai do radar: o histórico fica só no banco
+      supabase.from("ruston_clientes").select("id").eq("ativo", false),
     ]);
+    const foraDaBase = new Set(((inativos ?? []) as { id: string }[]).map((c) => c.id));
     // Última análise com avaliações extras de cada conversa
     const porConversa: Record<string, Partial<AnaliseExtra>> = {};
     for (const e of (ex ?? []) as { conversa_id: string; analise_extra: AnaliseExtra }[]) {
       if (!porConversa[e.conversa_id]) porConversa[e.conversa_id] = e.analise_extra;
     }
     setExtras(porConversa);
-    setConversas((data as Conversa[]) ?? []);
+    setConversas(((data as Conversa[]) ?? []).filter((c) => !c.cliente_id || !foraDaBase.has(c.cliente_id)));
     setSquads((sq as Squad[]) ?? []);
     setLoading(false);
   }
