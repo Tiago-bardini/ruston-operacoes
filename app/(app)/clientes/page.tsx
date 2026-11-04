@@ -619,10 +619,17 @@ function calcularVencimento(assinatura: string, prazoMeses: string): string | nu
 }
 
 /** Cliente recorrente sem data de vencimento (E.E e pontual não têm renovação). */
+/** Só pontual ou só E.E: o contrato acaba na entrega, então não tem vencimento nem renovação.
+ *  Com assessoria junto (tags "+ assessoria") é recorrente e precisa da data. */
+function soPontual(c: ClienteView) {
+  if (c.tag_contrato === "ee" || c.tag_contrato === "pontual" || c.tag_contrato === "ee_pontual") return true;
+  if (c.tag_contrato === "ee_assessoria" || c.tag_contrato === "pontual_assessoria") return false;
+  return c.etapa === "estruturacao_estrategica"; // E.E sem tag: trata como pontual
+}
+
+/** Cliente recorrente sem data de vencimento. */
 function semVencimento(c: ClienteView) {
-  if (c.data_vencimento_contrato) return false;
-  if (c.etapa === "estruturacao_estrategica" || c.tag_contrato === "ee" || c.tag_contrato === "pontual" || c.tag_contrato === "ee_pontual") return false;
-  return true;
+  return !c.data_vencimento_contrato && !soPontual(c);
 }
 
 function ModalAvisoVencimento({ clientes, semData, onFechar, onVer }: {
@@ -668,6 +675,7 @@ function ModalAvisoVencimento({ clientes, semData, onFechar, onVer }: {
 }
 
 function vencendoLogo(c: ClienteView) {
+  if (soPontual(c)) return false;
   const s = statusVencimento(c.data_vencimento_contrato);
   return s === "vencido" || s === "critico";
 }
