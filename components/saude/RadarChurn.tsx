@@ -45,6 +45,7 @@ export default function RadarChurn() {
   const [gp, setGp] = useState("");
   const [busca, setBusca] = useState("");
   const [aberto, setAberto] = useState<string | null>(null);
+  const [semNps, setSemNps] = useState(false);
 
   useEffect(() => {
     if (loadingPerfil) return;
@@ -79,7 +80,9 @@ export default function RadarChurn() {
     (!gp || l.cliente.account_nome === gp) &&
     (!busca.trim() || l.cliente.nome.toLowerCase().includes(busca.trim().toLowerCase()))
   );
-  const visiveis = nivel ? base.filter((l) => l.av.nivel === nivel) : base;
+  const qtdSemNps = base.filter((l) => l.av.npsCheckin && !l.av.npsCheckin.abordou).length;
+  const visiveis = base.filter((l) =>
+    (!nivel || l.av.nivel === nivel) && (!semNps || (l.av.npsCheckin && !l.av.npsCheckin.abordou)));
   const resumo = (n: NivelRisco) => {
     const ls = base.filter((l) => l.av.nivel === n);
     return { qtd: ls.length, mrr: ls.reduce((s, l) => s + (Number(l.cliente.mrr) || 0), 0) };
@@ -131,7 +134,11 @@ export default function RadarChurn() {
           {gps.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
         <input className="input max-w-xs" placeholder="Buscar cliente..." value={busca} onChange={(e) => setBusca(e.target.value)} />
-        {nivel && <button className="text-xs text-brand-muted hover:text-white" onClick={() => setNivel("")}>Limpar filtro</button>}
+        <button onClick={() => setSemNps(!semNps)}
+          className={`badge text-xs ${semNps ? "border-amber-500/50 bg-amber-500/15 text-amber-300" : "border-white/10 bg-white/5 text-brand-muted hover:text-white"}`}>
+          Sem NPS no check-in · {qtdSemNps}
+        </button>
+        {(nivel || semNps) && <button className="text-xs text-brand-muted hover:text-white" onClick={() => { setNivel(""); setSemNps(false); }}>Limpar filtro</button>}
         <span className="ml-auto text-sm text-brand-muted">{visiveis.length} clientes · maior risco primeiro</span>
       </div>
 
@@ -149,7 +156,7 @@ export default function RadarChurn() {
 
       <p className="text-[11px] text-brand-muted">
         Cada fonte soma até 35 pontos (FCA: nota e queda · WhatsApp: risco, concorrência, reclamação, silêncio · Reuniões: risco,
-        concorrência, insatisfação, cadência · Pesquisas: nota abaixo de 3,5 e notas baixas seguidas). Duas fontes em alerta somam +10 e três ou mais somam +15. Crítico: 50+ ou uma fonte no máximo · Atenção: 25+.
+        concorrência, insatisfação, cadência, NPS não falado no check-in · Pesquisas: nota abaixo de 3,5 e notas baixas seguidas). Duas fontes em alerta somam +10 e três ou mais somam +15. Crítico: 50+ ou uma fonte no máximo · Atenção: 25+.
       </p>
     </div>
   );
@@ -206,6 +213,12 @@ function CardCliente({ l, aberto, onToggle, diag, onDiag, tratativas, onTratativ
             {alertaTratativa && (
               <span className="badge border-red-500/40 bg-red-500/15 text-[10px] text-red-300">
                 ⚠ {diasSemTratativa == null ? "Sem tratativa registrada" : `Sem tratativa há ${diasSemTratativa} dias`}
+              </span>
+            )}
+            {av.npsCheckin && !av.npsCheckin.abordou && (
+              <span className="badge border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-300"
+                title="A IA não identificou o investidor falando de NPS com o cliente no último check-in">
+                Sem NPS no check-in{av.npsCheckin.seguidosSem >= 2 ? ` · ${av.npsCheckin.seguidosSem} seguidos` : ""}
               </span>
             )}
             {av.fontesEmAlerta.length >= 2 && (

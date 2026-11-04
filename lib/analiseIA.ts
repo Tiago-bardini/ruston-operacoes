@@ -73,6 +73,12 @@ export function ehEstruturacao(titulo?: string | null): boolean {
   return /estruturacao estrategica/.test(t) || /(^|[^a-z0-9])e\.?\s?e\.?(?=$|[^a-z0-9])/.test(t.replace(/\be e\b/g, ""));
 }
 
+/** Reunião de check-in ("Check-in", "Check In", "Checkin", "Chekin"...). E.E não conta. */
+export function ehCheckin(titulo?: string | null): boolean {
+  if (!titulo || ehEstruturacao(titulo)) return false;
+  return /che?c?k[\s-]*in/.test(semAcento(titulo));
+}
+
 /** Semana citada no título ("S3", "Semana 3"), se houver. */
 export function semanaNoTitulo(titulo?: string | null): number | null {
   const m = semAcento(titulo ?? "").match(/(?:^|[^a-z0-9])(?:s|semana)\s?([1-5])(?![0-9])/);
@@ -117,6 +123,8 @@ export type AnaliseReuniao = AnaliseExtra & {
   oportunidade_upsell: "nenhuma" | "possivel" | "clara";
   sinais_positivos: string[];
   sinais_negativos: string[];
+  /** O time Ruston/V4 falou de NPS com o cliente? (não vem nos resumos manuais) */
+  nps?: { abordou: boolean; detalhe: string } | null;
 };
 
 /** Trecho do JSON pedido ao Claude com os blocos extras (reunião e WhatsApp). */
@@ -213,7 +221,8 @@ Retorne APENAS um JSON válido (sem markdown, sem texto antes/depois) com esta e
   "oportunidade_upsell": "nenhuma" | "possivel" | "clara",
   "sinais_positivos": ["sinais positivos"],
   "sinais_negativos": ["sinais de alerta"],
-${SCHEMA_EXTRAS}${ee ? `,\n  "estruturacao": { ...conforme instruções da E.E abaixo }` : ""}
+${opts.resumo ? "" : `  "nps": { "abordou": true | false, "detalhe": "como o time falou de NPS (ex.: pediu a nota de 0 a 10, lembrou da pesquisa) ou vazio se não falou" },
+`}${SCHEMA_EXTRAS}${ee ? `,\n  "estruturacao": { ...conforme instruções da E.E abaixo }` : ""}
 }
 ${ee ? blocoEE(opts.titulo) : ""}
 
@@ -221,7 +230,10 @@ Regras:
 - Dê peso MAIOR ao que o tomador de decisão (dono/gerente) falou
 - "risco_churn alto" só com sinais explícitos (ultimato, reclamação séria, falou em cancelar)
 - "oportunidade_upsell clara" só quando o cliente pede mais serviço ou aumenta orçamento
-${REGRAS_EXTRAS}
+${opts.resumo ? "" : `- "nps.abordou" true só se alguém do time Ruston/V4 falou com o cliente sobre NPS ou pesquisa de satisfação:
+  pediu a nota de 0 a 10, perguntou o quanto ele recomendaria a Ruston/V4, lembrou de responder a pesquisa, mandou o link
+  ou comentou o resultado do NPS. Falar só de satisfação de forma genérica ("está gostando?") NÃO conta
+`}${REGRAS_EXTRAS}
 - Se não identificar algo, use lista vazia, false ou "nenhum"/"nenhuma"
 - Português brasileiro, direto e prático
 

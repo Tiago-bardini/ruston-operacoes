@@ -2,6 +2,7 @@
 // com os sinais que acenderam o alerta escritos em português. Usa só o que já
 // está salvo (sem chamar IA) — a tela e a rota de diagnóstico usam o mesmo cálculo.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ehCheckin } from "@/lib/analiseIA";
 
 export type FonteRisco = "fca" | "whatsapp" | "reunioes" | "pesquisas";
 export type NivelRisco = "critico" | "atencao" | "saudavel" | "sem_dado";
@@ -26,6 +27,7 @@ type Recl = { houve?: boolean; motivos?: string[] } | null;
 type Conc = { mencionou?: boolean; detalhe?: string } | null;
 type Res = { avaliacao?: string; detalhe?: string } | null;
 type Plano = Omit<AcaoSugerida, "origem">[] | null;
+type Nps = { abordou?: boolean; detalhe?: string } | null;
 
 export interface DadosClienteRadar {
   cliente: {
@@ -41,6 +43,7 @@ export interface DadosClienteRadar {
   reunioes: {
     data_reuniao: string; risco_churn: string | null; sentimento: string | null; estresse: string | null;
     resumo: string | null; recl: Recl; conc: Conc; res: Res; plano: Plano;
+    titulo?: string | null; nps?: Nps;
   }[]; // analisadas, mais recente primeiro
   cadencia: { dias_sem_reuniao: number; cadencia_dias: number; ultima_reuniao: string | null } | null;
   // Pesquisas respondidas pelo cliente (migration 020), mais recente primeiro
@@ -55,6 +58,8 @@ export interface AvaliacaoRisco {
   sinais: SinalRisco[];
   acoes: AcaoSugerida[];
   ultimoDado: string | null; // data do dado mais novo usado (cache do diagnóstico)
+  /** Último check-in analisado: o investidor falou de NPS com o cliente? */
+  npsCheckin: { data: string; abordou: boolean; seguidosSem: number } | null;
 }
 
 const MAX_FONTE = 35;
@@ -115,6 +120,13 @@ export function avaliarRiscoChurn(d: DadosClienteRadar): AvaliacaoRisco {
   }
 
   // ---------- Reuniões ----------
+  // Check-ins já analisados com a pergunta de NPS (os antigos não têm o campo)
+  const checkins = d.reunioes.filter((r) => ehCheckin(r.titulo) && r.nps && typeof r.nps.abordou === "boolean");
+  let seguidosSem = 0;
+  for (const r of checkins) { if (r.nps!.abordou) break; seguidosSem++; }
+  const npsCheckin = checkins[0]
+    ? { data: checkins[0].data_reuniao, abordou: !!checkins[0].nps!.abordou, seguidosSem }
+    : null;
   let re: number | null = null;
   if (d.reunioes.length || d.cadencia) {
     re = 0;
@@ -126,6 +138,14 @@ export function avaliarRiscoChurn(d: DadosClienteRadar): AvaliacaoRisco {
       if (ult.res?.avaliacao === "insatisfeito") { re += 6; add("reunioes", 6, `Insatisfeito com o resultado na ${quando}${ult.res.detalhe ? `: ${ult.res.detalhe}` : ""}`); }
       if (ult.recl?.houve) { re += 5; add("reunioes", 5, `Reclamou na ${quando}${ult.recl.motivos?.[0] ? `: ${ult.recl.motivos[0]}` : ""}`); }
       if (ult.estresse === "alto") { re += 5; add("reunioes", 5, `Cliente estressado na ${quando}`); }
+    }
+    // NPS no check-in: o investidor tem que falar de NPS com o cliente
+    if (npsCheckin && !npsCheckin.abordou) {
+      const pts = npsCheckin.seguidosSem >= 2 ? 5 : 3;
+      add("reunioes", pts, npsCheckin.seguidosSem >= 2
+        ? `NPS não foi falado nos últimos ${npsCheckin.seguidosSem} check-ins (último em ${dataBR(npsCheckin.data)})`
+        : `NPS não foi falado no check-in de ${dataBR(npsCheckin.data)}`);
+      re += pts;
     }
     const comConc = d.reunioes.slice(0, 3).find((r) => r.conc?.mencionou);
     if (comConc) { re += 8; add("reunioes", 8, `Falou em concorrente na reunião de ${dataBR(comConc.data_reuniao)}${comConc.conc?.detalhe ? `: ${comConc.conc.detalhe}` : ""}`, true); }
@@ -184,6 +204,7 @@ export function avaliarRiscoChurn(d: DadosClienteRadar): AvaliacaoRisco {
     sinais: sinais.sort((a, b) => b.pontos - a.pontos),
     acoes: acoes.slice(0, 5),
     ultimoDado: datas.pop() ?? null,
+    npsCheckin,
   };
 }
 
@@ -210,7 +231,7 @@ export async function carregarDadosRadar(supabase: SupabaseClient, clienteId?: s
       .order("criado_em", { ascending: false }).limit(3000),
     // Só os pedaços da análise da IA que o radar usa (não traz a transcrição)
     so(supabase.from("ruston_reunioes_cliente")
-      .select("cliente_id, data_reuniao, risco_churn, sentimento, estresse, resumo, recl:analise_ia->reclamacao, conc:analise_ia->concorrencia, res:analise_ia->resultado_percebido, plano:analise_ia->plano_acao")
+      .select("cliente_id, data_reuniao, titulo, risco_churn, sentimento, estresse, resumo, recl:analise_ia->reclamacao, conc:analise_ia->concorrencia, res:analise_ia->resultado_percebido, plano:analise_ia->plano_acao, nps:analise_ia->nps")
       .not("cliente_id", "is", null).not("analisado_em", "is", null).gte("data_reuniao", desde))
       .order("data_reuniao", { ascending: false }).limit(3000),
     so(supabase.from("ruston_reunioes_status").select("cliente_id, dias_sem_reuniao, cadencia_dias, ultima_reuniao")),
