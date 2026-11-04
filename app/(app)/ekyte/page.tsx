@@ -114,7 +114,7 @@ export default function EkytePage() {
       supabase.from("ruston_ekyte_sync_log").select("*").order("started_at", { ascending: false }).limit(10),
       // View LEVE (sem payload_raw) e FILTRA só pessoas ativas no Ruston
       // (ignora tasks de quem já saiu da empresa)
-      supabase.from("ruston_ekyte_tasks_dashboard")
+      supabase.from("ruston_ekyte_tasks_painel")
         .select("*")
         .eq("pessoa_ativa", true)
         .gte("creation_date", inicioJanelaEkyte())

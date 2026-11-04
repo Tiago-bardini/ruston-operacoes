@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { inicioJanelaEkyte } from "@/lib/ekyteJanela";
 
 type Task = {
   id: number;
@@ -79,6 +80,7 @@ type PessoaStats = {
 export default function ProdutividadePage() {
   const supabase = createClient();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [atrasadasAgora, setAtrasadasAgora] = useState<Task[]>([]);
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);
   const [waMsgs, setWaMsgs] = useState<WaMsg[]>([]);
@@ -96,13 +98,23 @@ export default function ProdutividadePage() {
 
       let taskQuery = supabase
         // Só investidores ativos (quem saiu ou não tem vínculo fica de fora)
-        .from("ruston_ekyte_tasks_dashboard")
+        .from("ruston_ekyte_tasks_painel")
         .select("id, pessoa_id, pessoa_nome, pessoa_cargo, current_due_date, resolved_date, situation, esta_atrasada, foi_prorrogada, workspace, cliente_nome")
         .eq("pessoa_ativa", true)
         .gte("creation_date", inicio);
       if (fim) taskQuery = taskQuery.lte("creation_date", fim);
 
-      const [{ data: t }, { data: p }, { data: s }, { data: wa }] = await Promise.all([
+      // Atrasadas = o que está atrasado AGORA (etapa vencida antes de hoje), independente
+      // de quando a tarefa foi criada; o período vale para total/concluídas/taxa
+      const atrasadasQuery = supabase
+        .from("ruston_ekyte_tasks_painel")
+        .select("id, pessoa_id, pessoa_nome, pessoa_cargo, current_due_date, resolved_date, situation, esta_atrasada, foi_prorrogada, workspace, cliente_nome")
+        .eq("pessoa_ativa", true)
+        .eq("esta_atrasada", true)
+        .gte("creation_date", inicioJanelaEkyte())
+        .limit(10000);
+
+      const [{ data: t }, { data: p }, { data: s }, { data: wa }, { data: at }] = await Promise.all([
         taskQuery,
         supabase.from("ruston_pessoas").select("id, nome, cargo, squad_id").eq("ativo", true),
         supabase.from("ruston_squads").select("id, nome").eq("ativo", true),
@@ -111,9 +123,11 @@ export default function ProdutividadePage() {
           .gte("enviada_em", inicio)
           .order("enviada_em", { ascending: true })
           .limit(10000),
+        atrasadasQuery,
       ]);
 
       setTasks((t ?? []) as Task[]);
+      setAtrasadasAgora((at ?? []) as Task[]);
       setPessoas((p ?? []) as Pessoa[]);
       setSquads((s ?? []) as Squad[]);
       setWaMsgs((wa ?? []) as WaMsg[]);
@@ -160,8 +174,8 @@ export default function ProdutividadePage() {
     }
 
     const map: Record<string, PessoaStats> = {};
-    for (const task of tasks) {
-      if (!task.pessoa_id) continue;
+    const garante = (task: Task) => {
+      if (!task.pessoa_id) return null;
       if (!map[task.pessoa_id]) {
         const p = pessoaMap[task.pessoa_id];
         map[task.pessoa_id] = {
@@ -174,13 +188,21 @@ export default function ProdutividadePage() {
           tempo_medio_resposta_min: null,
         };
       }
-      const s = map[task.pessoa_id];
+      return map[task.pessoa_id];
+    };
+    for (const task of tasks) {
+      const s = garante(task);
+      if (!s) continue;
       s.total++;
       if (task.situation === 30) s.concluidas++;
       else if (task.situation === 20) s.em_andamento++;
       else if (task.situation === 10) s.abertas++;
-      if (task.esta_atrasada) s.atrasadas++;
       if (task.foi_prorrogada) s.prorrogadas++;
+    }
+    // Atraso fica com o executor da etapa atual
+    for (const task of atrasadasAgora) {
+      const s = garante(task);
+      if (s) s.atrasadas++;
     }
 
     return Object.values(map).map((s) => {
@@ -202,7 +224,7 @@ export default function ProdutividadePage() {
       if (ordenar === "resposta") return (a.tempo_medio_resposta_min ?? 9999) - (b.tempo_medio_resposta_min ?? 9999);
       return 0;
     });
-  }, [tasks, pessoas, squads, waMsgs, filtroSquad, filtroCargo, ordenar]);
+  }, [tasks, atrasadasAgora, pessoas, squads, waMsgs, filtroSquad, filtroCargo, ordenar]);
 
   const totais = useMemo(() => {
     const t = { total: 0, concluidas: 0, atrasadas: 0, em_andamento: 0, abertas: 0 };

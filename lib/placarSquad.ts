@@ -67,7 +67,7 @@ export async function calcularPlacar(supabase: SupabaseClient, sexta: string): P
     supabase.from("ruston_fca_view").select("cliente_id").eq("data_referencia", sexta),
     supabase.from("ruston_reunioes_status").select("*"),
     supabase.from("ruston_cliente_pe_mensal").select("cliente_id").eq("ano", ano).eq("mes", mes),
-    supabase.from("ruston_ekyte_tasks_dashboard")
+    supabase.from("ruston_ekyte_tasks_painel")
       .select("cliente_id, current_due_date, resolved_date, situation")
       .eq("pessoa_ativa", true).not("cliente_id", "is", null)
       .gte("current_due_date", `${sabado}T00:00:00`).lte("current_due_date", `${sexta}T23:59:59`)

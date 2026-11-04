@@ -28,7 +28,7 @@ export async function GET(req: Request) {
     supabase.from("ruston_clientes_view").select("id, nome, mrr, coordenador_nome, squad_nome, etapa").eq("ativo", true),
     carregarDadosRadar(supabase),
     supabase.from("ruston_whatsapp_alertas").select("id, tipo").gte("criado_em", new Date().toISOString().slice(0, 10) + "T00:00:00"),
-    supabase.from("ruston_ekyte_tasks_dashboard").select("pessoa_nome, esta_atrasada").eq("pessoa_ativa", true).gte("creation_date", inicioJanelaEkyte()).eq("esta_atrasada", true),
+    supabase.from("ruston_ekyte_tasks_painel").select("pessoa_nome, esta_atrasada").eq("pessoa_ativa", true).gte("creation_date", inicioJanelaEkyte()).eq("esta_atrasada", true),
   ]);
 
   const clientesAtivos = (clientes ?? []).filter((c: any) => c.etapa !== "cancelado" && c.etapa !== "suspenso");
