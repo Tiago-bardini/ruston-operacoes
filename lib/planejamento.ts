@@ -386,3 +386,83 @@ export function formatPct(v: number | null | undefined): string {
   if (v == null || !isFinite(v)) return "—";
   return `${(v * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 }
+
+/* ================= ROI CALCULADO ================= */
+// O GP só informa o que falta. Campo vazio puxa do Ponto de Equilíbrio do mesmo mês
+// (faturamento, margem de contribuição e fee V4). Sem PE no mês, o GP preenche tudo.
+
+export interface RoiInput {
+  faturamento: number | null;
+  margem_pct: number | null;   // margem de contribuição em % (40 = 40%)
+  midia: number | null;        // investimento em mídia realizado no mês
+  fee_v4: number | null;       // vazio = Fee do PE, senão MRR do cliente
+}
+
+export interface RoiMensal {
+  cliente_id: string;
+  ano: number;
+  mes: number;
+  dados: Partial<RoiInput>;
+  updated_at: string | null;
+}
+
+export const ROI_PADRAO: RoiInput = { faturamento: null, margem_pct: null, midia: null, fee_v4: null };
+
+export type OrigemRoi = "gp" | "planejamento" | "carteira" | null;
+
+export interface RoiCalculado {
+  faturamento: number | null;
+  margemPct: number | null;    // fração (0,4)
+  midia: number | null;
+  fee: number;
+  origem: { faturamento: OrigemRoi; margem: OrigemRoi; fee: OrigemRoi };
+  margem: number | null;       // R$
+  investimento: number | null; // mídia + fee
+  roas: number | null;
+  roi: number | null;          // fração (1 = 100%)
+  lucro: number | null;        // margem − investimento
+}
+
+export function calcularRoi(i: Partial<RoiInput> | undefined, pe: Partial<PontoEquilibrioInput> | undefined, mrrCliente: number): RoiCalculado {
+  const ent = { ...ROI_PADRAO, ...(i ?? {}) };
+  const peCalc = pe && pe.faturamento ? calcularPontoEquilibrio(comPadraoPe(pe), mrrCliente) : null;
+
+  const faturamento = ent.faturamento ?? pe?.faturamento ?? null;
+  const margemPct = ent.margem_pct != null ? ent.margem_pct / 100 : peCalc?.margemPct ?? null;
+  const fee = ent.fee_v4 ?? pe?.fee_v4 ?? mrrCliente;
+  const origem = {
+    faturamento: ent.faturamento != null ? "gp" : pe?.faturamento != null ? "planejamento" : null,
+    margem: ent.margem_pct != null ? "gp" : peCalc?.margemPct != null ? "planejamento" : null,
+    fee: ent.fee_v4 != null ? "gp" : pe?.fee_v4 != null ? "planejamento" : "carteira",
+  } as RoiCalculado["origem"];
+
+  const midia = ent.midia;
+  const margem = faturamento != null && margemPct != null ? faturamento * margemPct : null;
+  const investimento = midia != null ? midia + fee : null;
+  return {
+    faturamento, margemPct, midia, fee, origem, margem, investimento,
+    roas: faturamento != null && midia ? faturamento / midia : null,
+    roi: margem != null && investimento ? (margem - investimento) / investimento : null,
+    lucro: margem != null && investimento != null ? margem - investimento : null,
+  };
+}
+
+// Soma vários meses: faturamento, margem, mídia e fee somados; ROI e ROAS do total
+export function consolidarRoi(meses: RoiCalculado[]): RoiCalculado | null {
+  const validos = meses.filter((m) => m.roi != null);
+  if (validos.length === 0) return null;
+  const soma = (f: (m: RoiCalculado) => number) => validos.reduce((s, m) => s + f(m), 0);
+  const faturamento = soma((m) => m.faturamento ?? 0);
+  const margem = soma((m) => m.margem ?? 0);
+  const midia = soma((m) => m.midia ?? 0);
+  const fee = soma((m) => m.fee);
+  const investimento = midia + fee;
+  return {
+    faturamento, margemPct: faturamento ? margem / faturamento : null, midia, fee,
+    origem: { faturamento: null, margem: null, fee: null },
+    margem, investimento,
+    roas: midia ? faturamento / midia : null,
+    roi: investimento ? (margem - investimento) / investimento : null,
+    lucro: margem - investimento,
+  };
+}

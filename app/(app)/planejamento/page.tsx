@@ -13,10 +13,12 @@ import {
   PE_PADRAO, forecastPadrao, comPadraoPe, comPadraoForecast, consolidarPe,
   calcularPontoEquilibrio, calcularForecast, formatNum, formatPct,
   chaveMes, mesAtual, rotuloMes, somarMeses,
+  type RoiInput, type RoiMensal, type RoiCalculado, type OrigemRoi, ROI_PADRAO, calcularRoi, consolidarRoi,
 } from "@/lib/planejamento";
 
-type Aba = "ponto_equilibrio" | "historico" | "forecast";
+type Aba = "ponto_equilibrio" | "historico" | "forecast" | "roi";
 type MesesPe = Record<string, PeMensal>; // chave "YYYY-MM"
+type MesesRoi = Record<string, RoiMensal>;
 
 // Campo que o GP preenche (as células amarelas da planilha)
 const PREENCHER = "border-amber-400/40 bg-amber-400/5";
@@ -37,16 +39,21 @@ export default function PlanejamentoPage() {
   const [fc, setFc] = useState<ForecastInput>(forecastPadrao());
   const [alteradoPe, setAlteradoPe] = useState(false);
   const [alteradoFc, setAlteradoFc] = useState(false);
+  const [roisMensais, setRoisMensais] = useState<Record<string, MesesRoi>>({});
+  const [mesRoi, setMesRoi] = useState(mesAtual());
+  const [roi, setRoi] = useState<RoiInput>(ROI_PADRAO);
+  const [alteradoRoi, setAlteradoRoi] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [loading, setLoading] = useState(true);
-  const alterado = alteradoPe || alteradoFc;
+  const alterado = alteradoPe || alteradoFc || alteradoRoi;
 
   async function load() {
     setLoading(true);
-    const [{ data: cs }, { data: pl }, { data: pm }] = await Promise.all([
+    const [{ data: cs }, { data: pl }, { data: pm }, { data: rm }] = await Promise.all([
       supabase.from("ruston_clientes_view").select("*").eq("ativo", true).order("nome"),
       supabase.from("ruston_cliente_planejamento").select("cliente_id,forecast,updated_at"),
       supabase.from("ruston_cliente_pe_mensal").select("cliente_id,ano,mes,dados,updated_at"),
+      supabase.from("ruston_cliente_roi_mensal").select("cliente_id,ano,mes,dados,updated_at"),
     ]);
     const lista = ((cs as ClienteView[]) ?? []).filter((c) =>
       !c.churn_realizado && (isGerente || !squadId || c.squad_id === squadId)
@@ -60,11 +67,16 @@ export default function PlanejamentoPage() {
       (mapaPe[p.cliente_id] ??= {})[chaveMes(p.ano, p.mes)] = p;
     });
     setPesMensais(mapaPe);
+    const mapaRoi: Record<string, MesesRoi> = {};
+    ((rm as RoiMensal[]) ?? []).forEach((r) => {
+      (mapaRoi[r.cliente_id] ??= {})[chaveMes(r.ano, r.mes)] = r;
+    });
+    setRoisMensais(mapaRoi);
     setLoading(false);
     // Link direto da Carteira: /planejamento?cliente=<id>
     const daUrl = new URLSearchParams(window.location.search).get("cliente");
     const inicial = lista.find((c) => c.id === daUrl)?.id ?? lista[0]?.id ?? "";
-    abrir(inicial, mapaFc, mapaPe);
+    abrir(inicial, mapaFc, mapaPe, mapaRoi);
   }
 
   useEffect(() => {
@@ -72,11 +84,12 @@ export default function PlanejamentoPage() {
     // eslint-disable-next-line
   }, [loadingPerfil]);
 
-  function abrir(id: string, mapaFc = forecasts, mapaPe = pesMensais) {
+  function abrir(id: string, mapaFc = forecasts, mapaPe = pesMensais, mapaRoi = roisMensais) {
     setClienteId(id);
     setFc(comPadraoForecast(mapaFc[id]?.forecast));
     setAlteradoFc(false);
     abrirMesPe(mesAtual(), mapaPe[id] ?? {});
+    abrirMesRoi(mesAtual(), mapaRoi[id] ?? {});
     if (id) {
       const url = new URL(window.location.href);
       url.searchParams.set("cliente", id);
@@ -102,6 +115,17 @@ export default function PlanejamentoPage() {
       setPe(PE_PADRAO);
       setOrigemPe("Mês novo — modelo padrão");
     }
+  }
+
+  function abrirMesRoi(mes: string, meses: MesesRoi) {
+    setMesRoi(mes);
+    setAlteradoRoi(false);
+    setRoi({ ...ROI_PADRAO, ...(meses[mes]?.dados ?? {}) });
+  }
+
+  function trocarMesRoi(mes: string) {
+    if (alteradoRoi && !confirm(`Tem alterações não salvas no ROI de ${rotuloMes(mesRoi)}. Trocar de mês mesmo assim?`)) return;
+    abrirMesRoi(mes, roisMensais[clienteId] ?? {});
   }
 
   function trocarCliente(id: string) {
@@ -143,10 +167,28 @@ export default function PlanejamentoPage() {
         setOrigemPe(null);
       }
     }
+    if (alteradoRoi) {
+      const [ano, mes] = mesRoi.split("-").map(Number);
+      const { data, error } = await supabase
+        .from("ruston_cliente_roi_mensal")
+        .upsert({ cliente_id: clienteId, ano, mes, dados: roi, updated_at: agora }, { onConflict: "cliente_id,ano,mes" })
+        .select("cliente_id,ano,mes,dados,updated_at")
+        .single();
+      if (!error) {
+        setRoisMensais((s) => ({ ...s, [clienteId]: { ...(s[clienteId] ?? {}), [mesRoi]: data as RoiMensal } }));
+        setAlteradoRoi(false);
+      }
+    }
     setSalvando(false); // falha já aparece no AvisoErro
   }
 
   function restaurarPadrao() {
+    if (aba === "roi") {
+      if (!confirm(`Limpar o que foi digitado no ROI de ${rotuloMes(mesRoi)}? Os campos voltam a puxar do Planejamento. (só vale depois de salvar)`)) return;
+      setRoi(ROI_PADRAO);
+      setAlteradoRoi(true);
+      return;
+    }
     if (aba === "forecast") {
       if (!confirm("Voltar o Forecast deste cliente pro modelo padrão? (só vale depois de salvar)")) return;
       setFc(forecastPadrao());
@@ -162,13 +204,17 @@ export default function PlanejamentoPage() {
   const mrr = Number(cliente?.mrr) || 0;
   const mesesCliente = pesMensais[clienteId] ?? {};
   const mesesPreenchidos = Object.keys(mesesCliente).sort();
-  const preenchido = (id: string) => !!forecasts[id] || Object.keys(pesMensais[id] ?? {}).length > 0;
+  const preenchido = (id: string) => !!forecasts[id] || Object.keys(pesMensais[id] ?? {}).length > 0
+    || Object.keys(roisMensais[id] ?? {}).length > 0;
+  const roisCliente = roisMensais[clienteId] ?? {};
   const preenchidos = clientes.filter((c) => preenchido(c.id)).length;
-  const ultimaAtualizacao = [forecasts[clienteId]?.updated_at, ...Object.values(mesesCliente).map((m) => m.updated_at)]
+  const ultimaAtualizacao = [forecasts[clienteId]?.updated_at, ...Object.values(mesesCliente).map((m) => m.updated_at),
+    ...Object.values(roisCliente).map((m) => m.updated_at)]
     .filter((d): d is string => !!d).sort().pop();
 
   const atualizarPe = (patch: Partial<PontoEquilibrioInput>) => { setPe((p) => ({ ...p, ...patch })); setAlteradoPe(true); };
   const atualizarFc = (patch: Partial<ForecastInput>) => { setFc((f) => ({ ...f, ...patch })); setAlteradoFc(true); };
+  const atualizarRoi = (patch: Partial<RoiInput>) => { setRoi((r) => ({ ...r, ...patch })); setAlteradoRoi(true); };
 
   if (loadingPerfil || loading) return <p className="text-brand-muted">Carregando...</p>;
 
@@ -223,6 +269,7 @@ export default function PlanejamentoPage() {
               { v: "ponto_equilibrio", label: "Ponto de Equilíbrio" },
               { v: "historico", label: "Histórico do PE" },
               { v: "forecast", label: "Forecasting" },
+              { v: "roi", label: "ROI calculado" },
             ]}
             ativa={aba}
             onChange={setAba}
@@ -259,6 +306,10 @@ export default function PlanejamentoPage() {
           )}
           {aba === "forecast" && (
             <AbaForecast fc={fc} mrr={mrr} editavel={podeEditar} onChange={atualizarFc} />
+          )}
+          {aba === "roi" && (
+            <AbaRoi roi={roi} mes={mesRoi} mrr={mrr} editavel={podeEditar} onChange={atualizarRoi}
+              onTrocarMes={trocarMesRoi} rois={roisCliente} pes={mesesCliente} salvo={!!roisCliente[mesRoi]} />
           )}
         </>
       )}
@@ -550,6 +601,182 @@ function Cenario({ titulo, c, ticket }: { titulo: string; c: CenarioPe; ticket: 
           <Kpi label="ROI" valor={formatNum(c.roi, 2)} />
         </div>
       )}
+    </div>
+  );
+}
+
+/* -------- ROI CALCULADO -------- */
+
+function AbaRoi({ roi, mes, mrr, editavel, onChange, onTrocarMes, rois, pes, salvo }: {
+  roi: RoiInput;
+  mes: string;
+  mrr: number;
+  editavel: boolean;
+  onChange: (p: Partial<RoiInput>) => void;
+  onTrocarMes: (mes: string) => void;
+  rois: MesesRoi;
+  pes: MesesPe;
+  salvo: boolean;
+}) {
+  const peMes = pes[mes]?.dados;
+  const r = useMemo(() => calcularRoi(roi, peMes, mrr), [roi, peMes, mrr]);
+  // O que viria do Planejamento se o GP deixar o campo vazio
+  const doPe = useMemo(() => calcularRoi(ROI_PADRAO, peMes, mrr), [peMes, mrr]);
+
+  const mesesComRoi = Array.from(new Set([...Object.keys(rois), mes])).sort();
+  const historico = mesesComRoi.map((k) => ({
+    k, c: k === mes ? r : calcularRoi(rois[k]?.dados, pes[k]?.dados, mrr),
+  })).filter((l) => l.c.roi != null);
+  const total = consolidarRoi(historico.map((l) => l.c));
+
+  const faltando = [
+    r.midia == null && "investimento em mídia",
+    r.faturamento == null && "faturamento",
+    r.margemPct == null && "margem de contribuição",
+  ].filter(Boolean) as string[];
+
+  const corRoi = (v: number | null) => (v == null ? "text-brand-muted" : v >= 0 ? "text-emerald-400" : "text-red-400");
+  const rotuloOrigem = (o: OrigemRoi) =>
+    o === "planejamento" ? `puxado do Ponto de Equilíbrio de ${rotuloMes(mes)}`
+      : o === "carteira" ? "MRR do cliente na Carteira"
+      : o === "gp" ? "informado aqui" : "falta preencher";
+
+  return (
+    <div className="space-y-4">
+      <div className="card flex flex-wrap items-center gap-3 py-3">
+        <span className="text-sm font-semibold">Mês de referência</span>
+        <button className="btn-ghost px-2 py-1 text-xs" onClick={() => onTrocarMes(somarMeses(mes, -1))}>◀</button>
+        <input type="month" className="input py-1" style={{ width: "auto" }} value={mes}
+          onChange={(e) => e.target.value && onTrocarMes(e.target.value)} />
+        <button className="btn-ghost px-2 py-1 text-xs" onClick={() => onTrocarMes(somarMeses(mes, 1))}>▶</button>
+        {salvo
+          ? <span className="badge border-emerald-500/30 bg-emerald-500/10 text-emerald-300">{rotuloMes(mes)} salvo</span>
+          : <span className="badge border-sky-500/30 bg-sky-500/10 text-sky-300">Mês novo</span>}
+        {peMes
+          ? <span className="badge border-white/10 bg-white/5">Ponto de Equilíbrio de {rotuloMes(mes)} preenchido: os campos vazios puxam de lá</span>
+          : <span className="badge border-white/10 bg-white/5">Sem Ponto de Equilíbrio neste mês: preencha os campos abaixo</span>}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="card">
+          <p className="mb-1 text-sm font-semibold">O que o GP informa</p>
+          <p className="mb-3 text-[11px] text-brand-muted">
+            Só o investimento em mídia é obrigatório. Os outros campos, se ficarem vazios, puxam do Planejamento. Digite só para corrigir.
+          </p>
+          <div className="space-y-3">
+            <CampoRoi label="Investimento em mídia no mês (R$)" dica="Quanto o cliente gastou em anúncios no mês (Meta, Google etc.)"
+              origem={r.midia != null ? "informado aqui" : "falta preencher"}>
+              <NumInput value={roi.midia} disabled={!editavel} onChange={(v) => onChange({ midia: v })} />
+            </CampoRoi>
+            <CampoRoi label="Faturamento do mês (R$)" origem={rotuloOrigem(r.origem.faturamento)}>
+              <NumInput value={roi.faturamento} disabled={!editavel} leve
+                placeholder={doPe.faturamento != null ? formatNum(doPe.faturamento, 2) : "preencher"}
+                onChange={(v) => onChange({ faturamento: v })} />
+            </CampoRoi>
+            <CampoRoi label="Margem de contribuição (%)" dica="O que sobra de cada venda depois de imposto, custo do produto, frete, taxa e comissão"
+              origem={rotuloOrigem(r.origem.margem)}>
+              <NumInput value={roi.margem_pct} sufixo="%" disabled={!editavel} leve
+                placeholder={doPe.margemPct != null ? formatNum(doPe.margemPct * 100, 1) : "preencher"}
+                onChange={(v) => onChange({ margem_pct: v })} />
+            </CampoRoi>
+            <CampoRoi label="Fee V4 no mês (R$)" origem={rotuloOrigem(r.origem.fee)}>
+              <NumInput value={roi.fee_v4} disabled={!editavel} leve
+                placeholder={formatNum(doPe.fee, 2)}
+                onChange={(v) => onChange({ fee_v4: v })} />
+            </CampoRoi>
+          </div>
+        </div>
+
+        <div className="card">
+          <p className="text-[10px] uppercase tracking-wide text-brand-muted">ROI do cliente · {rotuloMes(mes)}</p>
+          {faltando.length > 0 ? (
+            <p className="mt-2 text-sm text-amber-300">Falta {faltando.join(", ")} para calcular o ROI.</p>
+          ) : (
+            <>
+              <p className={`mt-1 text-4xl font-bold tabular-nums ${corRoi(r.roi)}`}>{formatPct(r.roi)}</p>
+              <p className="mt-1 text-sm text-brand-muted">
+                {r.roi != null && r.roi >= 0
+                  ? <>Cada R$ 1 investido (mídia + fee) voltou <b className="text-gray-200">{formatBRL2(1 + r.roi)}</b>: o R$ 1 de volta e mais {formatBRL2(r.roi)} de lucro.</>
+                  : <>O investimento ainda não se pagou: cada R$ 1 investido voltou <b className="text-gray-200">{formatBRL2(1 + (r.roi ?? 0))}</b>.</>}
+              </p>
+            </>
+          )}
+          <div className="mt-4 grid grid-cols-2 gap-x-6 sm:grid-cols-3">
+            <Kpi label="ROAS" valor={r.roas != null ? `${formatNum(r.roas, 2)}x` : "—"} />
+            <Kpi label="Lucro após marketing" valor={formatBRL(r.lucro)} />
+            <Kpi label="Margem gerada" valor={formatBRL(r.margem)} />
+            <Kpi label="Faturamento" valor={formatBRL(r.faturamento)} />
+            <Kpi label="Mídia" valor={formatBRL(r.midia)} />
+            <Kpi label="Investimento total" valor={formatBRL(r.investimento)} />
+          </div>
+          <p className="mt-3 border-t border-white/5 pt-2 text-[11px] text-brand-muted">
+            ROI = (margem de contribuição − mídia − fee V4) ÷ (mídia + fee V4). ROAS = faturamento ÷ mídia.
+          </p>
+        </div>
+      </div>
+
+      {historico.length > 0 && (
+        <div className="card overflow-x-auto p-0">
+          <p className="px-3 pt-3 text-sm font-semibold">Evolução do ROI</p>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-white/5 text-right uppercase tracking-wide text-brand-muted">
+                <th className="px-3 py-2 text-left">Mês</th>
+                <th className="px-3 py-2">Faturamento</th>
+                <th className="px-3 py-2">Margem</th>
+                <th className="px-3 py-2">Mídia</th>
+                <th className="px-3 py-2">Fee V4</th>
+                <th className="px-3 py-2">ROAS</th>
+                <th className="px-3 py-2">Lucro após mkt</th>
+                <th className="px-3 py-2">ROI</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {historico.map(({ k, c }) => (
+                <LinhaRoi key={k} rotulo={rotuloMes(k)} c={c} cor={corRoi(c.roi)}
+                  onAbrir={k !== mes ? () => onTrocarMes(k) : undefined} />
+              ))}
+              {total && historico.length > 1 && (
+                <LinhaRoi rotulo="Período" c={total} cor={corRoi(total.roi)} total />
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LinhaRoi({ rotulo, c, cor, onAbrir, total }: {
+  rotulo: string; c: RoiCalculado; cor: string; onAbrir?: () => void; total?: boolean;
+}) {
+  return (
+    <tr className={`border-b border-white/5 text-right tabular-nums last:border-0 ${total ? "bg-white/[0.03] font-semibold" : ""}`}>
+      <td className="px-3 py-2 text-left font-medium">{rotulo}</td>
+      <td className="px-3 py-2">{formatBRL(c.faturamento)}</td>
+      <td className="px-3 py-2">{formatBRL(c.margem)}</td>
+      <td className="px-3 py-2">{formatBRL(c.midia)}</td>
+      <td className="px-3 py-2">{formatBRL(c.fee)}</td>
+      <td className="px-3 py-2">{c.roas != null ? `${formatNum(c.roas, 2)}x` : "—"}</td>
+      <td className="px-3 py-2">{formatBRL(c.lucro)}</td>
+      <td className={`px-3 py-2 font-semibold ${cor}`}>{formatPct(c.roi)}</td>
+      <td className="px-3 py-2">
+        {onAbrir && <button className="text-brand-muted hover:text-gray-200" onClick={onAbrir}>abrir</button>}
+      </td>
+    </tr>
+  );
+}
+
+function CampoRoi({ label, dica, origem, children }: { label: string; dica?: string; origem: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[1fr_160px] items-center gap-3">
+      <div>
+        <p className="text-sm">{label}</p>
+        {dica && <p className="text-[10px] text-brand-muted">{dica}</p>}
+        <p className={`text-[10px] ${origem === "falta preencher" ? "text-amber-300" : "text-sky-300"}`}>{origem}</p>
+      </div>
+      {children}
     </div>
   );
 }
