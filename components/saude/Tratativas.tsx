@@ -19,6 +19,7 @@ export type Tratativa = {
   tipo: TipoTratativa;
   descricao: string;
   link_drive: string | null;
+  link_task: string | null;
   resultado: ResultadoTratativa;
   proximo_passo: string | null;
   proximo_passo_data: string | null;
@@ -58,6 +59,7 @@ const formVazio = () => ({
   tipo: "reuniao_stakeholder" as TipoTratativa,
   descricao: "",
   link_drive: "",
+  link_task: "",
   resultado: "em_andamento" as ResultadoTratativa,
   proximo_passo: "",
   proximo_passo_data: "",
@@ -91,6 +93,7 @@ export default function Tratativas({ clienteId, tratativas, onChange }: {
       tipo: t.tipo,
       descricao: t.descricao,
       link_drive: t.link_drive ?? "",
+      link_task: t.link_task ?? "",
       resultado: t.resultado,
       proximo_passo: t.proximo_passo ?? "",
       proximo_passo_data: t.proximo_passo_data ?? "",
@@ -105,6 +108,8 @@ export default function Tratativas({ clienteId, tratativas, onChange }: {
     if (!form.descricao.trim()) { setErro("Descreva o que foi feito."); return; }
     let link = form.link_drive.trim();
     if (link && !/^https?:\/\//i.test(link)) link = `https://${link}`;
+    let linkTask = form.link_task.trim();
+    if (linkTask && !/^https?:\/\//i.test(linkTask)) linkTask = `https://${linkTask}`;
     setSalvando(true);
     setErro(null);
     const payload = {
@@ -113,6 +118,7 @@ export default function Tratativas({ clienteId, tratativas, onChange }: {
       tipo: form.tipo,
       descricao: form.descricao.trim(),
       link_drive: link || null,
+      link_task: linkTask || null,
       resultado: form.resultado,
       proximo_passo: form.proximo_passo.trim() || null,
       proximo_passo_data: form.proximo_passo_data || null,
@@ -173,10 +179,17 @@ export default function Tratativas({ clienteId, tratativas, onChange }: {
             <textarea className="input min-h-[90px]" placeholder="Descreva a ação realizada, com quem falou e o que foi combinado..."
               value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} />
           </div>
-          <div>
-            <label className="label">Link do Drive</label>
-            <input className="input" placeholder="https://drive.google.com/..." value={form.link_drive}
-              onChange={(e) => setForm({ ...form, link_drive: e.target.value })} />
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <label className="label">Link do Drive</label>
+              <input className="input" placeholder="https://drive.google.com/..." value={form.link_drive}
+                onChange={(e) => setForm({ ...form, link_drive: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">Link da task</label>
+              <input className="input" placeholder="Cole o link da task" value={form.link_task}
+                onChange={(e) => setForm({ ...form, link_task: e.target.value })} />
+            </div>
           </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px]">
             <div>
@@ -218,6 +231,9 @@ export default function Tratativas({ clienteId, tratativas, onChange }: {
                 <span className={`badge text-[10px] ${res.cor}`}>{res.label}</span>
                 {t.link_drive && (
                   <a href={t.link_drive} target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">📎 Drive</a>
+                )}
+                {t.link_task && (
+                  <a href={t.link_task} target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">🔗 Task</a>
                 )}
                 {podeMexer(t) && (
                   <span className="ml-auto flex gap-2">
