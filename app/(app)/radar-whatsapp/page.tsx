@@ -55,6 +55,26 @@ export default function RadarWhatsappPage() {
   const [tab, setTab] = useState<Tab>("radar");
   const [busca, setBusca] = useState("");
   const [filtroSquad, setFiltroSquad] = useState<string>("");
+  const [clientes, setClientes] = useState<{ id: string; nome: string }[]>([]);
+  const [vinculando, setVinculando] = useState<string | null>(null);
+  const [erroVinculo, setErroVinculo] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.from("ruston_clientes").select("id, nome").eq("ativo", true).order("nome")
+      .then(({ data }) => setClientes((data ?? []) as { id: string; nome: string }[]));
+    // eslint-disable-next-line
+  }, []);
+
+  async function vincular(conversaId: string, clienteId: string) {
+    setVinculando(conversaId);
+    setErroVinculo(null);
+    const novo = clienteId || null;
+    const { error } = await supabase.from("ruston_whatsapp_conversas").update({ cliente_id: novo }).eq("id", conversaId);
+    if (!error) await supabase.from("ruston_whatsapp_analises").update({ cliente_id: novo }).eq("conversa_id", conversaId);
+    setVinculando(null);
+    if (error) { setErroVinculo(error.message); return; }
+    await carregar();
+  }
 
   async function carregar() {
     setLoading(true);
@@ -165,6 +185,7 @@ export default function RadarWhatsappPage() {
         <TabBtn ativo={tab === "sem_vinculo"} onClick={() => setTab("sem_vinculo")}>🔗 Sem cliente ({semVinculo.length})</TabBtn>
       </div>
 
+      {erroVinculo && <p className="text-xs text-red-300">Erro ao vincular: {erroVinculo}</p>}
       <div className="card p-0 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -202,6 +223,18 @@ export default function RadarWhatsappPage() {
                       <div className="text-[10px] text-brand-muted">
                         {c.conv_tipo === "grupo" ? "👥 grupo " : "👤 "}· {c.numero ?? c.chat_id}
                       </div>
+                      {c.cliente_id && c.conv_nome && <div className="text-[10px] text-brand-muted">{c.conv_nome}</div>}
+                      {isGerente && (
+                        <select className="input mt-1 max-w-[220px] py-0.5 text-[11px]" value={c.cliente_id ?? ""}
+                          disabled={vinculando === c.conversa_id}
+                          onChange={(e) => {
+                            const nome = clientes.find((x) => x.id === e.target.value)?.nome;
+                            if (confirm(e.target.value ? `Vincular "${c.conv_nome ?? c.chat_id}" ao cliente ${nome}?` : "Desvincular esta conversa do cliente?")) vincular(c.conversa_id, e.target.value);
+                          }}>
+                          <option value="">{vinculando === c.conversa_id ? "Salvando..." : c.cliente_id ? "— desvincular —" : "🔗 Vincular ao cliente..."}</option>
+                          {clientes.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
+                        </select>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-xs text-brand-muted">
                       {c.ultima_mensagem_em ? new Date(c.ultima_mensagem_em).toLocaleString("pt-BR") : "—"}

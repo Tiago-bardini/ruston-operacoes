@@ -322,6 +322,10 @@ function CardCliente({ l, aberto, onToggle, diag, onDiag, tratativas, onTratativ
           </div>
 
           <div className="border-t border-white/5 pt-4 lg:col-span-3">
+            <FontesLidas l={l} />
+          </div>
+
+          <div className="border-t border-white/5 pt-4 lg:col-span-3">
             <Tratativas clienteId={cliente.id} tratativas={tratativas} onChange={onTratativas} />
           </div>
         </div>
@@ -339,5 +343,57 @@ function ChipFonte({ label, pontos }: { label: string; pontos: number | null }) 
     <span className={`rounded-md border px-2 py-1 text-[10px] font-medium ${cor}`} title={pontos == null ? "Sem dado" : `${pontos} pontos de risco`}>
       {label}{pontos == null ? " —" : ""}
     </span>
+  );
+}
+
+/** Mostra o que a IA tem de cada fonte do cliente, inclusive quando está tudo bem ou falta dado */
+function FontesLidas({ l }: { l: Linha }) {
+  const dt = (iso: string | null | undefined) => (iso ? new Date(iso.length === 10 ? iso + "T12:00:00" : iso).toLocaleDateString("pt-BR") : "—");
+  const wa = [...l.whatsapp].sort((a, b) => (b.analise_em ?? "").localeCompare(a.analise_em ?? ""));
+  const reu = l.reunioes;
+  const fca = l.fcas[0];
+  const risco = (r: string | null) => (r === "alto" ? "🔴 alto" : r === "medio" ? "🟡 médio" : r === "baixo" ? "🟢 baixo" : "—");
+  return (
+    <div>
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-brand-muted">O que a IA leu deste cliente (últimos 120 dias)</p>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+        <div className="rounded-lg border border-white/5 bg-black/20 p-2 text-xs">
+          <p className="mb-1 font-semibold">💬 WhatsApp</p>
+          {wa.length === 0 ? (
+            <p className="text-amber-300">Nenhum grupo vinculado a este cliente. Vincule em Radar WhatsApp.</p>
+          ) : wa.map((w, i) => (
+            <div key={i} className={i > 0 ? "mt-2 border-t border-white/5 pt-2" : ""}>
+              {w.analise_em ? (
+                <>
+                  <p className="text-[10px] text-brand-muted">Análise de {dt(w.analise_em)} · risco {risco(w.risco_churn)}{w.dias_sem_contato != null && ` · ${w.dias_sem_contato}d sem conversa`}</p>
+                  {w.resumo_curto && <p className="mt-0.5 text-gray-300">{w.resumo_curto}</p>}
+                </>
+              ) : <p className="text-brand-muted">Grupo vinculado, ainda sem análise da IA.</p>}
+            </div>
+          ))}
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 p-2 text-xs">
+          <p className="mb-1 font-semibold">🎥 Reuniões</p>
+          {reu.length === 0 ? (
+            <p className="text-amber-300">Nenhuma reunião analisada no período.{l.cadencia?.ultima_reuniao ? ` Última registrada: ${dt(l.cadencia.ultima_reuniao)}.` : ""}</p>
+          ) : (
+            <>
+              <p className="text-[10px] text-brand-muted">{reu.length} reunião(ões) · última em {dt(reu[0].data_reuniao)} · risco {risco(reu[0].risco_churn)}</p>
+              {reu[0].titulo && <p className="mt-0.5 font-medium">{reu[0].titulo}</p>}
+              {reu[0].resumo && <p className="mt-0.5 line-clamp-4 text-gray-300">{reu[0].resumo}</p>}
+            </>
+          )}
+        </div>
+        <div className="rounded-lg border border-white/5 bg-black/20 p-2 text-xs">
+          <p className="mb-1 font-semibold">📋 FCA</p>
+          {!fca ? <p className="text-amber-300">Nenhum FCA no período.</p> : (
+            <>
+              <p className="text-[10px] text-brand-muted">Último em {dt(fca.data_referencia)}{fca.nota_final != null && ` · nota ${fca.nota_final}`}</p>
+              {fca.fato && <p className="mt-0.5 line-clamp-4 text-gray-300">{fca.fato}</p>}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
