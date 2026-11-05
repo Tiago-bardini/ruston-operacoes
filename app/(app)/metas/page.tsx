@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { MetaEmpresa, MetaSquad, Squad, UnidadeMeta, NivelSenioridade, VersaoV, Pessoa } from "@/lib/types";
 import { MESES_LABEL, UNIDADE_LABEL, NIVEL_LABEL, V_LABEL, CARGO_LABEL } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
+import { regraAutomatica, sincronizarRealizadoAutomatico } from "@/lib/metasAutomaticas";
 import {
   CATALOGO_EMPRESA, CATALOGO_SQUAD, sincronizarMetasAgregadas, regraAuto, type ValorAuto,
 } from "@/lib/metasAgregadas";
@@ -714,7 +715,9 @@ function TabelaMetas({
                         <p className="text-[10px] text-sky-300">
                           🔄 automático · {regraAuto(m.metrica)}
                         </p>
-                        {esperados[m.metrica] ? (
+                        {m.metrica === "churn" ? (
+                          <p className="text-[10px] text-brand-muted">pela carteira de clientes</p>
+                        ) : esperados[m.metrica] ? (
                           auto[m.metrica].investidores >= esperados[m.metrica] ? (
                             <p className="text-[10px] text-emerald-300">
                               ✓ completo · {auto[m.metrica].investidores} de {esperados[m.metrica]} investidores
@@ -1279,6 +1282,8 @@ interface RealizadoInvestidor {
   mes: number;
   valor_realizado: number | null;
   observacoes: string | null;
+  automatico?: boolean | null;
+  detalhe_auto?: string | null;
 }
 
 function TabInvestidores() {
@@ -1292,6 +1297,7 @@ function TabInvestidores() {
   const [realizados, setRealizados] = useState<RealizadoInvestidor[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
+  const autoSincronizado = React.useRef<string>("");
 
   // Só lista pessoas com cargo + nível + V preenchidos (senão não tem régua pra puxar)
   useEffect(() => {
@@ -1336,7 +1342,13 @@ function TabInvestidores() {
       .eq("ano", ano).eq("mes", mes)
       .in("metrica_id", metricasList.map((m) => m.id));
     setMetasRegua((mrs as OkrMeta[]) ?? []);
-    // 3) Realizado do investidor
+    // 3) Realizado do investidor (antes, o sistema calcula o que é automático no mês)
+    const chave = `${ano}-${mes}`;
+    if (autoSincronizado.current !== chave) {
+      autoSincronizado.current = chave;
+      await sincronizarRealizadoAutomatico(supabase, ano, mes);
+      await sincronizarMetasAgregadas(supabase, ano, mes);
+    }
     const { data: rls } = await supabase
       .from("ruston_okr_realizado_investidor")
       .select("*")
@@ -1360,16 +1372,30 @@ function TabInvestidores() {
   async function upsertRealizado(metricaId: string, valor: number | null) {
     setSaving(metricaId);
     const existente = getRealizado(metricaId);
+    // Métrica automática digitada à mão vira manual (o sistema para de sobrescrever)
+    const nome = metricas.find((x) => x.id === metricaId)?.nome ?? "";
+    const extra = regraAutomatica(nome) ? { automatico: false } : {};
     if (existente) {
       await supabase.from("ruston_okr_realizado_investidor")
-        .update({ valor_realizado: valor })
+        .update({ valor_realizado: valor, ...extra })
         .eq("id", existente.id);
     } else {
       await supabase.from("ruston_okr_realizado_investidor").insert({
-        pessoa_id: pessoaId, metrica_id: metricaId, ano, mes, valor_realizado: valor,
+        pessoa_id: pessoaId, metrica_id: metricaId, ano, mes, valor_realizado: valor, ...extra,
       });
     }
     // Squad e Empresa são calculados a partir dos investidores
+    await sincronizarMetasAgregadas(supabase, ano, mes);
+    setSaving(null);
+    load();
+  }
+
+  async function voltarAutomatico(metricaId: string) {
+    const existente = getRealizado(metricaId);
+    if (!existente) return;
+    setSaving(metricaId);
+    await supabase.from("ruston_okr_realizado_investidor").update({ automatico: true }).eq("id", existente.id);
+    await sincronizarRealizadoAutomatico(supabase, ano, mes);
     await sincronizarMetasAgregadas(supabase, ano, mes);
     setSaving(null);
     load();
@@ -1505,6 +1531,20 @@ function TabInvestidores() {
                       onSalvar={(v) => upsertRealizado(m.id, v)}
                       salvando={saving === m.id}
                     />
+                    {regraAutomatica(m.nome) && (
+                      real?.automatico ? (
+                        <p className="mt-1 text-[10px] text-sky-300" title={regraAutomatica(m.nome) ?? ""}>
+                          🔄 automático{real.detalhe_auto ? ` · ${real.detalhe_auto}` : ""}
+                        </p>
+                      ) : real?.automatico === false && valorReal != null ? (
+                        <p className="mt-1 text-[10px] text-amber-300">
+                          ✋ manual ·{" "}
+                          <button className="underline hover:text-white" onClick={() => voltarAutomatico(m.id)}>voltar ao automático</button>
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-[10px] text-brand-muted" title={regraAutomatica(m.nome) ?? ""}>🔄 automático · sem dado no mês</p>
+                      )
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     {valorReal == null && <span className="text-xs text-brand-muted">Sem dado</span>}

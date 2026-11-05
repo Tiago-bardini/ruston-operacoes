@@ -7,6 +7,7 @@
 // Sem nenhum investidor lançado, a métrica fica manual (valor atual é mantido).
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { UnidadeMeta } from "@/lib/types";
+import { calcularChurnTimes, sincronizarRealizadoAutomatico } from "@/lib/metasAutomaticas";
 
 export type ItemCatalogo = { metrica: string; label: string; unidade: UnidadeMeta; valor: number; ordem: number };
 
@@ -60,6 +61,7 @@ export const METRICA_CUMPRIMENTO = "cumprimento_okrs_time";
 /** Texto curto da regra, mostrado na tela */
 export function regraAuto(metrica: string): string | null {
   if (metrica === METRICA_CUMPRIMENTO) return "% das metas dos investidores que bateram";
+  if (metrica === "churn") return "MRR dos churns confirmados no mês ÷ MRR da carteira";
   const o = ORIGEM_INVESTIDOR[metrica];
   if (!o) return null;
   return `${o.regra === "media" ? "média" : "soma"} dos investidores`;
@@ -149,11 +151,22 @@ export async function calcularMetasAgregadas(supabase: SupabaseClient, ano: numb
   new Set(todas.map((p: any) => p.squad_id).filter(Boolean) as string[]).forEach((s) => {
     esperadosSquad[s] = esperados(todas.filter((p: any) => p.squad_id === s));
   });
-  return { empresa: agregar(linhas), squads, esperadosEmpresa: esperados(todas), esperadosSquad };
+  const empresa = agregar(linhas);
+
+  // Churn do time e da empresa: calculado de verdade pela carteira (não é média dos investidores)
+  try {
+    const ch = await calcularChurnTimes(supabase, ano, mes);
+    if (ch.empresa) empresa.churn = { valor: ch.empresa.valor, investidores: 0 };
+    for (const [s, v] of Object.entries(ch.squads)) (squads[s] ??= {}).churn = { valor: v.valor, investidores: 0 };
+  } catch { /* segue com a média */ }
+
+  return { empresa, squads, esperadosEmpresa: esperados(todas), esperadosSquad };
 }
 
 /** Grava o realizado automático nas metas de Squad e Empresa do mês (cria as linhas que faltarem). */
 export async function sincronizarMetasAgregadas(supabase: SupabaseClient, ano: number, mes: number): Promise<ResultadoAgregado> {
+  // Primeiro o realizado automático dos investidores (ROI, churn, safe, pesquisas, upsell)
+  try { await sincronizarRealizadoAutomatico(supabase, ano, mes); } catch { /* segue manual */ }
   const res = await calcularMetasAgregadas(supabase, ano, mes);
 
   async function gravar(tabela: string, catalogo: ItemCatalogo[], valores: Record<string, ValorAuto>, squadId?: string) {
