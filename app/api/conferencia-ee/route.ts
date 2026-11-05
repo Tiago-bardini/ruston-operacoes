@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { exigirPerfil } from "@/lib/apiAuth";
 import { MODELO_LLM } from "@/lib/analiseIA";
-import { htmlParaTexto, montarReunioes, promptConferencia, type ParecerEE, type ReuniaoContexto } from "@/lib/conferenciaEE";
+import { FERRAMENTA_PARECER, htmlParaTexto, montarReunioes, promptConferencia, type ParecerEE, type ReuniaoContexto } from "@/lib/conferenciaEE";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -80,25 +80,26 @@ export async function POST(req: Request) {
   });
 
   // 3) IA
+  // Resposta por ferramenta (tool use): a IA preenche um objeto estruturado, sem risco de JSON quebrado
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": KEY, "anthropic-version": "2023-06-01" },
     body: JSON.stringify({
       model: MODELO_LLM,
-      max_tokens: 12000,
+      max_tokens: 16000,
       temperature: 0.2,
-      messages: [{ role: "user", content: [...anexos, { type: "text", text: prompt }] }],
+      tools: [FERRAMENTA_PARECER],
+      tool_choice: { type: "tool", name: FERRAMENTA_PARECER.name },
+      messages: [{ role: "user", content: [...anexos, { type: "text", text: prompt + "\n\nEntregue o parecer chamando a ferramenta registrar_parecer (não responda em texto)." }] }],
     }),
   });
   if (!res.ok) return NextResponse.json({ error: `IA erro ${res.status}: ${(await res.text()).slice(0, 400)}` }, { status: 500 });
   const data = await res.json();
-  const texto: string = data.content?.find((c: any) => c.type === "text")?.text ?? "";
-  const limpo = texto.replace(/^```json\s*/i, "").replace(/\s*```\s*$/, "").trim();
-  let parecer: ParecerEE;
-  try {
-    parecer = JSON.parse(limpo.slice(limpo.indexOf("{"), limpo.lastIndexOf("}") + 1));
-  } catch {
-    return NextResponse.json({ error: `Resposta da IA veio incompleta. Tente de novo. (${limpo.slice(0, 120)})` }, { status: 500 });
+  const parecer = data.content?.find((c: any) => c.type === "tool_use")?.input as ParecerEE | undefined;
+  if (!parecer || !parecer.veredito) {
+    console.error("[conferencia-ee] resposta sem parecer:", data.stop_reason, JSON.stringify(data.content ?? []).slice(0, 1500));
+    const motivo = data.stop_reason === "max_tokens" ? "o parecer ficou maior que o limite" : "a resposta veio sem o parecer";
+    return NextResponse.json({ error: `A IA não concluiu (${motivo}). Tente de novo.` }, { status: 500 });
   }
 
   // 4) Guarda o parecer no histórico do cliente

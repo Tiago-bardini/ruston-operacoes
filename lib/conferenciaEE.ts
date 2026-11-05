@@ -162,21 +162,39 @@ REGRAS DE NOTA E VEREDITO
 - "limitacoes": o que limitou a conferência (ex.: poucas reuniões registradas, slides só com imagem). Vazio se nada.
 - Português do Brasil, direto, sem enrolação.
 
-Responda SOMENTE com JSON válido, sem markdown:
-{
-  "semana": ${o.semana},
-  "veredito": "apresentar" | "ajustar" | "refazer",
-  "nota_geral": 0-10,
-  "resumo": "2 a 4 frases com o veredito e o porquê",
-  "pontos_fortes": ["..."],
-  "checklist": [{ "item": "...", "status": "ok" | "parcial" | "faltando", "slides": "ex.: 4-6", "comentario": "..." }],
-  "criterios": [{ "criterio": "...", "nota": 0-10, "comentario": "..." }],
-  "coerencia": [{ "tipo": "divergencia" | "nao_considerado" | "alinhado", "gravidade": "alta" | "media" | "baixa", "slide": "...", "apresentacao": "o que o material diz", "cliente_disse": "fala do cliente", "fonte": "Reunião dd/mm/aaaa – título" }],
-  "ajustes": [{ "prioridade": "alta" | "media" | "baixa", "slide": "...", "ajuste": "..." }],
-  "perguntas_cliente": ["..."],
-  "limitacoes": "..."
-}`;
+Entregue o parecer pela ferramenta registrar_parecer. Liste no checklist todos os itens do padrão/checklist da semana.`;
 }
+
+const txt = { type: "string" } as const;
+const grav = { type: "string", enum: ["alta", "media", "baixa"] } as const;
+const lista = (items: object) => ({ type: "array", items });
+
+/** Formato do parecer (tool use da API: a IA preenche o objeto, sem JSON quebrado). */
+export const FERRAMENTA_PARECER = {
+  name: "registrar_parecer",
+  description: "Registra o parecer da conferência da E.E.",
+  input_schema: {
+    type: "object",
+    required: ["semana", "veredito", "nota_geral", "resumo", "pontos_fortes", "checklist", "criterios", "coerencia", "ajustes", "perguntas_cliente", "limitacoes"],
+    properties: {
+      semana: { type: "integer" },
+      veredito: { type: "string", enum: ["apresentar", "ajustar", "refazer"] },
+      nota_geral: { type: "number", description: "0 a 10" },
+      resumo: { ...txt, description: "2 a 4 frases com o veredito e o porquê" },
+      pontos_fortes: lista(txt),
+      checklist: lista({ type: "object", required: ["item", "status", "slides", "comentario"], properties: {
+        item: txt, status: { type: "string", enum: ["ok", "parcial", "faltando"] }, slides: txt, comentario: txt } }),
+      criterios: lista({ type: "object", required: ["criterio", "nota", "comentario"], properties: {
+        criterio: txt, nota: { type: "number" }, comentario: txt } }),
+      coerencia: lista({ type: "object", required: ["tipo", "gravidade", "slide", "apresentacao", "cliente_disse", "fonte"], properties: {
+        tipo: { type: "string", enum: ["divergencia", "nao_considerado", "alinhado"] }, gravidade: grav,
+        slide: txt, apresentacao: txt, cliente_disse: txt, fonte: txt } }),
+      ajustes: lista({ type: "object", required: ["prioridade", "slide", "ajuste"], properties: { prioridade: grav, slide: txt, ajuste: txt } }),
+      perguntas_cliente: lista(txt),
+      limitacoes: txt,
+    },
+  },
+};
 
 /** Tira tags, scripts e estilos de um HTML e devolve o texto legível. */
 export function htmlParaTexto(html: string): string {
