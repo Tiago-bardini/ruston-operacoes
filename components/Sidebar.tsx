@@ -26,6 +26,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/planejamento", label: "Planejamento" },
       { href: "/churn", label: "Churn" },
       { href: "/ee-finalizadas", label: "E.E Finalizada" },
+      { href: "/conferencia-ee", label: "🔎 Conferência de E.E" },
       { href: "/reunioes", label: "Reuniões" },
       { href: "/entregas", label: "Entregas" },
     ],
