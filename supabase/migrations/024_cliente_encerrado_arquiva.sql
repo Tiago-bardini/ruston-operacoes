@@ -110,6 +110,6 @@ EXECUTE FUNCTION ruston_registra_conversao_assessoria();
 NOTIFY pgrst, 'reload schema';
 
 -- Conferência
-SELECT count(*) FILTER (WHERE arquivada) AS conversas_arquivadas,
-       count(*) FILTER (WHERE NOT arquivada) AS conversas_ativas
-  FROM ruston_whatsapp_conversas;
+SELECT count(conv.id) FILTER (WHERE arquivada) AS conversas_arquivadas,
+       count(conv.id) FILTER (WHERE NOT arquivada) AS conversas_ativas
+  FROM ruston_whatsapp_conversas conv;
