@@ -40,18 +40,35 @@ export default function ControleSla() {
   const [loading, setLoading] = useState(true);
   const [filtroStatus, setFiltroStatus] = useState<"todos" | "critico" | "atencao" | "ok">("todos");
   const [filtroSquad, setFiltroSquad] = useState("todos");
+  const [links, setLinks] = useState<Record<string, string>>({});
+  const [editandoLink, setEditandoLink] = useState<string | null>(null);
+  const [rascunho, setRascunho] = useState("");
+  const [erroLink, setErroLink] = useState<string | null>(null);
+
+  async function salvarLink(clienteId: string) {
+    const link = rascunho.trim();
+    setErroLink(null);
+    const { error } = link
+      ? await supabase.from("ruston_sla_links").upsert({ cliente_id: clienteId, link, updated_at: new Date().toISOString() })
+      : await supabase.from("ruston_sla_links").delete().eq("cliente_id", clienteId);
+    if (error) { setErroLink(error.message); return; }
+    setLinks((prev) => { const n = { ...prev }; if (link) n[clienteId] = link; else delete n[clienteId]; return n; });
+    setEditandoLink(null);
+  }
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       const hoje = new Date().toISOString().slice(0, 10);
-      const [{ data: c }, { data: r }, { data: f }, { data: t }, { data: a }] = await Promise.all([
+      const [{ data: c }, { data: r }, { data: f }, { data: t }, { data: a }, { data: l }] = await Promise.all([
         supabase.from("ruston_clientes_view").select("id, nome, coordenador_nome, squad_nome, cadencia_reuniao_dias, tipo_cadencia").eq("ativo", true).not("etapa", "in", "(cancelado,suspenso)"),
         supabase.from("ruston_whatsapp_radar_view").select("cliente_id, dias_sem_contato, qtd_mensagens"),
         supabase.from("ruston_fca_view").select("cliente_id, data_referencia, nota_final").order("data_referencia", { ascending: false }),
         supabase.from("ruston_ekyte_tasks_painel").select("cliente_id, esta_atrasada, situation").eq("pessoa_ativa", true).gte("creation_date", inicioJanelaEkyte()).not("cliente_id", "is", null),
         supabase.from("ruston_whatsapp_alertas").select("id, tipo, cliente_id, criado_em").gte("criado_em", hoje + "T00:00:00"),
+        supabase.from("ruston_sla_links").select("cliente_id, link"),
       ]);
+      setLinks(Object.fromEntries(((l ?? []) as { cliente_id: string; link: string }[]).map((x) => [x.cliente_id, x.link])));
       setClientes((c ?? []) as ClienteBase[]);
       setRadar((r ?? []) as RadarRow[]);
       setFcas((f ?? []) as FcaRow[]);
@@ -178,6 +195,7 @@ export default function ControleSla() {
               <th className="px-4 py-3 font-medium text-center">Tarefas</th>
               <th className="px-4 py-3 font-medium text-center">FCA</th>
               <th className="px-4 py-3 font-medium text-center">Alertas</th>
+              <th className="px-4 py-3 font-medium">Link da task</th>
             </tr>
           </thead>
           <tbody>
@@ -214,6 +232,28 @@ export default function ControleSla() {
                   {d.alertas_hoje > 0 ? (
                     <span className="text-yellow-400 font-bold">{d.alertas_hoje}</span>
                   ) : <span className="text-zinc-600">0</span>}
+                </td>
+                <td className="px-4 py-3 min-w-[200px]">
+                  {editandoLink === d.id ? (
+                    <div className="flex items-center gap-1">
+                      <input autoFocus className="input py-1 text-xs" placeholder="Cole o link da task" value={rascunho}
+                        onChange={(e) => setRascunho(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") salvarLink(d.id); if (e.key === "Escape") setEditandoLink(null); }} />
+                      <button className="text-xs text-emerald-400 hover:text-emerald-300" title="Salvar" onClick={() => salvarLink(d.id)}>✓</button>
+                      <button className="text-xs text-zinc-500 hover:text-white" title="Cancelar" onClick={() => setEditandoLink(null)}>✕</button>
+                    </div>
+                  ) : links[d.id] ? (
+                    <div className="flex items-center gap-2">
+                      <a href={/^https?:\/\//i.test(links[d.id]) ? links[d.id] : `https://${links[d.id]}`} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-sky-400 hover:underline">🔗 Abrir task</a>
+                      <button className="text-xs text-zinc-500 hover:text-white" title="Editar link"
+                        onClick={() => { setRascunho(links[d.id]); setEditandoLink(d.id); setErroLink(null); }}>✏️</button>
+                    </div>
+                  ) : (
+                    <button className="text-xs text-zinc-500 hover:text-white"
+                      onClick={() => { setRascunho(""); setEditandoLink(d.id); setErroLink(null); }}>+ Adicionar link</button>
+                  )}
+                  {editandoLink === d.id && erroLink && <p className="mt-1 text-[10px] text-red-400">{erroLink}</p>}
                 </td>
               </tr>
             ))}
