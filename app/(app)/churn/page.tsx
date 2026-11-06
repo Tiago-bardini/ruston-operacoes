@@ -30,6 +30,9 @@ function somarChurn(lista: ChurnSolicitacao[]) {
     // Revertido saiu do churn: não conta como solicitação do mês
     qtd: naoRevertidas.length,
     mrrChurn: naoRevertidas.reduce((s, x) => s + Number(x.mrr || 0), 0),
+    // Planejado = churn já confirmado + pedidos em aberto marcados com risco ALTO
+    mrrPlanejado: naoRevertidas.filter((s) => s.status === "confirmado" || s.risco === "alto")
+      .reduce((s, x) => s + Number(x.mrr || 0), 0),
     mrrConfirmado: lista.filter((s) => s.status === "confirmado").reduce((s, x) => s + Number(x.mrr || 0), 0),
     mrrRevertido: lista.filter((s) => s.status === "revertido").reduce((s, x) => s + Number(x.mrr || 0), 0),
   };
@@ -119,7 +122,7 @@ export default function ChurnPage() {
   const resumo = useMemo(() => {
     const r = somarChurn(solicitacoes);
     const pct = (v: number) => (base.valor ? (v / base.valor) * 100 : null);
-    return { ...r, pctChurn: pct(r.mrrChurn), pctConfirmado: pct(r.mrrConfirmado) };
+    return { ...r, pctChurn: pct(r.mrrPlanejado), pctConfirmado: pct(r.mrrConfirmado) };
   }, [solicitacoes, base.valor]);
 
   const historico = useMemo(() => mesesHistorico.map(({ ano: a, mes: m }) => {
@@ -127,7 +130,7 @@ export default function ChurnPage() {
     const r = somarChurn(historicoSol.filter((s) => s.ano === a && s.mes === m));
     return {
       ano: a, mes: m, base: b, ...r,
-      pctChurn: b.valor ? (r.mrrChurn / b.valor) * 100 : null,
+      pctChurn: b.valor ? (r.mrrPlanejado / b.valor) * 100 : null,
       pctConfirmado: b.valor ? (r.mrrConfirmado / b.valor) * 100 : null,
     };
     // eslint-disable-next-line
@@ -302,7 +305,7 @@ export default function ChurnPage() {
           )}
         </div>
         <Stat label="% Churn Planejado" valor={formatPct(resumo.pctChurn)} cor="text-red-300"
-          sub={`${formatBRL(resumo.mrrChurn)} · ${base.situacao === "parcial" ? "parcial · " : ""}em retenção + confirmado`} />
+          sub={`${formatBRL(resumo.mrrPlanejado)} · ${base.situacao === "parcial" ? "parcial · " : ""}risco alto + confirmado`} />
         <Stat label="% Churn confirmado" valor={formatPct(resumo.pctConfirmado)} cor="text-red-400"
           sub={formatBRL(resumo.mrrConfirmado)} />
       </div>

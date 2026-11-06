@@ -249,7 +249,7 @@ export default function ClientesPage() {
   const nFcaVermelho = base.filter((c) => fcasRecentes[c.id]?.bandeira === "vermelho").length;
   const nVencendo = base.filter(vencendoLogo).length;
   const nSemVencimento = base.filter(semVencimento).length;
-  // Contratos que vencem em até 30 dias (ou já venceram), do mais urgente pro menos
+  // Contratos que vencem em até 60 dias (ou já venceram), do mais urgente pro menos
   const aVencer = useMemo(() => base.filter(vencendoLogo)
     .sort((a, b) => (a.data_vencimento_contrato ?? "").localeCompare(b.data_vencimento_contrato ?? "")), [base]);
 
@@ -306,7 +306,7 @@ export default function ClientesPage() {
         <Indicador label="MRR" valor={formatBRL(base.reduce((s, c) => s + (Number(c.mrr) || 0), 0))} />
         <Indicador icone="🔴" label="FCA vermelho" valor={nFcaVermelho} cor="text-red-300"
           ativo={filtros.fca === "vermelho"} onClick={() => alternar("fca", "vermelho")} />
-        <Indicador icone="⏱" label="vencendo em 30d" valor={nVencendo} cor="text-orange-300"
+        <Indicador icone="⏱" label="vencendo em 60d" valor={nVencendo} cor="text-orange-300"
           ativo={filtros.vencendo} onClick={() => setFiltros((f) => ({ ...f, vencendo: !f.vencendo }))} />
         {nSemVencimento > 0 && (
           <Indicador label="sem data de vencimento" valor={nSemVencimento} cor="text-zinc-300"
@@ -606,7 +606,7 @@ type AcoesCliente = {
 };
 type Fcas = Record<string, FcaView>;
 
-/** Contrato vencido ou vencendo em até 30 dias — o que pede ação agora. */
+/** Contrato vencido ou vencendo em até 60 dias — o que pede ação agora. */
 /** Assinatura + prazo em meses = vencimento ("YYYY-MM-DD"), ou null se faltar um dos dois. */
 function calcularVencimento(assinatura: string, prazoMeses: string): string | null {
   const meses = Number(prazoMeses);
@@ -639,7 +639,7 @@ function ModalAvisoVencimento({ clientes, semData, onFechar, onVer }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onFechar}>
       <div className="card w-full max-w-lg border border-orange-500/40" onClick={(e) => e.stopPropagation()}>
         <p className="text-lg font-bold text-orange-300">
-          {clientes.length === 1 ? "1 contrato vence" : `${clientes.length} contratos vencem`} nos próximos 30 dias
+          {clientes.length === 1 ? "1 contrato vence" : `${clientes.length} contratos vencem`} nos próximos 60 dias
         </p>
         <p className="mb-3 text-xs text-brand-muted">Hora de puxar a conversa de renovação com o cliente.</p>
         <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
@@ -677,7 +677,7 @@ function ModalAvisoVencimento({ clientes, semData, onFechar, onVer }: {
 function vencendoLogo(c: ClienteView) {
   if (soPontual(c)) return false;
   const s = statusVencimento(c.data_vencimento_contrato);
-  return s === "vencido" || s === "critico";
+  return s === "vencido" || s === "critico" || s === "atencao";
 }
 
 const BOLINHA_FCA: Record<string, string> = {
@@ -858,7 +858,7 @@ function MenuAcoes({ c, acoes }: { c: ClienteView; acoes: AcoesCliente }) {
 
 function AvisoVencimento({ c }: { c: ClienteView }) {
   const status = statusVencimento(c.data_vencimento_contrato);
-  if (status !== "vencido" && status !== "critico") return null;
+  if (status !== "vencido" && status !== "critico" && status !== "atencao") return null;
   const dias = diasParaVencimento(c.data_vencimento_contrato) ?? 0;
   return (
     <span className={`rounded border px-1.5 py-0.5 text-[10px] ${STATUS_VENCIMENTO_COLOR[status]}`}>
