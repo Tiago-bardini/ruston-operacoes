@@ -8,7 +8,7 @@ export const ROTAS_RESTRITAS: { prefixo: string; perfis: PerfilUsuario[] }[] = [
   { prefixo: "/cockpit", perfis: ["gerente", "coordenador"] },
   { prefixo: "/usuarios", perfis: ["gerente"] },
   { prefixo: "/log-alteracoes", perfis: ["gerente"] },
-  { prefixo: "/health-score", perfis: ["gerente", "coordenador"] },
+  { prefixo: "/health-score", perfis: ["gerente", "coordenador", "investidor"] },
   { prefixo: "/playbook-nps", perfis: ["gerente", "coordenador"] },
   { prefixo: "/sla", perfis: ["gerente", "coordenador"] },
   { prefixo: "/radar-whatsapp", perfis: ["gerente", "coordenador"] },
