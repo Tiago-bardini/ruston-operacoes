@@ -11,6 +11,12 @@ import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 import { ChurnList, ModalSubirChurn, efetivarChurn } from "@/components/churn/ChurnEfetivado";
 
 const STATUS_LIST: StatusChurn[] = ["solicitado", "em_retencao", "revertido", "confirmado"];
+type Risco = "alto" | "medio" | "baixo";
+const RISCOS: { v: Risco; label: string; cor: string }[] = [
+  { v: "alto", label: "Alto", cor: "border-red-500/40 text-red-300" },
+  { v: "medio", label: "Médio", cor: "border-amber-500/40 text-amber-300" },
+  { v: "baixo", label: "Baixo", cor: "border-emerald-500/40 text-emerald-300" },
+];
 
 /** Mês já terminou? (o MRR só trava depois do último dia) */
 function mesFechado(ano: number, mes: number): boolean {
@@ -150,6 +156,12 @@ export default function ChurnPage() {
     }
     await supabase.from("ruston_churn_solicitacoes")
       .update({ status, updated_at: new Date().toISOString() }).eq("id", s.id);
+    load();
+  }
+
+  async function mudarRisco(s: ChurnSolicitacao, risco: string) {
+    await supabase.from("ruston_churn_solicitacoes")
+      .update({ risco: risco || null, updated_at: new Date().toISOString() }).eq("id", s.id);
     load();
   }
 
@@ -337,6 +349,7 @@ export default function ChurnPage() {
                 <th className="px-4 py-3">MRR</th>
                 <th className="px-4 py-3">% do MRR</th>
                 <th className="px-4 py-3">Motivo</th>
+                <th className="px-4 py-3">Risco</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3"></th>
               </tr>
@@ -358,6 +371,18 @@ export default function ChurnPage() {
                       {formatPct(base.valor ? (Number(s.mrr) / base.valor) * 100 : null)}
                     </td>
                     <td className="px-4 py-3 text-brand-muted">{s.motivo ?? "—"}</td>
+                    <td className="px-4 py-3">
+                      <select
+                        className={`badge cursor-pointer bg-transparent ${RISCOS.find((r) => r.v === s.risco)?.cor ?? "border-white/10 text-brand-muted"}`}
+                        value={s.risco ?? ""}
+                        onChange={(e) => mudarRisco(s, e.target.value)}
+                      >
+                        <option value="" className="bg-brand-panel text-gray-100">—</option>
+                        {RISCOS.map((r) => (
+                          <option key={r.v} value={r.v} className="bg-brand-panel text-gray-100">{r.label}</option>
+                        ))}
+                      </select>
+                    </td>
                     <td className="px-4 py-3">
                       <select
                         className={`badge cursor-pointer bg-transparent ${STATUS_CHURN_COLOR[s.status]}`}

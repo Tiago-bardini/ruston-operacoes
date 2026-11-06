@@ -600,6 +600,7 @@ export interface ChurnSolicitacao {
   mrr: number;
   motivo: string | null;
   status: StatusChurn;
+  risco: "alto" | "medio" | "baixo" | null;
   observacoes: string | null;
   created_by: string | null;
   created_at: string;
