@@ -18,7 +18,7 @@ export const ROTAS_RESTRITAS: { prefixo: string; perfis: PerfilUsuario[] }[] = [
   { prefixo: "/placar", perfis: ["gerente", "coordenador"] },
   { prefixo: "/auditoria-vendas", perfis: ["gerente", "coordenador"] },
   { prefixo: "/analise-reunioes", perfis: ["gerente", "coordenador"] },
-  { prefixo: "/conferencia-ee", perfis: ["gerente"] },
+  { prefixo: "/conferencia-ee", perfis: ["gerente", "coordenador", "investidor"] },
 ];
 
 export function podeAcessar(path: string, perfil: PerfilUsuario): boolean {

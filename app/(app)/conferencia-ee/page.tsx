@@ -29,7 +29,7 @@ const ehEE = (c: Cliente) => c.etapa === "estruturacao_estrategica" || (c.tag_co
 
 export default function ConferenciaEEPage() {
   const supabase = createClient();
-  const { email, isGerente, loading: carregandoPerfil } = useUsuarioPerfil();
+  const { email, isGerente } = useUsuarioPerfil();
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [clienteId, setClienteId] = useState("");
   const [semana, setSemana] = useState(3);
@@ -114,9 +114,6 @@ export default function ConferenciaEEPage() {
     }
   }
 
-  if (!carregandoPerfil && !isGerente) {
-    return <div className="card text-sm text-brand-muted">A Conferência de E.E é exclusiva do Gerente.</div>;
-  }
 
   return (
     <div className="space-y-4">
@@ -184,7 +181,7 @@ export default function ConferenciaEEPage() {
             <div className="card">
               <div className="mb-1 flex items-center justify-between">
                 <p className="text-sm font-semibold">Padrão da Semana {semana} · {nomeSemana(semana)}</p>
-                {!editandoPadrao && <button className="btn-ghost text-xs" onClick={() => setEditandoPadrao(true)}>{padroes[semana] ? "Editar" : "Colar POP"}</button>}
+                {isGerente && !editandoPadrao && <button className="btn-ghost text-xs" onClick={() => setEditandoPadrao(true)}>{padroes[semana] ? "Editar" : "Colar POP"}</button>}
               </div>
               {editandoPadrao ? (
                 <>

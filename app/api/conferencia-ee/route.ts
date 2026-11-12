@@ -10,9 +10,9 @@ export const maxDuration = 300;
 const BUCKET = "ee-conferencias";
 const IMAGENS: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
 
-/** Conferência de E.E: só o Gerente. Recebe o caminho do arquivo já enviado ao Storage. */
+/** Conferência de E.E: Gerente, Coordenador e Gestor de Projetos. Recebe o caminho do arquivo já enviado ao Storage. */
 export async function POST(req: Request) {
-  const negado = await exigirPerfil(["gerente"]);
+  const negado = await exigirPerfil(["gerente", "coordenador", "investidor"]);
   if (negado) return negado;
 
   const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
