@@ -18,6 +18,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/cockpit", label: "Cockpit" },
       { href: "/placar", label: "🏆 Placar dos Squads" },
       { href: "/log-alteracoes", label: "Log de alterações" },
+      { href: "/conexao-ia", label: "🤖 Conexão IA" },
     ],
   },
   {
