@@ -22,7 +22,7 @@ export async function GET() {
   if (!email) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   const acesso = await papelDoEmail(servico(), email);
   const { data, error } = await supabase.from("ruston_mcp_tokens")
-    .select("id, prefixo, nome, criado_em, ultimo_uso_em, revogado_em")
+    .select("id, prefixo, nome, criado_em, ultimo_uso_em, revogado_em, somente_leitura")
     .ilike("email", email).order("criado_em", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ pode_usar: !!acesso, papel: acesso?.papel ?? null, tokens: data });
@@ -39,10 +39,11 @@ export async function POST(req: Request) {
   const token = novoToken();
   const { error } = await sb.from("ruston_mcp_tokens").insert({
     email, token_hash: hashToken(token), prefixo: token.slice(0, 8), nome: String(body?.nome ?? "Claude").slice(0, 60),
+    somente_leitura: body?.somente_leitura === true,
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const base = process.env.NEXT_PUBLIC_SITE_URL ?? new URL(req.url).origin;
-  return NextResponse.json({ token, url: `${base}/api/mcp/${token}` });
+  return NextResponse.json({ token, url: `${base}/api/mcp/${token}`, url_cabecalho: `${base}/api/mcp` });
 }
 
 export async function PATCH(req: Request) {

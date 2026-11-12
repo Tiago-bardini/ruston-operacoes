@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-type Token = { id: string; prefixo: string; nome: string | null; criado_em: string; ultimo_uso_em: string | null; revogado_em: string | null };
+type Token = { id: string; prefixo: string; nome: string | null; criado_em: string; ultimo_uso_em: string | null; revogado_em: string | null; somente_leitura: boolean };
 
 const dataHora = (s: string | null) => (s ? new Date(s).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—");
 
@@ -10,6 +10,8 @@ const dataHora = (s: string | null) => (s ? new Date(s).toLocaleString("pt-BR", 
 export default function ConexaoIaPage() {
   const [info, setInfo] = useState<{ pode_usar: boolean; papel: string | null; tokens: Token[] } | null>(null);
   const [novaUrl, setNovaUrl] = useState<string | null>(null);
+  const [novoToken, setNovoToken] = useState<string | null>(null);
+  const [somenteLeitura, setSomenteLeitura] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [gerando, setGerando] = useState(false);
   const [copiado, setCopiado] = useState(false);
@@ -24,11 +26,12 @@ export default function ConexaoIaPage() {
 
   async function gerar() {
     setGerando(true); setErro(null); setCopiado(false);
-    const r = await fetch("/api/mcp-token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome: "Claude" }) });
+    const r = await fetch("/api/mcp-token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome: "Claude", somente_leitura: somenteLeitura }) });
     const j = await r.json();
     setGerando(false);
     if (!r.ok) return setErro(j.error ?? "Erro ao gerar");
     setNovaUrl(j.url);
+    setNovoToken(j.token);
     load();
   }
 
@@ -66,6 +69,10 @@ export default function ConexaoIaPage() {
       {info?.pode_usar && (
         <div className="card space-y-3">
           <h2 className="font-semibold">1. Gere o seu endereço</h2>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={somenteLeitura} onChange={(e) => setSomenteLeitura(e.target.checked)} />
+            Somente leitura (a IA consulta, mas não grava nada)
+          </label>
           <button className="btn" onClick={gerar} disabled={gerando}>{gerando ? "Gerando..." : "Gerar endereço de conexão"}</button>
           {novaUrl && (
             <div className="space-y-2">
@@ -74,6 +81,12 @@ export default function ConexaoIaPage() {
                 <input className="input flex-1 font-mono text-xs" readOnly value={novaUrl} onFocus={(e) => e.target.select()} />
                 <button className="btn" onClick={copiar}>{copiado ? "Copiado ✓" : "Copiar"}</button>
               </div>
+              {novoToken && (
+                <p className="text-xs text-brand-muted">
+                  Para ferramentas que aceitam cabeçalho (Claude Code, API): URL <code>{novaUrl?.replace(/\/[^/]+$/, "")}</code> com
+                  <code> Authorization: Bearer {novoToken.slice(0, 8)}…</code> (o token é a última parte do endereço acima).
+                </p>
+              )}
             </div>
           )}
 
@@ -93,12 +106,13 @@ export default function ConexaoIaPage() {
           <h2 className="font-semibold mb-2">Meus acessos</h2>
           <table className="w-full text-sm">
             <thead className="text-brand-muted text-left">
-              <tr><th className="py-1">Início</th><th>Criado</th><th>Último uso</th><th></th></tr>
+              <tr><th className="py-1">Início</th><th>Tipo</th><th>Criado</th><th>Último uso</th><th></th></tr>
             </thead>
             <tbody>
               {info.tokens.map((t) => (
                 <tr key={t.id} className="border-t border-white/5">
                   <td className="py-1 font-mono">{t.prefixo}…</td>
+                  <td>{t.somente_leitura ? "Leitura" : "Leitura e gravação"}</td>
                   <td>{dataHora(t.criado_em)}</td>
                   <td>{dataHora(t.ultimo_uso_em)}</td>
                   <td className="text-right">
