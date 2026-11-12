@@ -204,11 +204,12 @@ export const STATUS_CADENCIA_LABEL = {
   critico: "Crítico",
 };
 
-export type PerfilUsuario = "gerente" | "coordenador" | "investidor";
+export type PerfilUsuario = "gerente" | "coordenador" | "gestor_projetos" | "investidor";
 
 export const PERFIL_LABEL: Record<PerfilUsuario, string> = {
   gerente: "Gerente",
   coordenador: "Coordenador",
+  gestor_projetos: "Gestor de Projetos",
   investidor: "Investidor",
 };
 

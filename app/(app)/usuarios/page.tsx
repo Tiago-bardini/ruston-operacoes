@@ -113,6 +113,7 @@ export default function UsuariosPage() {
                 onChange={(e) => setFormNovo({ ...formNovo, perfil: e.target.value as PerfilUsuario })}>
                 <option value="gerente">Gerente</option>
                 <option value="coordenador">Coordenador</option>
+                <option value="gestor_projetos">Gestor de Projetos</option>
                 <option value="investidor">Investidor</option>
               </select>
             </div>
@@ -150,6 +151,7 @@ export default function UsuariosPage() {
         <ul className="space-y-0.5 list-disc list-inside">
           <li><strong className="text-red-300">Gerente</strong>: tudo (incluindo Salários, Headcount, Forecast, Gestão de Usuários)</li>
           <li><strong className="text-amber-300">Coordenador</strong>: opera o squad dele · NÃO vê Salários/Headcount/Forecast</li>
+          <li><strong className="text-sky-300">Gestor de Projetos</strong>: só Carteira, Planejamento/ROI, Churn, Conferência de E.E, FCA, Radar de Churn, Radar WhatsApp, Pesquisas, Playbook NPS, Monetização e Conexão IA</li>
           <li><strong className="text-emerald-300">Investidor</strong>: opera o squad dele · NÃO vê Salários/Headcount/Forecast/Gestão</li>
         </ul>
       </div>
@@ -187,6 +189,7 @@ export default function UsuariosPage() {
                     >
                       <option value="gerente">Gerente</option>
                       <option value="coordenador">Coordenador</option>
+                      <option value="gestor_projetos">Gestor de Projetos</option>
                       <option value="investidor">Investidor</option>
                     </select>
                   </td>
@@ -235,8 +238,8 @@ export default function UsuariosPage() {
         <ol className="space-y-1 list-decimal list-inside">
           <li>Pessoa acessa <code className="text-brand">ruston-operacoes.vercel.app</code></li>
           <li>Clica em "Criar uma" e cadastra com email @v4company.com</li>
-          <li>A pessoa entra automaticamente como <strong>Investidor</strong> (você ajusta aqui pra Coordenador se for o caso)</li>
-          <li>Se ela é Coordenador ou Investidor, defina o <strong>Squad</strong> dela</li>
+          <li>A pessoa entra automaticamente como <strong>Investidor</strong> (você ajusta aqui pra Coordenador ou Gestor de Projetos se for o caso)</li>
+          <li>Se ela é Coordenador, Gestor de Projetos ou Investidor, defina o <strong>Squad</strong> dela</li>
           <li>Opcional: vincule ela a uma pessoa cadastrada em /pessoas pra deixar o rastro completo</li>
         </ol>
       </div>

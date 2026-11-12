@@ -42,6 +42,7 @@ export function useUsuarioPerfil() {
     tipo: p,
     isGerente: p === "gerente",
     isCoordenador: p === "coordenador",
+    isGestorProjetos: p === "gestor_projetos",
     isInvestidor: p === "investidor",
     squadId: perfil?.squad_id ?? null,
     pessoaId: perfil?.pessoa_id ?? null,

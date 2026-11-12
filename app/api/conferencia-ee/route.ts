@@ -12,7 +12,7 @@ const IMAGENS: Record<string, string> = { png: "image/png", jpg: "image/jpeg", j
 
 /** Conferência de E.E: Gerente, Coordenador e Gestor de Projetos. Recebe o caminho do arquivo já enviado ao Storage. */
 export async function POST(req: Request) {
-  const negado = await exigirPerfil(["gerente", "coordenador", "investidor"]);
+  const negado = await exigirPerfil(["gerente", "coordenador", "gestor_projetos"]);
   if (negado) return negado;
 
   const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;

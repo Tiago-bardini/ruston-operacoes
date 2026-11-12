@@ -33,8 +33,6 @@ export function novoToken(): string {
   return "rst_" + randomBytes(24).toString("base64url");
 }
 
-/** Cargos de Pessoas que podem usar o MCP mesmo com perfil "investidor". */
-const CARGOS_LIBERADOS = ["gestor_projetos", "coordenador", "gerente"];
 
 /** Confere se o e-mail pode usar o MCP e com qual papel. */
 type Acesso = { papel: PapelMcp; squadId: string | null; pessoaId: string | null };
@@ -48,9 +46,7 @@ export async function papelDoEmail(sb: SupabaseClient, email: string): Promise<A
   const pessoaId = (data as any).pessoa_id ?? null;
   if (data.perfil === "gerente") return { papel: "gerente", squadId: null, pessoaId };
   if (data.perfil === "coordenador") return { papel: "coordenador", squadId: data.squad_id ?? pessoa?.squad_id ?? null, pessoaId };
-  if (pessoa?.cargo && CARGOS_LIBERADOS.includes(pessoa.cargo)) {
-    return { papel: "gestor", squadId: data.squad_id ?? pessoa.squad_id ?? null, pessoaId };
-  }
+  if (data.perfil === "gestor_projetos") return { papel: "gestor", squadId: data.squad_id ?? pessoa?.squad_id ?? null, pessoaId };
   return null;
 }
 

@@ -40,7 +40,9 @@ type Squad = { id: string; nome: string };
 export default function RadarWhatsappPage() {
   const supabase = createClient();
   const router = useRouter();
-  const { loading: loadingPerfil, isGerente, isCoordenador, squadId: perfilSquadId } = useUsuarioPerfil();
+  const { loading: loadingPerfil, isGerente, isCoordenador: ehCoordenador, isGestorProjetos, squadId: perfilSquadId } = useUsuarioPerfil();
+  // Gestor de Projetos vê o Radar travado no próprio squad, como o Coordenador
+  const isCoordenador = ehCoordenador || isGestorProjetos;
 
   // Só gerente e coordenador podem acessar
   useEffect(() => {
@@ -152,7 +154,7 @@ export default function RadarWhatsappPage() {
             value={filtroSquad}
             onChange={(e) => setFiltroSquad(e.target.value)}
             disabled={isCoordenador && !isGerente}
-            title={isCoordenador && !isGerente ? "Coordenador vê só o próprio squad" : ""}
+            title={isCoordenador && !isGerente ? "Você vê só o próprio squad" : ""}
           >
             {isGerente && <option value="">Todos os squads</option>}
             {squads.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}

@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { podeAcessar, rotaRestrita } from "@/lib/permissoes";
+import { podeAcessar } from "@/lib/permissoes";
 import type { PerfilUsuario } from "@/lib/types";
 
 export async function updateSession(request: NextRequest) {
@@ -67,7 +67,7 @@ export async function updateSession(request: NextRequest) {
     }
 
     // Página restrita por perfil: bloqueia também o acesso direto pela URL
-    if (rotaRestrita(path) && !podeAcessar(path, data.perfil as PerfilUsuario)) {
+    if (!podeAcessar(path, data.perfil as PerfilUsuario)) {
       const url = request.nextUrl.clone();
       url.pathname = "/acesso-negado";
       url.search = "";
