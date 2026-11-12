@@ -17,6 +17,13 @@ const RISCOS: { v: Risco; label: string; cor: string }[] = [
   { v: "medio", label: "Médio", cor: "border-amber-500/40 text-amber-300" },
   { v: "baixo", label: "Baixo", cor: "border-emerald-500/40 text-emerald-300" },
 ];
+// Ordem da lista: confirmado → solicitado → em retenção → revertido; dentro do status, risco alto → baixo
+const ORDEM_STATUS: Record<StatusChurn, number> = { confirmado: 0, solicitado: 1, em_retencao: 2, revertido: 3 };
+const ORDEM_RISCO: Record<string, number> = { alto: 0, medio: 1, baixo: 2 };
+const ordenarChurn = (a: ChurnSolicitacao, b: ChurnSolicitacao) =>
+  (ORDEM_STATUS[a.status] - ORDEM_STATUS[b.status])
+  || ((ORDEM_RISCO[a.risco ?? ""] ?? 3) - (ORDEM_RISCO[b.risco ?? ""] ?? 3))
+  || (b.data_solicitacao ?? "").localeCompare(a.data_solicitacao ?? "");
 
 /** Mês já terminou? (o MRR só trava depois do último dia) */
 function mesFechado(ano: number, mes: number): boolean {
@@ -54,6 +61,7 @@ export default function ChurnPage() {
   const [aba, setAba] = useState<"solicitacoes" | "efetivados">("solicitacoes");
   const [confirmando, setConfirmando] = useState<ChurnSolicitacao | null>(null);
   const [verRevertidos, setVerRevertidos] = useState(false);
+  const [filtroStatus, setFiltroStatus] = useState<StatusChurn | "todos">("todos");
   const { isGerente, squadId: perfilSquadId } = useUsuarioPerfil();
 
   // Permite abrir direto numa subaba: /churn?aba=efetivados
@@ -264,7 +272,10 @@ export default function ChurnPage() {
       {aba === "solicitacoes" && (() => {
         // Revertido sai da lista do churn (o cliente voltou pra Carteira); fica só no histórico, sob demanda
         const revertidas = solicitacoes.filter((s) => s.status === "revertido");
-        const visiveis = verRevertidos ? solicitacoes : solicitacoes.filter((s) => s.status !== "revertido");
+        const visiveis = (verRevertidos ? solicitacoes : solicitacoes.filter((s) => s.status !== "revertido"))
+          .filter((s) => filtroStatus === "todos" || s.status === filtroStatus)
+          .sort(ordenarChurn);
+        const qtdStatus = (st: StatusChurn) => solicitacoes.filter((s) => s.status === st).length;
         return (<>
       {/* Indicadores */}
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -322,6 +333,17 @@ export default function ChurnPage() {
         <button className="btn text-xs" onClick={() => setNovaSolicitacao(!novaSolicitacao)}>
           {novaSolicitacao ? "Fechar" : "+ Nova solicitação"}
         </button>
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-brand-muted">Status:</span>
+        {(["todos", "confirmado", "solicitado", "em_retencao", ...(verRevertidos ? ["revertido"] : [])] as (StatusChurn | "todos")[]).map((st) => (
+          <button key={st}
+            className={`badge cursor-pointer ${filtroStatus === st ? "border-white/40 text-white" : "border-white/10 text-brand-muted hover:text-white"}`}
+            onClick={() => setFiltroStatus(st)}>
+            {st === "todos" ? "Todos" : `${STATUS_CHURN_LABEL[st]} (${qtdStatus(st)})`}
+          </button>
+        ))}
       </div>
 
       {novaSolicitacao && (
