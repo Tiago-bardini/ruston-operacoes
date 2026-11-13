@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useTrava } from "@/lib/useTrava";
 import type { Squad } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 
 const emptyForm = { nome: "", label: "", cor: "", incluir_em_comparativo: true };
 
 export default function SquadsPage() {
+  const { ocupado, travar } = useTrava();
   const supabase = createClient();
   const { podeEditar } = useUsuarioPerfil();
   const [squads, setSquads] = useState<Squad[]>([]);
@@ -27,17 +29,20 @@ export default function SquadsPage() {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    await travar(gravar);
+  }
+
+  async function gravar() {
     const payload = {
       nome: form.nome.toUpperCase(),
       label: form.label || null,
       cor: form.cor || null,
       incluir_em_comparativo: form.incluir_em_comparativo,
     };
-    if (editingId) {
-      await supabase.from("ruston_squads").update(payload).eq("id", editingId);
-    } else {
-      await supabase.from("ruston_squads").insert(payload);
-    }
+    const { error } = editingId
+      ? await supabase.from("ruston_squads").update(payload).eq("id", editingId)
+      : await supabase.from("ruston_squads").insert(payload);
+    if (error) { alert(`Não salvou: ${error.message}`); return; }
     setForm(emptyForm);
     setEditingId(null);
     setOpen(false);
@@ -123,7 +128,7 @@ export default function SquadsPage() {
               </label>
             </div>
             <div className="sm:col-span-3 flex gap-2">
-              <button type="submit" className="btn">{editingId ? "Atualizar" : "Salvar"}</button>
+              <button type="submit" className="btn" disabled={ocupado}>{ocupado ? "Salvando..." : editingId ? "Atualizar" : "Salvar"}</button>
               <button type="button" className="btn-ghost"
                 onClick={() => { setEditingId(null); setForm(emptyForm); setOpen(false); }}>Cancelar</button>
             </div>

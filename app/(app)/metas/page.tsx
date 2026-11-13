@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useTrava } from "@/lib/useTrava";
 import type { MetaEmpresa, MetaSquad, Squad, UnidadeMeta, NivelSenioridade, VersaoV, Pessoa } from "@/lib/types";
 import { MESES_LABEL, UNIDADE_LABEL, NIVEL_LABEL, V_LABEL, CARGO_LABEL } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
@@ -311,6 +312,7 @@ const CARGO_LABEL_OKR: Record<string, string> = {
 };
 
 function TabOKRs() {
+  const { travar } = useTrava();
   const supabase = createClient();
   const [cargo, setCargo] = useState<string>("");
   const [cargosDisponiveis, setCargosDisponiveis] = useState<string[]>([]);
@@ -382,24 +384,30 @@ function TabOKRs() {
 
   async function novaMetrica(nome: string, unidade: string) {
     if (!nome.trim()) return;
-    const ordem = metricas.length + 1;
-    await supabase.from("ruston_okr_metricas").insert({
-      cargo, nome: nome.trim(), unidade, ordem, ativo: true,
+    await travar(async () => {
+      const ordem = metricas.length + 1;
+      const { error } = await supabase.from("ruston_okr_metricas").insert({
+        cargo, nome: nome.trim(), unidade, ordem, ativo: true,
+      });
+      if (error) { alert(`Não salvou: ${error.message}`); return; }
+      setShowNovaMetrica(false);
+      load();
     });
-    setShowNovaMetrica(false);
-    load();
   }
 
   async function novoCargo(codigo: string) {
     const cod = codigo.trim().toLowerCase().replace(/\s+/g, "_");
     if (!cod) return;
     // Insere uma métrica placeholder pra o cargo aparecer no dropdown
-    await supabase.from("ruston_okr_metricas").insert({
-      cargo: cod, nome: "Nova métrica", unidade: "percentual", ordem: 1, ativo: true,
+    await travar(async () => {
+      const { error } = await supabase.from("ruston_okr_metricas").insert({
+        cargo: cod, nome: "Nova métrica", unidade: "percentual", ordem: 1, ativo: true,
+      });
+      if (error) { alert(`Não salvou: ${error.message}`); return; }
+      setShowNovoCargo(false);
+      await loadCargos();
+      setCargo(cod);
     });
-    setShowNovoCargo(false);
-    await loadCargos();
-    setCargo(cod);
   }
 
   return (

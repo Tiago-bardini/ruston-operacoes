@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useTrava } from "@/lib/useTrava";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 import type { UsuarioPerfil, Squad, Pessoa, PerfilUsuario } from "@/lib/types";
 import { PERFIL_LABEL } from "@/lib/types";
 
 export default function UsuariosPage() {
+  const { ocupado, travar } = useTrava();
   const supabase = createClient();
   const router = useRouter();
   const { loading: loadingPerfil, isGerente } = useUsuarioPerfil();
@@ -64,17 +66,24 @@ export default function UsuariosPage() {
   }
 
   async function criarUsuario() {
+    await travar(gravarUsuario);
+  }
+
+  async function gravarUsuario() {
     if (!formNovo.email.trim()) return;
     if (!formNovo.email.toLowerCase().endsWith("@v4company.com")) {
       alert("Email deve terminar com @v4company.com");
       return;
     }
-    await supabase.from("ruston_usuario_perfil").insert({
-      email: formNovo.email.toLowerCase().trim(),
+    const email = formNovo.email.toLowerCase().trim();
+    if (usuarios.some((u) => u.email.toLowerCase() === email)) { alert("Esse e-mail já tem usuário cadastrado."); return; }
+    const { error } = await supabase.from("ruston_usuario_perfil").insert({
+      email,
       perfil: formNovo.perfil,
       squad_id: formNovo.squad_id || null,
       pessoa_id: formNovo.pessoa_id || null,
     });
+    if (error) { alert(`Não salvou: ${error.message}`); return; }
     setFormNovo({ email: "", perfil: "investidor", squad_id: "", pessoa_id: "" });
     setNovoUsuario(false);
     load();
@@ -140,7 +149,7 @@ export default function UsuariosPage() {
             O perfil e squad definidos aqui já vão estar ativos no primeiro login.
           </p>
           <div className="mt-3 flex gap-2">
-            <button className="btn" onClick={criarUsuario}>Salvar</button>
+            <button className="btn" disabled={ocupado} onClick={criarUsuario}>{ocupado ? "Salvando..." : "Salvar"}</button>
             <button className="btn-ghost" onClick={() => setNovoUsuario(false)}>Cancelar</button>
           </div>
         </div>

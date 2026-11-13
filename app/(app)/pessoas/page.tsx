@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useTrava } from "@/lib/useTrava";
 import type { Pessoa, Squad, Cargo, NivelSenioridade, VersaoV } from "@/lib/types";
 import { CARGO_LABEL, NIVEL_LABEL, V_LABEL } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
@@ -33,6 +34,7 @@ const emptyForm = {
 };
 
 export default function PessoasPage() {
+  const { ocupado, travar } = useTrava();
   const supabase = createClient();
   const { podeVerSalario, podeEditar, isCoordenador, squadId } = useUsuarioPerfil();
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
@@ -59,6 +61,10 @@ export default function PessoasPage() {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    await travar(gravar);
+  }
+
+  async function gravar() {
     const payload = {
       nome: form.nome,
       email: form.email || null,
@@ -76,11 +82,10 @@ export default function PessoasPage() {
       compartilhado_entre_squads: form.compartilhado_entre_squads,
       observacoes: form.observacoes || null,
     };
-    if (editingId) {
-      await supabase.from("ruston_pessoas").update(payload).eq("id", editingId);
-    } else {
-      await supabase.from("ruston_pessoas").insert(payload);
-    }
+    const { error } = editingId
+      ? await supabase.from("ruston_pessoas").update(payload).eq("id", editingId)
+      : await supabase.from("ruston_pessoas").insert(payload);
+    if (error) { alert(`Não salvou: ${error.message}`); return; }
     setForm(emptyForm);
     setEditingId(null);
     setOpen(false);
@@ -243,7 +248,7 @@ export default function PessoasPage() {
                 onChange={(e) => setForm({ ...form, observacoes: e.target.value })} />
             </div>
             <div className="lg:col-span-3 flex gap-2">
-              <button type="submit" className="btn">{editingId ? "Atualizar" : "Salvar"}</button>
+              <button type="submit" className="btn" disabled={ocupado}>{ocupado ? "Salvando..." : editingId ? "Atualizar" : "Salvar"}</button>
               <button type="button" className="btn-ghost"
                 onClick={() => { setEditingId(null); setForm(emptyForm); setOpen(false); }}>Cancelar</button>
             </div>
