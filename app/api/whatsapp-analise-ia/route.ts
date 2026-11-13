@@ -42,7 +42,7 @@ type Msg = {
 
 async function transcreverAudio(audioUrl: string, openaiKey: string): Promise<string | null> {
   try {
-    const audioRes = await fetch(audioUrl);
+    const audioRes = await fetch(audioUrl, { signal: AbortSignal.timeout(30_000) });
     if (!audioRes.ok) return null;
     const audioBlob = await audioRes.blob();
 
@@ -53,6 +53,7 @@ async function transcreverAudio(audioUrl: string, openaiKey: string): Promise<st
     form.append("response_format", "json");
 
     const res = await fetch(OPENAI_WHISPER_URL, {
+      signal: AbortSignal.timeout(60_000),
       method: "POST",
       headers: { Authorization: `Bearer ${openaiKey}` },
       body: form,
@@ -104,6 +105,7 @@ ${contexto}
 Responda APENAS com o JSON válido, sem markdown.`;
 
   const res = await fetch(ANTHROPIC_URL, {
+      signal: AbortSignal.timeout(90_000),
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -197,9 +199,12 @@ export async function GET(req: Request) {
     .order("ultima_mensagem_em", { ascending: false })
     .limit(limit);
 
-  const stats = { analisadas: 0, puladas: 0, erros: 0, audios_transcritos: 0 };
+  const stats = { analisadas: 0, puladas: 0, erros: 0, audios_transcritos: 0, adiadas: 0 };
+  // A Vercel corta em 300s: depois de ~3,5 min não começa outra conversa (fica para a próxima rodada)
+  const inicio = Date.now();
 
   for (const conv of (conversas ?? []) as any[]) {
+    if (Date.now() - inicio > 210_000) { stats.adiadas++; continue; }
     try {
       // Última análise dessa conversa
       const { data: ultimaAnalise } = await supabase

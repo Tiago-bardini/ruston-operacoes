@@ -15,7 +15,11 @@ import { analisarReuniao } from "@/lib/reunioesImport";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+// A Vercel corta em 300s. Cada reunião longa leva 1 a 3 min na IA, então o cron
+// só começa uma nova análise se ainda sobrar tempo, e cada chamada tem prazo.
 const LOTE = 6;
+const ORCAMENTO_MS = 270_000;   // tempo total que o cron pode usar
+const INICIAR_ATE_MS = 150_000; // depois disso não começa outra reunião
 
 export async function POST(req: Request) {
   const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -32,12 +36,16 @@ export async function POST(req: Request) {
       .not("cliente_id", "is", null)
       .not("transcricao", "is", null)
       .is("analisado_em", null)
-      .order("data_reuniao", { ascending: true })
+      // Mais recentes primeiro: uma reunião antiga que sempre falha não trava a fila
+      .order("data_reuniao", { ascending: false })
       .limit(LOTE);
 
-    const stats = { analisadas: 0, erros: 0 };
+    const inicio = Date.now();
+    const stats = { analisadas: 0, erros: 0, adiadas: 0 };
     for (const p of pendentes ?? []) {
-      try { await analisarReuniao(supabase, p.id, ANTHROPIC_KEY); stats.analisadas++; }
+      const passou = Date.now() - inicio;
+      if (passou > INICIAR_ATE_MS) { stats.adiadas++; continue; }
+      try { await analisarReuniao(supabase, p.id, ANTHROPIC_KEY, ORCAMENTO_MS - passou); stats.analisadas++; }
       catch (e: any) { console.error("[reunioes-analisar] erro:", p.id, e?.message ?? e); stats.erros++; }
     }
     return NextResponse.json({ ok: true, stats });

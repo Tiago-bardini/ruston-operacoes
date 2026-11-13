@@ -170,7 +170,7 @@ export async function importarReuniao(supabase: SupabaseClient, r: ReuniaoRecebi
 }
 
 /** Roda a IA numa reunião já importada que tenha cliente e transcrição. */
-export async function analisarReuniao(supabase: SupabaseClient, reuniaoId: string, anthropicKey: string) {
+export async function analisarReuniao(supabase: SupabaseClient, reuniaoId: string, anthropicKey: string, timeoutMs?: number) {
   const { data: r, error } = await supabase.from("ruston_reunioes_cliente")
     .select("id, titulo, interna, transcricao, cliente_id, ruston_clientes(nome)")
     .eq("id", reuniaoId).single();
@@ -182,6 +182,8 @@ export async function analisarReuniao(supabase: SupabaseClient, reuniaoId: strin
   const { json, tokens_entrada, tokens_saida } = await chamarClaude(
     promptReuniao({ cliente: nome, titulo: r.titulo ?? undefined, interna: r.interna, transcricao: r.transcricao }),
     anthropicKey,
+    6000,
+    timeoutMs,
   );
 
   const { error: upErr } = await supabase.from("ruston_reunioes_cliente")

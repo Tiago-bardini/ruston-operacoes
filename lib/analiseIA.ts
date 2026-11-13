@@ -149,9 +149,10 @@ export const REGRAS_EXTRAS = `- "estresse alto" só com sinais claros (irritaç�
 - plano_acao: um item para cada reclamação e cada ponto de atenção levantado, com uma solução prática
   que a agência consegue executar; prioridade "alta" para o que ameaça o contrato. Lista vazia se não houver pontos`;
 
-export async function chamarClaude(prompt: string, apiKey: string, maxTokens = 6000) {
+export async function chamarClaude(prompt: string, apiKey: string, maxTokens = 6000, timeoutMs?: number) {
   const res = await fetch(ANTHROPIC_URL, {
     method: "POST",
+    signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
     headers: {
       "Content-Type": "application/json",
       "x-api-key": apiKey,

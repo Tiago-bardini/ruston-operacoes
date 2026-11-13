@@ -2,8 +2,8 @@ name: WhatsApp Análise IA (Claude Sonnet + Whisper)
 
 on:
   schedule:
-    - cron: "0 14 * * *"
-    - cron: "0 20 * * *"
+    # A cada 2h, das 8h às 20h de Brasília (cada rodada usa até ~4 min e continua de onde parou)
+    - cron: "0 11-23/2 * * *"
   workflow_dispatch:
 
 jobs:
