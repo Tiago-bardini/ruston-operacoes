@@ -25,6 +25,16 @@ const COR_GRAV: Record<Gravidade, string> = {
   media: "border-amber-500/30 bg-amber-500/10 text-amber-300",
   baixa: "border-white/10 bg-white/5 text-gray-300",
 };
+/** Semanas citadas no nome do arquivo ("Semana_4", "S5", "Semanas 1 e 2"). */
+function semanasNoArquivo(nome: string): number[] {
+  const t = " " + nome.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\.[a-z0-9]+$/, "").replace(/[_\-.()\[\]|]+/g, " ") + " ";
+  const achadas = new Set<number>();
+  for (const m of Array.from(t.matchAll(/ (?:s|sem|semana|semanas) ?([1-5])((?: ?(?:e|,|a) ?[1-5])*)(?![0-9])/g))) {
+    achadas.add(Number(m[1]));
+    for (const n of (m[2] ?? "").match(/[1-5]/g) ?? []) achadas.add(Number(n));
+  }
+  return Array.from(achadas).sort();
+}
 const ehEE = (c: Cliente) => c.etapa === "estruturacao_estrategica" || (c.tag_contrato ?? "").startsWith("ee");
 
 export default function ConferenciaEEPage() {
@@ -86,8 +96,14 @@ export default function ConferenciaEEPage() {
     setEditandoPadrao(false);
   }
 
+  const semanasArquivo = arquivo ? semanasNoArquivo(arquivo.name) : [];
+  const semanaDivergente = semanasArquivo.length > 0 && !semanasArquivo.includes(semana);
+
   async function conferir() {
     if (!clienteId || !arquivo) return;
+    if (semanaDivergente && !confirm(`O nome do arquivo indica Semana ${semanasArquivo.join(" e ")}, mas você vai conferir como Semana ${semana}.
+
+A IA vai avaliar pelo padrão da Semana ${semana} e a nota pode sair baixa só por isso. Continuar mesmo assim?`)) return;
     setRodando(true); setErro(null); setAberta(null);
     try {
       setProgresso("Enviando o arquivo...");
@@ -212,6 +228,14 @@ export default function ConferenciaEEPage() {
               <input type="file" accept=".pdf,.html,.htm,.png,.jpg,.jpeg,.webp,.txt,.md" className="input"
                 disabled={rodando} onChange={(e) => setArquivo(e.target.files?.[0] ?? null)} />
               <p className="mt-1 text-[10px] text-brand-muted">PDF é o melhor formato (a IA vê os slides). PowerPoint, Canva e Google Slides: Arquivo → Baixar → PDF. Também aceita HTML e imagem.</p>
+              {semanaDivergente && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-300">
+                  <span>O arquivo parece ser da Semana {semanasArquivo.join(" e ")}, e você escolheu a Semana {semana}.</span>
+                  {semanasArquivo.length === 1 && (
+                    <button type="button" className="underline" onClick={() => setSemana(semanasArquivo[0])}>Trocar para Semana {semanasArquivo[0]}</button>
+                  )}
+                </div>
+              )}
               <label className="label mt-3">Observação para a IA (opcional)</label>
               <textarea className="input min-h-[60px] text-sm" disabled={rodando} value={observacao}
                 placeholder="Ex.: o cliente mudou a meta na última reunião; foque na verba sugerida"
@@ -257,8 +281,24 @@ export default function ConferenciaEEPage() {
   );
 }
 
+/** Garante lista mesmo em pareceres antigos salvos com a lista como texto. */
+function lista<T>(v: unknown): T[] {
+  if (Array.isArray(v)) return v as T[];
+  if (typeof v === "string") { try { const x = JSON.parse(v); return Array.isArray(x) ? x : []; } catch { return []; } }
+  return [];
+}
+
 function Parecer({ c }: { c: Conferencia }) {
-  const p = c.parecer!;
+  const bruto = c.parecer!;
+  const p = {
+    ...bruto,
+    ajustes: lista<ParecerEE["ajustes"][number]>(bruto.ajustes),
+    coerencia: lista<ParecerEE["coerencia"][number]>(bruto.coerencia),
+    checklist: lista<ParecerEE["checklist"][number]>(bruto.checklist),
+    criterios: lista<ParecerEE["criterios"][number]>(bruto.criterios),
+    pontos_fortes: lista<string>(bruto.pontos_fortes),
+    perguntas_cliente: lista<string>(bruto.perguntas_cliente),
+  };
   const v = VEREDITO[p.veredito] ?? VEREDITO.ajustar;
   const div = (p.coerencia ?? []).filter((x) => x.tipo !== "alinhado");
   const alinhados = (p.coerencia ?? []).filter((x) => x.tipo === "alinhado");

@@ -96,6 +96,12 @@ export async function POST(req: Request) {
   if (!res.ok) return NextResponse.json({ error: `IA erro ${res.status}: ${(await res.text()).slice(0, 400)}` }, { status: 500 });
   const data = await res.json();
   const parecer = data.content?.find((c: any) => c.type === "tool_use")?.input as ParecerEE | undefined;
+  // Às vezes a IA devolve uma lista como texto JSON; converte para lista (senão a tela quebra ao abrir o parecer)
+  if (parecer) for (const k of ["ajustes", "coerencia", "checklist", "criterios", "pontos_fortes", "perguntas_cliente"]) {
+    const v = (parecer as any)[k];
+    if (typeof v === "string") { try { (parecer as any)[k] = JSON.parse(v); } catch { (parecer as any)[k] = []; } }
+    if (!Array.isArray((parecer as any)[k])) (parecer as any)[k] = [];
+  }
   if (!parecer || !parecer.veredito) {
     console.error("[conferencia-ee] resposta sem parecer:", data.stop_reason, JSON.stringify(data.content ?? []).slice(0, 1500));
     const motivo = data.stop_reason === "max_tokens" ? "o parecer ficou maior que o limite" : "a resposta veio sem o parecer";
