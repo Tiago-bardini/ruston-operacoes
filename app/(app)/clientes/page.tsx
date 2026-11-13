@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, type ReactNode } from "react";
+import { useEffect, useState, useMemo, useRef, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { ClienteView, Pessoa, Squad, EtapaCliente, TierCliente, FcaView } from "@/lib/types";
 import {
@@ -52,6 +52,9 @@ const emptyForm = {
 export default function ClientesPage() {
   const supabase = createClient();
   const [clientes, setClientes] = useState<ClienteView[]>([]);
+  // Trava contra cliques repetidos no Salvar (o ref bloqueia na hora, antes do React re-renderizar)
+  const salvandoRef = useRef(false);
+  const [salvando, setSalvando] = useState(false);
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);
   const [fcasRecentes, setFcasRecentes] = useState<Record<string, FcaView>>({});
@@ -110,6 +113,17 @@ export default function ClientesPage() {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    if (salvandoRef.current) return;
+    if (!editingId) {
+      const norm = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+      const igual = clientes.find((c) => norm(c.nome) === norm(form.nome));
+      if (igual && !confirm(`Já existe um cliente chamado "${igual.nome}". Cadastrar outro com o mesmo nome?`)) return;
+    }
+    salvandoRef.current = true; setSalvando(true);
+    try { await gravar(); } finally { salvandoRef.current = false; setSalvando(false); }
+  }
+
+  async function gravar() {
     const payload = {
       nome: form.nome,
       codigo_interno: form.codigo_interno || null,
@@ -494,7 +508,7 @@ export default function ClientesPage() {
                 onChange={(e) => setForm({ ...form, observacoes: e.target.value })} />
             </div>
             <div className="lg:col-span-3 flex gap-2">
-              <button type="submit" className="btn">{editingId ? "Atualizar" : "Salvar"}</button>
+              <button type="submit" className="btn" disabled={salvando}>{salvando ? "Salvando..." : editingId ? "Atualizar" : "Salvar"}</button>
               <button type="button" className="btn-ghost"
                 onClick={() => { setEditingId(null); setForm(emptyForm); setFormOpen(false); }}>
                 Cancelar
