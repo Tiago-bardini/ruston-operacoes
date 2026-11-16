@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ClienteView, EeFinalizada, EtapaCliente, Pessoa, Squad } from "@/lib/types";
-import { formatBRL, ETAPA_LABEL } from "@/lib/types";
+import { formatBRL, ETAPA_LABEL, podeSerAccount } from "@/lib/types";
 
 export type PayloadEeFinalizada = {
   data_finalizacao: string;
@@ -134,7 +134,7 @@ export function ModalReativarEE({ registro, pessoas, squads, onFechar, onConfirm
   onFechar: () => void;
   onConfirmar: (payload: PayloadReativarEE) => void;
 }) {
-  const gps = pessoas.filter((p) => p.cargo === "gestor_projetos");
+  const gps = pessoas.filter(podeSerAccount);
   const [gpId, setGpId] = useState(registro.gp_id ?? "");
   const [squadId, setSquadId] = useState(registro.squad_id ?? "");
   const [etapa, setEtapa] = useState<EtapaCliente>("onboarding");

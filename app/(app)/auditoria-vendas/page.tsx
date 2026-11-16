@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { podeSerAccount } from "@/lib/types";
 
 type Analise = {
   dados_cliente?: { nome_empresa?: string; segmento?: string; regiao?: string; site?: string; redes_sociais?: string[]; tempo_mercado?: string; porte?: string };
@@ -59,7 +60,7 @@ export default function AuditoriaVendasPage() {
   }, []);
 
   const coordenadores = pessoas.filter((p) => p.cargo === "coordenador" || p.cargo === "gerente");
-  const gestores = pessoas.filter((p) => p.cargo === "gestor_projetos");
+  const gestores = pessoas.filter(podeSerAccount);
 
   async function cadastrarCliente() {
     if (!resultado || !clienteNome.trim() || !squadId) return;

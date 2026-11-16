@@ -698,3 +698,8 @@ export type EeFinalizada = {
   reativado_em: string | null;
   created_at: string;
 };
+
+/** Pode ter carteira de clientes (Account/GP): Gestor de Projetos ou Coordenador que também atende clientes */
+export function podeSerAccount(p: { cargo: string | null }): boolean {
+  return p.cargo === "gestor_projetos" || p.cargo === "coordenador";
+}

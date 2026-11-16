@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 import type { ClienteView, Pessoa, Squad } from "@/lib/types";
-import { formatBRL, MESES_LABEL } from "@/lib/types";
+import { formatBRL, MESES_LABEL, podeSerAccount } from "@/lib/types";
 import { TagSemanaEE, carregarSemanasEE } from "@/components/clientes/TagSemanaEE";
 
 type Estagio = "ideia" | "apresentado" | "negociacao" | "ganho" | "perdido";
@@ -309,7 +309,7 @@ O cliente não é excluído do sistema, só sai desta coluna. Dá para voltar de
         )}
         <select className="input max-w-[220px]" value={filtroGP} onChange={(e) => setFiltroGP(e.target.value)}>
           <option value="">Todos os GPs</option>
-          {pessoas.filter((p) => p.cargo === "gestor_projetos").map((p) => (
+          {pessoas.filter(podeSerAccount).map((p) => (
             <option key={p.id} value={p.id}>{p.nome}</option>
           ))}
         </select>

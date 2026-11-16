@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { ClienteView, Pessoa, Squad, EtapaCliente, TierCliente, FcaView } from "@/lib/types";
 import {
   ETAPA_LABEL, ETAPA_COLOR, TIER_LABEL, formatBRL, formatDate,
-  statusVencimento, diasParaVencimento, STATUS_VENCIMENTO_COLOR,
+  statusVencimento, diasParaVencimento, STATUS_VENCIMENTO_COLOR, podeSerAccount,
 } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 import { ModalSubirChurn, efetivarChurn, abrirRetencao } from "@/components/churn/ChurnEfetivado";
@@ -283,7 +283,8 @@ export default function ClientesPage() {
   }
   const nEmEE = base.filter((c) => c.etapa === "estruturacao_estrategica").length;
   const filtrosAtivos = Object.entries(filtros).some(([, v]) => v);
-  const gps = pessoas.filter((p) => p.cargo === "gestor_projetos");
+  // Colunas da carteira: GPs e coordenadores que atendem clientes (sem cliente, a coluna não aparece)
+  const gps = pessoas.filter(podeSerAccount);
 
   const acoes: AcoesCliente = {
     podeEditar,
@@ -483,7 +484,9 @@ export default function ClientesPage() {
               <select className="input" value={form.account_id}
                 onChange={(e) => setForm({ ...form, account_id: e.target.value })}>
                 <option value="">—</option>
-                {cargoDisponivel("gestor_projetos").map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                {pessoas.filter(podeSerAccount).map((p) => (
+                  <option key={p.id} value={p.id}>{p.nome}{p.cargo === "coordenador" ? " (Coordenador)" : ""}</option>
+                ))}
               </select>
             </div>
             <div>
