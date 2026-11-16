@@ -24,7 +24,7 @@ interface MonetOp {
   ativo: boolean;
 }
 
-interface ChurnSolLite { status: string; mrr: number; cliente: { squad_id: string | null } | null; }
+interface ChurnSolLite { status: string; mrr: number; valor_devolucao?: number | null; cliente: { squad_id: string | null } | null; }
 
 const CARGOS_OPERACIONAIS: Cargo[] = ["coordenador", "gestor_projetos", "gestor_trafego", "designer"];
 const MES_ATUAL = new Date().getMonth() + 1;
@@ -79,7 +79,7 @@ function CockpitConteudo() {
       supabase.from("ruston_okr_realizado_investidor").select("pessoa_id,metrica_id,valor_realizado").eq("ano", ano).eq("mes", mes),
       supabase.from("ruston_monetizacao_metas").select("squad_id,ano,mes,valor_meta").eq("ano", ano).eq("mes", mes),
       supabase.from("ruston_monetizacao_view").select("id,cliente_squad_id,estagio,valor_mrr_estimado,valor_onetime_estimado,data_ganho,data_prevista_fechamento,ativo").eq("ativo", true),
-      supabase.from("ruston_churn_solicitacoes").select("status,mrr,cliente:ruston_clientes(squad_id)").eq("ano", ano).eq("mes", mes),
+      supabase.from("ruston_churn_solicitacoes").select("*,cliente:ruston_clientes(squad_id)").eq("ano", ano).eq("mes", mes),
       supabase.from("ruston_churn_mrr_base").select("mrr_base").eq("ano", ano).eq("mes", mes).maybeSingle(),
     ]);
     setClientes((cs as ClienteView[]) ?? []);
@@ -154,8 +154,10 @@ function CockpitConteudo() {
   const churn = useMemo(() => {
     const lista = churnSol.filter((s) => s.status !== "revertido"
       && (!squadFiltro || s.cliente?.squad_id === squadFiltro));
-    const planejado = lista.reduce((a, s) => a + (Number(s.mrr) || 0), 0);
-    const confirmado = lista.filter((s) => s.status === "confirmado").reduce((a, s) => a + (Number(s.mrr) || 0), 0);
+    // Devolução de dinheiro soma no churn junto com o MRR
+    const v = (s: ChurnSolLite) => (Number(s.mrr) || 0) + (Number(s.valor_devolucao) || 0);
+    const planejado = lista.reduce((a, s) => a + v(s), 0);
+    const confirmado = lista.filter((s) => s.status === "confirmado").reduce((a, s) => a + v(s), 0);
     const base = squadFiltro ? mrrTotal : churnBase ?? mrrTotal;
     const pct = (v: number) => (base > 0 ? (v / base) * 100 : null);
     return { planejado, confirmado, pctPlanejado: pct(planejado), pctConfirmado: pct(confirmado) };

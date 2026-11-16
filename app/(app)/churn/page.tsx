@@ -31,17 +31,29 @@ function mesFechado(ano: number, mes: number): boolean {
   return ano * 12 + mes < h.getFullYear() * 12 + h.getMonth() + 1;
 }
 
+/** Valor que a solicitação soma no churn: MRR + dinheiro devolvido ao cliente */
+const devolucaoDe = (s: ChurnSolicitacao) => Number(s.valor_devolucao || 0);
+const valorChurn = (s: ChurnSolicitacao) => Number(s.mrr || 0) + devolucaoDe(s);
+
+/** "1.234,56" / "1234.56" / "1234,5" → número */
+function lerValor(txt: string): number {
+  const t = txt.replace(/[^\d,.-]/g, "");
+  return Number(t.includes(",") ? t.replace(/\./g, "").replace(",", ".") : t);
+}
+
 function somarChurn(lista: ChurnSolicitacao[]) {
   const naoRevertidas = lista.filter((s) => s.status !== "revertido");
+  const soma = (l: ChurnSolicitacao[]) => l.reduce((t, x) => t + valorChurn(x), 0);
   return {
     // Revertido saiu do churn: não conta como solicitação do mês
     qtd: naoRevertidas.length,
-    mrrChurn: naoRevertidas.reduce((s, x) => s + Number(x.mrr || 0), 0),
+    mrrChurn: soma(naoRevertidas),
+    mrrSo: naoRevertidas.reduce((t, x) => t + Number(x.mrr || 0), 0),
+    devolucao: naoRevertidas.reduce((t, x) => t + devolucaoDe(x), 0),
     // Planejado = churn já confirmado + pedidos em aberto marcados com risco ALTO
-    mrrPlanejado: naoRevertidas.filter((s) => s.status === "confirmado" || s.risco === "alto")
-      .reduce((s, x) => s + Number(x.mrr || 0), 0),
-    mrrConfirmado: lista.filter((s) => s.status === "confirmado").reduce((s, x) => s + Number(x.mrr || 0), 0),
-    mrrRevertido: lista.filter((s) => s.status === "revertido").reduce((s, x) => s + Number(x.mrr || 0), 0),
+    mrrPlanejado: soma(naoRevertidas.filter((s) => s.status === "confirmado" || s.risco === "alto")),
+    mrrConfirmado: soma(lista.filter((s) => s.status === "confirmado")),
+    mrrRevertido: soma(lista.filter((s) => s.status === "revertido")),
   };
 }
 
@@ -176,6 +188,20 @@ export default function ChurnPage() {
     load();
   }
 
+  async function editarDevolucao(s: ChurnSolicitacao) {
+    const nome = clientePorId.get(s.cliente_id)?.nome ?? "o cliente";
+    const atual = devolucaoDe(s);
+    const r = prompt(`Valor devolvido para ${nome} (R$). Soma no churn junto com o MRR. Coloque 0 para tirar.`,
+      atual ? String(atual).replace(".", ",") : "");
+    if (r == null) return;
+    const v = r.trim() === "" ? 0 : lerValor(r);
+    if (!Number.isFinite(v) || v < 0) { alert("Valor inválido."); return; }
+    const { error } = await supabase.from("ruston_churn_solicitacoes")
+      .update({ valor_devolucao: v, updated_at: new Date().toISOString() }).eq("id", s.id);
+    if (error) { alert(`Não salvou: ${error.message}`); return; }
+    load();
+  }
+
   async function remover(id: string) {
     if (!confirm("Remover essa solicitação de churn?")) return;
     await supabase.from("ruston_churn_solicitacoes").delete().eq("id", id);
@@ -219,7 +245,7 @@ export default function ChurnPage() {
         <div>
           <h1 className="text-2xl font-bold">Solicitações de Churn</h1>
           <p className="text-sm text-brand-muted">
-            Histórico mensal de pedidos de churn · % calculado sobre o MRR do último dia do mês (pontual/one time não entra)
+            Histórico mensal de pedidos de churn · % calculado sobre o MRR do último dia do mês · devolução de dinheiro soma no churn
           </p>
         </div>
         {aba === "solicitacoes" && <div className="flex items-center gap-2">
@@ -278,10 +304,12 @@ export default function ChurnPage() {
         const qtdStatus = (st: StatusChurn) => solicitacoes.filter((s) => s.status === st).length;
         return (<>
       {/* Indicadores */}
-      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-6">
         <Stat label="Solicitações no mês" valor={String(resumo.qtd)} />
-        <Stat label="MRR em churn" valor={formatBRL(resumo.mrrChurn)} cor="text-red-300"
+        <Stat label="MRR em churn" valor={formatBRL(resumo.mrrSo)} cor="text-red-300"
           sub={resumo.mrrRevertido > 0 ? `${formatBRL(resumo.mrrRevertido)} revertido` : undefined} />
+        <Stat label="Devolução de dinheiro" valor={formatBRL(resumo.devolucao)} cor="text-amber-300"
+          sub={`Total no churn: ${formatBRL(resumo.mrrChurn)}`} />
         <div className="card p-3">
           <p className="text-[10px] uppercase tracking-wide text-brand-muted">MRR base do mês</p>
           {base.situacao === "travado" && (
@@ -372,6 +400,8 @@ export default function ChurnPage() {
                 <th className="px-4 py-3">Cliente</th>
                 <th className="px-4 py-3">Data</th>
                 <th className="px-4 py-3">MRR</th>
+                <th className="px-4 py-3">Devolução</th>
+                <th className="px-4 py-3">Total no churn</th>
                 <th className="px-4 py-3">% do MRR</th>
                 <th className="px-4 py-3">Motivo</th>
                 <th className="px-4 py-3">Risco</th>
@@ -391,9 +421,16 @@ export default function ChurnPage() {
                       {s.observacoes && <p className="text-[10px] text-brand-muted whitespace-pre-wrap">{s.observacoes}</p>}
                     </td>
                     <td className="px-4 py-3 text-brand-muted">{formatDate(s.data_solicitacao)}</td>
-                    <td className="px-4 py-3 font-medium text-red-300">{formatBRL(s.mrr)}</td>
+                    <td className="px-4 py-3 text-red-300">{formatBRL(s.mrr)}</td>
+                    <td className="px-4 py-3">
+                      {devolucaoDe(s) > 0 && <p className="text-amber-300">{formatBRL(devolucaoDe(s))}</p>}
+                      <button className="text-[10px] text-amber-300/80 hover:text-amber-200" onClick={() => editarDevolucao(s)}>
+                        {devolucaoDe(s) > 0 ? "editar" : "+ devolução"}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-red-300">{formatBRL(valorChurn(s))}</td>
                     <td className="px-4 py-3 text-brand-muted">
-                      {formatPct(base.valor ? (Number(s.mrr) / base.valor) * 100 : null)}
+                      {formatPct(base.valor ? (valorChurn(s) / base.valor) * 100 : null)}
                     </td>
                     <td className="px-4 py-3 text-brand-muted">{s.motivo ?? "—"}</td>
                     <td className="px-4 py-3">
@@ -443,6 +480,8 @@ export default function ChurnPage() {
               <th className="px-4 py-3">MRR base</th>
               <th className="px-4 py-3">Solicitações</th>
               <th className="px-4 py-3">MRR em churn</th>
+              <th className="px-4 py-3">Devolução</th>
+              <th className="px-4 py-3">Total no churn</th>
               <th className="px-4 py-3">% Planejado</th>
               <th className="px-4 py-3">% Confirmado</th>
             </tr>
@@ -461,7 +500,9 @@ export default function ChurnPage() {
                     {h.base.situacao === "sem_trava" && <span className="text-[10px] text-amber-300">sem trava</span>}
                   </td>
                   <td className="px-4 py-3 text-brand-muted">{h.qtd}</td>
-                  <td className="px-4 py-3 text-red-300">{formatBRL(h.mrrChurn)}</td>
+                  <td className="px-4 py-3 text-red-300">{formatBRL(h.mrrSo)}</td>
+                  <td className="px-4 py-3 text-amber-300">{h.devolucao > 0 ? formatBRL(h.devolucao) : "—"}</td>
+                  <td className="px-4 py-3 font-medium text-red-300">{formatBRL(h.mrrChurn)}</td>
                   <td className="px-4 py-3 font-semibold text-red-300">{formatPct(h.pctChurn)}</td>
                   <td className="px-4 py-3 text-red-400">{formatPct(h.pctConfirmado)}</td>
                 </tr>
@@ -512,16 +553,24 @@ function FormSolicitacao({ clientes, ano, mes, onSalvo, onCancelar }: {
     motivo: "",
     status: "solicitado" as StatusChurn,
     observacoes: "",
+    devolucao: "",
   });
   const [saving, setSaving] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
-  // Só clientes com MRR (recorrentes) entram na lista
-  const recorrentes = clientes.filter((c) => c.ativo && Number(c.mrr) > 0);
+  // Clientes ativos, inclusive só E.E (sem MRR), para registrar devolução de dinheiro
+  const recorrentes = clientes.filter((c) => c.ativo);
   const selecionado = clientes.find((c) => c.id === form.cliente_id);
+  const valorDevolucao = form.devolucao.trim() === "" ? 0 : lerValor(form.devolucao);
+  const mrrSel = Number(selecionado?.mrr) || 0;
 
   async function salvar() {
     if (!selecionado) { setErro("Selecione o cliente."); return; }
+    if (!Number.isFinite(valorDevolucao) || valorDevolucao < 0) { setErro("Valor da devolução inválido."); return; }
+    if (mrrSel <= 0 && valorDevolucao <= 0) {
+      setErro("Esse cliente não tem MRR (ex.: só E.E). Informe o valor devolvido para entrar no churn.");
+      return;
+    }
     setSaving(true);
     setErro(null);
     const d = new Date(form.data_solicitacao + "T00:00:00");
@@ -534,6 +583,7 @@ function FormSolicitacao({ clientes, ano, mes, onSalvo, onCancelar }: {
       motivo: form.motivo || null,
       status: form.status,
       observacoes: form.observacoes || null,
+      ...(valorDevolucao > 0 ? { valor_devolucao: valorDevolucao } : {}),
     });
     setSaving(false);
     if (error) { setErro(error.message); return; }
@@ -548,7 +598,7 @@ function FormSolicitacao({ clientes, ano, mes, onSalvo, onCancelar }: {
           <select className="input" value={form.cliente_id}
             onChange={(e) => setForm({ ...form, cliente_id: e.target.value })}>
             <option value="">Selecione...</option>
-            {recorrentes.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            {recorrentes.map((c) => <option key={c.id} value={c.id}>{c.nome}{Number(c.mrr) > 0 ? "" : " (sem MRR)"}</option>)}
           </select>
         </div>
         <div>
@@ -556,6 +606,24 @@ function FormSolicitacao({ clientes, ano, mes, onSalvo, onCancelar }: {
           <div className="input bg-black/10 font-semibold text-brand">
             {selecionado ? formatBRL(selecionado.mrr) : "—"}
           </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div>
+          <label className="label">Devolução de dinheiro (R$)</label>
+          <input className="input" inputMode="decimal" value={form.devolucao}
+            placeholder="0,00" onChange={(e) => setForm({ ...form, devolucao: e.target.value })} />
+        </div>
+        <div className="self-end sm:col-span-2">
+          <p className="text-[10px] text-brand-muted">
+            Ex.: cliente fez a E.E, não gostou e pediu o dinheiro de volta. O valor devolvido soma no churn junto com o MRR.
+          </p>
+          {selecionado && (
+            <p className="text-xs font-semibold text-red-300">
+              Total no churn: {formatBRL(mrrSel + (Number.isFinite(valorDevolucao) ? valorDevolucao : 0))}
+              {valorDevolucao > 0 && mrrSel > 0 ? ` (MRR ${formatBRL(mrrSel)} + devolução ${formatBRL(valorDevolucao)})` : ""}
+            </p>
+          )}
         </div>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

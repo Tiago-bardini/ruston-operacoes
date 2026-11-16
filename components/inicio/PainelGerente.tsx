@@ -10,7 +10,7 @@ import { calcularPlacar, semanaFechada, inicioDaSemana, type PlacarSquad } from 
 // Painel do Gerente: "a operação está saudável e onde eu preciso agir esta semana?"
 // Todas as contas seguem as telas de origem (Churn, Monetização, Placar, Radar, Headcount).
 
-type ChurnSol = { cliente_id: string; ano: number; mes: number; status: string; mrr: number; data_solicitacao: string; cliente: { squad_id: string | null } | null };
+type ChurnSol = { cliente_id: string; ano: number; mes: number; status: string; mrr: number; valor_devolucao?: number | null; data_solicitacao: string; cliente: { squad_id: string | null } | null };
 type MonetMeta = { squad_id: string; valor_meta: number };
 type MonetOp = {
   cliente_squad_id: string | null; estagio: string; valor_mrr_estimado: number; valor_onetime_estimado: number;
@@ -79,7 +79,7 @@ export default function PainelGerente() {
         supabase.from("ruston_pessoas").select("*").eq("ativo", true),
         supabase.from("ruston_squads").select("*").eq("ativo", true).order("nome"),
         supabase.from("ruston_headcount_planejado").select("*"),
-        supabase.from("ruston_churn_solicitacoes").select("cliente_id,ano,mes,status,mrr,data_solicitacao,cliente:ruston_clientes(squad_id)").gte("data_solicitacao", ini6),
+        supabase.from("ruston_churn_solicitacoes").select("*,cliente:ruston_clientes(squad_id)").gte("data_solicitacao", ini6),
         supabase.from("ruston_churn_mrr_base").select("ano,mes,mrr_base"),
         supabase.from("ruston_forecast").select("ano,mes,meta_mrr,mrr_realizado,mrr_total_snapshot"),
         supabase.from("ruston_monetizacao_metas").select("squad_id,valor_meta").eq("ano", ano).eq("mes", mes),
@@ -133,8 +133,10 @@ export default function PainelGerente() {
   function churnDoMes(a: number, m: number, squadId?: string) {
     const lista = churnSol.filter((s) => s.ano === a && s.mes === m && s.status !== "revertido"
       && (!squadId || s.cliente?.squad_id === squadId));
-    const planejado = lista.reduce((x, s) => x + (Number(s.mrr) || 0), 0);
-    const confirmado = lista.filter((s) => s.status === "confirmado").reduce((x, s) => x + (Number(s.mrr) || 0), 0);
+    // Devolução de dinheiro soma no churn junto com o MRR
+    const v = (s: ChurnSol) => (Number(s.mrr) || 0) + (Number(s.valor_devolucao) || 0);
+    const planejado = lista.reduce((x, s) => x + v(s), 0);
+    const confirmado = lista.filter((s) => s.status === "confirmado").reduce((x, s) => x + v(s), 0);
     return { planejado, confirmado };
   }
 
