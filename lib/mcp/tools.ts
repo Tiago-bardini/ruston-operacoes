@@ -9,7 +9,7 @@ import type { UsuarioMcp, PapelMcp } from "@/lib/mcp/auth";
 import { calcularNotaFinalFca, bandeiraDaNota, sextaDaSemanaFca, ETAPA_LABEL } from "@/lib/types";
 import { calcularRoi } from "@/lib/planejamento";
 import {
-  addDias, diaMes, hojeIsoBr, mesFechadoEm, prazoDaSemana, resumoMeta, rotuloSemana, semanaCobrada, semanaLancada, sextaDaSemana, sextasDoMes,
+  diaMes, hojeIsoBr, mesFechadoEm, prazoDaSemana, resumoMeta, rotuloSemana, semanaAnterior, semanaCobrada, semanaLancada, fimDaSemana, semanasDoMes,
   type MetaMensal, type MetaSemanal,
 } from "@/lib/metasClientes";
 import { formularioDe, nomePesquisa, perguntaVisivel, type Pesquisa } from "@/lib/pesquisas";
@@ -711,7 +711,7 @@ export const FERRAMENTAS: Ferramenta[] = [
     name: "ver_metas_clientes",
     title: "Ver metas dos clientes",
     description:
-      "Metas do mês por cliente (tela 🎯 Metas dos Clientes): meta de leads e de faturamento, o lançamento de cada semana (sábado a sexta, prazo na segunda seguinte), " +
+      "Metas do mês por cliente (tela 🎯 Metas dos Clientes): meta de leads e de faturamento, o lançamento de cada semana (sábado a sexta, fechada dentro do mês: a primeira começa no dia 01 e a última termina no fim do mês; prazo na segunda seguinte), " +
       "o realizado do mês (soma das semanas, ou o total corrigido), % da meta, ritmo (realizado x esperado pelas semanas que já passaram do prazo) e a situação " +
       "(sem_meta, meta_incompleta, semana_pendente, em_andamento, sem_resultado, completo). Traz as pendências por GP, para cobrar o time. " +
       "Sem ano/mês usa o mês atual. Filtros opcionais: cliente, gp (nome do GP/Account), so_pendentes.",
@@ -750,11 +750,11 @@ export const FERRAMENTAS: Ferramenta[] = [
         linhas = linhas.filter((l) => (n === "sem" ? l.gp === "Sem GP" : normalizar(l.gp).includes(n)));
       }
       if (a.so_pendentes) linhas = linhas.filter((l) => l.pendente);
-      const sextas = sextasDoMes(ano, mes);
+      const semanasMes = semanasDoMes(ano, mes);
       return {
         mes: `${String(mes).padStart(2, "0")}/${ano}`,
         mes_fechado: mesFechadoEm(ano, mes, hoje),
-        semanas_do_mes: sextas.map((s, i) => ({ semana: i + 1, sexta: s, periodo: rotuloSemana(s), prazo: diaMes(prazoDaSemana(s)), cobrada: semanaCobrada(s, hoje) })),
+        semanas_do_mes: semanasMes.map((s, i) => ({ semana: i + 1, ultimo_dia: s, periodo: rotuloSemana(s), prazo: diaMes(prazoDaSemana(s)), cobrada: semanaCobrada(s, hoje) })),
         total_clientes: linhas.length,
         pendentes: linhas.filter((l) => l.pendente).length,
         pendencias_por_gp: Array.from(porGP.values()).sort((x, y) => y.pendentes - x.pendentes || x.gp.localeCompare(y.gp)),
@@ -766,8 +766,8 @@ export const FERRAMENTAS: Ferramenta[] = [
     name: "lancar_semana_cliente",
     title: "Lançar a semana do cliente",
     description:
-      "Lança os leads e o faturamento de UMA semana do cliente (sábado a sexta, a mesma semana da FCA; prazo até a segunda seguinte). " +
-      "Informe a data (qualquer dia da semana; sem data = a última semana que já fechou). A semana conta no mês da sua sexta-feira. " +
+      "Lança os leads e o faturamento de UMA semana do cliente (sábado a sexta, fechada dentro do mês: a primeira começa no dia 01 e a última termina no fim do mês; prazo até a segunda seguinte). " +
+      "Informe a data (qualquer dia da semana; sem data = a última semana que já terminou). " +
       "Só os campos enviados mudam (null limpa)." + DUAS_ETAPAS,
     inputSchema: {
       type: "object",
@@ -785,9 +785,9 @@ export const FERRAMENTAS: Ferramenta[] = [
     async run(u, a) {
       const hoje = hojeIsoBr();
       if (a.data && !/^\d{4}-\d{2}-\d{2}$/.test(a.data)) throw new Error("data no formato YYYY-MM-DD.");
-      // Sem data: a última semana que já terminou (sexta ≤ hoje)
-      const sexta = a.data ? sextaDaSemana(a.data) : (() => { const s = sextaDaSemana(hoje); return s > hoje ? addDias(s, -7) : s; })();
-      if (sexta > sextaDaSemana(hoje)) throw new Error("Essa semana ainda não começou.");
+      // Sem data: a última semana que já terminou
+      const sexta = a.data ? fimDaSemana(a.data) : (() => { const s = fimDaSemana(hoje); return s > hoje ? semanaAnterior(s) : s; })();
+      if (sexta > fimDaSemana(hoje)) throw new Error("Essa semana ainda não começou.");
       const ano = Number(sexta.slice(0, 4)), mes = Number(sexta.slice(5, 7));
       const c = await acharCliente(u, a.cliente);
       const campos: Args = {};
@@ -803,7 +803,7 @@ export const FERRAMENTAS: Ferramenta[] = [
       const mudancas = Object.keys(campos)
         .filter((k) => (atual?.[k] != null && k !== "observacoes" ? Number(atual[k]) : atual?.[k] ?? null) !== campos[k])
         .map((k) => ({ campo: k, antes: atual?.[k] ?? null, depois: campos[k] }));
-      const semanaTxt = `${rotuloSemana(sexta)} (conta em ${String(mes).padStart(2, "0")}/${ano})`;
+      const semanaTxt = rotuloSemana(sexta);
       if (!mudancas.length) return { ok: true, acao: "sem mudança", cliente: c.nome, semana: semanaTxt };
       if (!a.confirmar) {
         return { previa: true, cliente: c.nome, semana: semanaTxt, acao: atual ? "atualizar" : "criar", mudancas, aviso: "Nada foi gravado. Mostre ao usuário e chame de novo com confirmar=true." };

@@ -1,9 +1,11 @@
 // =====================================================================
 // Metas dos Clientes — regras usadas pela tela e pelo MCP
-// Meta mensal (leads e faturamento) + lançamento semanal (sábado a sexta,
-// a mesma semana da FCA). A semana conta no mês da sua sexta-feira e precisa
-// ser lançada até a segunda-feira seguinte. O resultado do mês é a soma das
-// semanas, a não ser que alguém informe o total do mês (correção).
+// Meta mensal (leads e faturamento) + lançamento semanal. A semana vai de
+// sábado a sexta, mas é FECHADA dentro do mês: a primeira começa no dia 01 e
+// a última termina no último dia do mês (podem ficar mais curtas). Cada semana
+// é identificada pelo seu último dia (data_referencia) e precisa ser lançada
+// até a segunda-feira seguinte. O resultado do mês é a soma das semanas, a não
+// ser que alguém informe o total do mês (correção).
 // =====================================================================
 
 export type MetaMensal = {
@@ -23,7 +25,7 @@ export type MetaMensal = {
 export type MetaSemanal = {
   id: string;
   cliente_id: string;
-  data_referencia: string;               // sexta-feira (YYYY-MM-DD)
+  data_referencia: string;               // último dia da semana: sexta ou o último dia do mês (YYYY-MM-DD)
   ano: number;
   mes: number;
   leads: number | null;
@@ -61,50 +63,73 @@ export const hojeIsoBr = () => new Date(Date.now() - 3 * 3600_000).toISOString()
 /** "dd/mmm" de uma data ISO. */
 export const diaMes = (iso: string) => `${iso.slice(8, 10)}/${MES_CURTO[Number(iso.slice(5, 7)) - 1]}`;
 
-/** Rótulo da semana: "31/out a 06/nov". */
-export const rotuloSemana = (sexta: string) => `${diaMes(addDias(sexta, -6))} a ${diaMes(sexta)}`;
+const diaSemana = (iso: string) => new Date(iso + "T12:00:00Z").getUTCDay(); // 0=dom ... 5=sex, 6=sáb
+const primeiroDia = (iso: string) => iso.slice(0, 8) + "01";
+const ultimoDia = (iso: string) => {
+  const d = new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)), 0, 12));
+  return d.toISOString().slice(0, 10);
+};
+const maior = (a: string, b: string) => (a > b ? a : b);
+const menor = (a: string, b: string) => (a < b ? a : b);
 
-/** Sextas-feiras do mês (cada uma fecha uma semana que conta nesse mês). */
-export function sextasDoMes(ano: number, mes: number): string[] {
+/** Primeiro dia da semana que contém a data: o sábado anterior, sem sair do mês. */
+export const inicioDaSemana = (iso: string) => maior(addDias(iso, -((diaSemana(iso) + 1) % 7)), primeiroDia(iso));
+
+/** Último dia da semana que contém a data: a sexta seguinte, sem sair do mês. É o id da semana. */
+export const fimDaSemana = (iso: string) => {
+  const dow = diaSemana(iso);
+  return menor(addDias(iso, dow === 6 ? 6 : 5 - dow), ultimoDia(iso));
+};
+
+/** Semana anterior (pode ser do mês anterior). */
+export const semanaAnterior = (fim: string) => fimDaSemana(addDias(inicioDaSemana(fim), -1));
+
+/** Rótulo da semana: "01/nov a 06/nov". */
+export const rotuloSemana = (fim: string) => {
+  const ini = inicioDaSemana(fim);
+  return ini === fim ? diaMes(fim) : `${diaMes(ini)} a ${diaMes(fim)}`;
+};
+
+/** Dias da semana (1 a 7). */
+const diasDaSemana = (fim: string) =>
+  Math.round((Date.parse(fim) - Date.parse(inicioDaSemana(fim))) / 86_400_000) + 1;
+
+/** Semanas do mês, pelo último dia de cada uma (a primeira começa no dia 01, a última termina no fim do mês). */
+export function semanasDoMes(ano: number, mes: number): string[] {
   const out: string[] = [];
-  const d = new Date(Date.UTC(ano, mes - 1, 1, 12));
-  while (d.getUTCDay() !== 5) d.setUTCDate(d.getUTCDate() + 1);
-  while (d.getUTCMonth() === mes - 1) {
-    out.push(d.toISOString().slice(0, 10));
-    d.setUTCDate(d.getUTCDate() + 7);
+  let d = `${ano}-${String(mes).padStart(2, "0")}-01`;
+  const fimMes = ultimoDia(d);
+  while (d <= fimMes) {
+    const fim = fimDaSemana(d);
+    out.push(fim);
+    d = addDias(fim, 1);
   }
   return out;
 }
 
-/** Sexta da semana (sábado a sexta) que contém a data. */
-export function sextaDaSemana(iso: string) {
-  const dow = new Date(iso + "T12:00:00Z").getUTCDay();
-  return addDias(iso, dow === 6 ? 6 : 5 - dow);
-}
-
-/** Segunda-feira depois da sexta: último dia para lançar a semana. */
-export const prazoDaSemana = (sexta: string) => addDias(sexta, 3);
+/** Prazo para lançar: a segunda-feira depois do último dia da semana. */
+export const prazoDaSemana = (fim: string) => addDias(fim, ((1 - diaSemana(fim) + 7) % 7) || 7);
 
 /** A semana já passou do prazo e é cobrada? */
-export const semanaCobrada = (sexta: string, hoje: string) => hoje > prazoDaSemana(sexta);
+export const semanaCobrada = (fim: string, hoje: string) => hoje > prazoDaSemana(fim);
 
 export const semanaLancada = (s?: MetaSemanal | null) => s?.leads != null && s?.faturamento != null;
 
 export const mesFechadoEm = (ano: number, mes: number, hoje: string) =>
   ano * 12 + mes < Number(hoje.slice(0, 4)) * 12 + Number(hoje.slice(5, 7));
 
-/** Semana que a tela abre por padrão: a última que já fechou (sexta ≤ hoje) no mês, senão a primeira. */
+/** Semana que a tela abre por padrão: a última que já terminou no mês, senão a primeira. */
 export function semanaPadrao(ano: number, mes: number, hoje: string) {
-  const sextas = sextasDoMes(ano, mes);
-  const fechadas = sextas.filter((s) => s <= hoje);
-  return fechadas[fechadas.length - 1] ?? sextas[0];
+  const semanas = semanasDoMes(ano, mes);
+  const fechadas = semanas.filter((s) => s <= hoje);
+  return fechadas[fechadas.length - 1] ?? semanas[0];
 }
 
 const pct = (a: number | null, b: number | null) => (a == null || b == null || b <= 0 ? null : (a / b) * 100);
 
 /** Tudo que a tela e o MCP mostram de um cliente no mês. */
 export function resumoMeta(meta: MetaMensal | undefined | null, semanas: MetaSemanal[], ano: number, mes: number, hoje: string) {
-  const sextas = sextasDoMes(ano, mes);
+  const sextas = semanasDoMes(ano, mes);
   const porSexta = new Map(semanas.map((s) => [s.data_referencia, s]));
   const fechado = mesFechadoEm(ano, mes, hoje);
   const cobradas = sextas.filter((s) => semanaCobrada(s, hoje));
@@ -124,7 +149,8 @@ export function resumoMeta(meta: MetaMensal | undefined | null, semanas: MetaSem
   const metaFat = meta?.meta_faturamento != null ? Number(meta.meta_faturamento) : null;
 
   // Ritmo: quanto da meta já era esperado pelas semanas que passaram do prazo
-  const fracao = fechado ? 1 : sextas.length ? cobradas.length / sextas.length : 0;
+  const diasMes = sextas.reduce((t, s) => t + diasDaSemana(s), 0);
+  const fracao = fechado ? 1 : diasMes ? cobradas.reduce((t, s) => t + diasDaSemana(s), 0) / diasMes : 0;
   const esperadoLeads = metaLeads != null && fracao > 0 ? metaLeads * fracao : null;
   const esperadoFat = metaFat != null && fracao > 0 ? metaFat * fracao : null;
 

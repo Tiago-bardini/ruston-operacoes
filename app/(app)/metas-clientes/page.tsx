@@ -7,11 +7,11 @@ import { MESES_LABEL, formatBRL } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 import {
   SITUACAO_META, diaMes, hojeIsoBr, mesFechadoEm, prazoDaSemana, resumoMeta, rotuloSemana, semanaCobrada, semanaLancada,
-  semanaPadrao, sextasDoMes, type MetaMensal, type MetaSemanal, type SituacaoMeta,
+  semanaPadrao, semanasDoMes, type MetaMensal, type MetaSemanal, type SituacaoMeta,
 } from "@/lib/metasClientes";
 
 // Meta de leads e de faturamento de cada cliente no mês, lançamento semanal
-// (sábado a sexta, prazo na segunda) e o resultado do mês (soma das semanas).
+// (sábado a sexta, fechada dentro do mês; prazo na segunda) e o resultado do mês (soma das semanas).
 type CampoMes = "meta_leads" | "meta_faturamento" | "resultado_leads" | "resultado_faturamento";
 type CampoSemana = "leads" | "faturamento";
 
@@ -60,7 +60,7 @@ export default function MetasClientesPage() {
   const [filtroGP, setFiltroGP] = useState("");
   const [filtroSit, setFiltroSit] = useState<SituacaoMeta | "pendentes" | "">("");
 
-  const sextas = useMemo(() => sextasDoMes(ano, mes), [ano, mes]);
+  const sextas = useMemo(() => semanasDoMes(ano, mes), [ano, mes]);
   const mesFechado = mesFechadoEm(ano, mes, hoje);
   useEffect(() => { setSemana(semanaPadrao(ano, mes, hoje)); /* eslint-disable-next-line */ }, [ano, mes]);
 
@@ -191,7 +191,7 @@ export default function MetasClientesPage() {
         <div>
           <h1 className="text-2xl font-bold">Metas dos Clientes</h1>
           <p className="text-sm text-brand-muted">
-            Meta do mês · lançamento toda semana (sábado a sexta, até a segunda seguinte) · resultado do mês = soma das semanas
+            Meta do mês · lançamento toda semana (sábado a sexta, fechada dentro do mês, até a segunda seguinte) · resultado do mês = soma das semanas
           </p>
         </div>
       </div>
@@ -330,7 +330,7 @@ export default function MetasClientesPage() {
       )}
       <p className="mt-3 text-[11px] text-brand-muted">
         O resultado do mês é a soma das semanas (aparece em cinza no campo do mês). Se o número fechado do cliente for diferente, digite o total no campo do mês para corrigir.
-        Cada semana conta no mês da sua sexta-feira. Com o mês aberto, a cor mostra o ritmo: o realizado comparado ao esperado pelas semanas que já passaram do prazo.
+        As semanas ficam dentro do mês: a primeira começa no dia 01 e a última termina no fim do mês. Com o mês aberto, a cor mostra o ritmo: o realizado comparado ao esperado pelos dias das semanas que já passaram do prazo.
       </p>
     </div>
   );
