@@ -194,19 +194,6 @@ export default function MetasClientesPage() {
             Meta do mês · lançamento toda semana (sábado a sexta, até a segunda seguinte) · resultado do mês = soma das semanas
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select className="input max-w-[150px]" value={mes} onChange={(e) => setMes(Number(e.target.value))}>
-            {MESES_LABEL.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-          </select>
-          <select className="input max-w-[100px]" value={ano} onChange={(e) => setAno(Number(e.target.value))}>
-            {anos.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-          <select className="input max-w-[240px]" value={semana} onChange={(e) => setSemana(e.target.value)}>
-            {sextas.map((s, i) => (
-              <option key={s} value={s}>Semana {i + 1} · {rotuloSemana(s)}{s > hoje ? " (futura)" : ""}</option>
-            ))}
-          </select>
-        </div>
       </div>
 
       {/* Indicadores */}
@@ -258,6 +245,17 @@ export default function MetasClientesPage() {
           <option value="">Todas as situações</option>
           <option value="pendentes">Só pendentes</option>
           {(Object.keys(SITUACAO_META) as SituacaoMeta[]).map((s) => <option key={s} value={s}>{SITUACAO_META[s]}</option>)}
+        </select>
+        <select className="input max-w-[150px]" value={mes} onChange={(e) => setMes(Number(e.target.value))}>
+          {MESES_LABEL.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+        </select>
+        <select className="input max-w-[100px]" value={ano} onChange={(e) => setAno(Number(e.target.value))}>
+          {anos.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <select className="input max-w-[240px]" value={semana} onChange={(e) => setSemana(e.target.value)}>
+          {sextas.map((s, i) => (
+            <option key={s} value={s}>Semana {i + 1} · {rotuloSemana(s)}{s > hoje ? " (futura)" : ""}</option>
+          ))}
         </select>
         {salvando && <span className="text-xs text-brand-muted">Salvando...</span>}
       </div>
