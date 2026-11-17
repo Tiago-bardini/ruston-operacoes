@@ -71,14 +71,16 @@ export default function Tratativas({ clienteId, tratativas, onChange }: {
   onChange: (lista: Tratativa[]) => void;
 }) {
   const supabase = createClient();
-  const { podeEditar, isGerente, email } = useUsuarioPerfil();
+  // Qualquer perfil registra tratativa; Gerente e Coordenador mexem em todas, os demais só nas próprias
+  const { perfil, podeEditar, email } = useUsuarioPerfil();
+  const podeRegistrar = !!perfil;
   const [form, setForm] = useState(formVazio());
   const [editando, setEditando] = useState<string | null>(null);
   const [aberto, setAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
-  const podeMexer = (t: Tratativa) => isGerente || (podeEditar && !!email && t.registrado_por?.toLowerCase() === email.toLowerCase());
+  const podeMexer = (t: Tratativa) => podeEditar || (!!email && t.registrado_por?.toLowerCase() === email.toLowerCase());
 
   function novo() {
     setForm(formVazio());
@@ -148,7 +150,7 @@ export default function Tratativas({ clienteId, tratativas, onChange }: {
         <p className="text-[10px] font-semibold uppercase tracking-wide text-brand-muted">
           Tratativas realizadas {tratativas.length > 0 && `· ${tratativas.length}`}
         </p>
-        {podeEditar && !aberto && (
+        {podeRegistrar && !aberto && (
           <button className="btn px-3 py-1 text-xs" onClick={novo}>+ Registrar tratativa</button>
         )}
       </div>
