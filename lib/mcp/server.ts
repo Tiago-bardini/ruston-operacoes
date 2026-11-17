@@ -15,11 +15,12 @@ import { PRAZO_EDICAO_DIAS } from "@/lib/mcp/envios";
 const VERSOES = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const INSTRUCOES =
-  "Ruston Operações: sistema da operação (carteira de clientes, FCA, tratativas de churn, planejamento/ROI e pesquisas). Fale em português. " +
+  "Ruston Operações: sistema da operação (carteira de clientes, FCA, tratativas de churn, planejamento/ROI, metas dos clientes e pesquisas). Fale em português. " +
   "Use buscar_clientes quando não tiver certeza do nome do cliente. Nunca invente notas ou números: pergunte o que faltar. " +
   `Se o usuário disser que enviou algo errado, use listar_meus_envios para achar o envio e editar_envio, desfazer_envio ou excluir_envio para corrigir (prazo de ${PRAZO_EDICAO_DIAS} dias). ` +
   "Para churn: cadastrar_tratativa_churn abre uma tratativa, atualizar_tratativa_churn muda os dados, registrar_acompanhamento_churn anota o andamento e encerrar_tratativa_churn fecha com o resultado. " +
   "Antes de abrir uma tratativa nova, confira com ver_tratativas_churn se o cliente já tem uma em andamento. " +
+  "Metas dos clientes: ver_metas_clientes mostra meta x resultado de leads e faturamento do mês e as pendências por GP; salvar_meta_cliente preenche a meta ou o resultado. " +
   "Sempre mostre o antes e o depois e espere confirmação antes de gravar. Ferramentas com o parâmetro confirmar devolvem uma prévia quando chamadas sem ele: mostre a prévia e só chame com confirmar=true depois do OK do usuário.";
 
 type Rpc = { jsonrpc: "2.0"; id?: string | number | null; method: string; params?: any };

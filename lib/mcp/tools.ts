@@ -702,6 +702,101 @@ export const FERRAMENTAS: Ferramenta[] = [
     },
   },
 
+  // ============================================================ METAS DOS CLIENTES
+  {
+    name: "ver_metas_clientes",
+    title: "Ver metas dos clientes",
+    description:
+      "Metas do mês por cliente (mesma tela 🎯 Metas dos Clientes): meta e resultado de leads e de faturamento, % de atingimento e a situação " +
+      "(sem_meta, meta_incompleta, aguardando_resultado, sem_resultado, completo). O resultado só é cobrado depois que o mês fecha. " +
+      "Traz também as pendências por GP, para cobrar o time. Sem ano/mês usa o mês atual. Filtros opcionais: cliente, gp (nome do GP/Account), so_pendentes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ano: { type: "integer" }, mes: { type: "integer", minimum: 1, maximum: 12 },
+        cliente: CLIENTE,
+        gp: { type: "string", description: "Nome (ou parte) do GP/Account; 'sem' = clientes sem GP" },
+        so_pendentes: { type: "boolean", default: false },
+      },
+    },
+    annotations: { readOnlyHint: true },
+    async run(u, a) {
+      const { ano, mes } = anoMesPadrao(a);
+      const [cs, mt] = await Promise.all([clientesDasMetas(u), u.supabase.from("ruston_cliente_metas_mensal").select("*").eq("ano", ano).eq("mes", mes)]);
+      const metas = new Map((ok(mt) as any[]).map((m) => [m.cliente_id, m]));
+      const fechado = mesFechado(ano, mes);
+      let linhas = cs.map((c) => linhaMeta(c, metas.get(c.id), fechado));
+      const porGP = new Map<string, { gp: string; total: number; pendentes: number; clientes_pendentes: string[] }>();
+      for (const l of linhas) {
+        const it = porGP.get(l.gp) ?? { gp: l.gp, total: 0, pendentes: 0, clientes_pendentes: [] as string[] };
+        it.total++;
+        if (l.pendente) { it.pendentes++; it.clientes_pendentes.push(l.cliente); }
+        porGP.set(l.gp, it);
+      }
+      if (a.cliente) { const c = await acharCliente(u, a.cliente); linhas = linhas.filter((l) => l.id === c.id); }
+      if (a.gp) {
+        const n = normalizar(a.gp);
+        linhas = linhas.filter((l) => (n === "sem" ? l.gp === "Sem GP" : normalizar(l.gp).includes(n)));
+      }
+      if (a.so_pendentes) linhas = linhas.filter((l) => l.pendente);
+      return {
+        mes: `${String(mes).padStart(2, "0")}/${ano}`,
+        mes_fechado: fechado,
+        total_clientes: linhas.length,
+        pendentes: linhas.filter((l) => l.pendente).length,
+        pendencias_por_gp: Array.from(porGP.values()).sort((x, y) => y.pendentes - x.pendentes || x.gp.localeCompare(y.gp)),
+        clientes: linhas.map(({ id, pendente, ...resto }) => ({ ...resto, pendente })),
+      };
+    },
+  },
+  {
+    name: "salvar_meta_cliente",
+    title: "Preencher meta / resultado do cliente",
+    description:
+      "Preenche a meta e/ou o resultado do mês de um cliente: meta_leads, resultado_leads (inteiros), meta_faturamento, resultado_faturamento (R$) e observacoes. " +
+      "Só os campos enviados mudam (null limpa). Sem ano/mês usa o mês atual; para lançar o resultado de um mês que já fechou, informe o mês." + DUAS_ETAPAS,
+    inputSchema: {
+      type: "object",
+      properties: {
+        cliente: CLIENTE,
+        ano: { type: "integer" }, mes: { type: "integer", minimum: 1, maximum: 12 },
+        meta_leads: { type: ["integer", "null"] }, resultado_leads: { type: ["integer", "null"] },
+        meta_faturamento: { type: ["number", "null"] }, resultado_faturamento: { type: ["number", "null"] },
+        observacoes: TEXTO_OU_NULL,
+        confirmar: CONFIRMA,
+      },
+      required: ["cliente"],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    async run(u, a) {
+      const { ano, mes } = anoMesPadrao(a);
+      const c = await acharCliente(u, a.cliente);
+      const campos: Args = {};
+      for (const k of CAMPOS_META) {
+        if (a[k] === undefined) continue;
+        const v = a[k];
+        if (k !== "observacoes" && v !== null && (typeof v !== "number" || !isFinite(v) || v < 0)) throw new Error(`${k} precisa ser um número maior ou igual a zero.`);
+        campos[k] = k.endsWith("_leads") && v !== null ? Math.round(v) : v;
+      }
+      if (!Object.keys(campos).length) throw new Error(`Nada para gravar. Campos: ${CAMPOS_META.join(", ")}.`);
+      const atual = ok(await u.supabase.from("ruston_cliente_metas_mensal").select("*")
+        .eq("cliente_id", c.id).eq("ano", ano).eq("mes", mes).maybeSingle()) as any;
+      const mudancas = Object.keys(campos)
+        .filter((k) => (atual?.[k] ?? null) !== campos[k])
+        .map((k) => ({ campo: k, antes: atual?.[k] ?? null, depois: campos[k] }));
+      const mesTxt = `${String(mes).padStart(2, "0")}/${ano}`;
+      if (!mudancas.length) return { ok: true, acao: "sem mudança", cliente: c.nome, mes: mesTxt };
+      if (!a.confirmar) {
+        return { previa: true, cliente: c.nome, mes: mesTxt, acao: atual ? "atualizar" : "criar", mudancas, aviso: "Nada foi gravado. Mostre ao usuário e chame de novo com confirmar=true." };
+      }
+      const gravado = ok(await u.supabase.from("ruston_cliente_metas_mensal")
+        .upsert({ cliente_id: c.id, ano, mes, ...campos, atualizado_por: u.email, updated_at: new Date().toISOString() }, { onConflict: "cliente_id,ano,mes" })
+        .select().single()) as any;
+      const linha = linhaMeta(c, gravado, mesFechado(ano, mes));
+      return { ok: true, acao: atual ? "atualizado" : "criado", cliente: c.nome, mes: mesTxt, mudancas, situacao: linha.situacao, atingimento_leads_pct: linha.atingimento_leads_pct, atingimento_faturamento_pct: linha.atingimento_faturamento_pct };
+    },
+  },
+
   // ============================================================ PESQUISAS
   {
     name: "consultar_pesquisas",
@@ -736,6 +831,47 @@ export const FERRAMENTAS: Ferramenta[] = [
 ];
 
 // ------------------------------------------------------------ auxiliares
+
+const CAMPOS_META = ["meta_leads", "resultado_leads", "meta_faturamento", "resultado_faturamento", "observacoes"];
+
+/** Ano/mês informados ou o mês atual (horário de Brasília). */
+function anoMesPadrao(a: Args) {
+  const [y, m] = hojeBr().split("-").map(Number);
+  const ano = a.ano ?? y, mes = a.mes ?? m;
+  if (!mesValido(mes)) throw new Error("mes precisa ser de 1 a 12.");
+  return { ano, mes };
+}
+
+/** Mês já terminou? Só aí o resultado passa a ser cobrado (mesma regra da tela). */
+function mesFechado(ano: number, mes: number) {
+  const [y, m] = hojeBr().split("-").map(Number);
+  return ano * 12 + mes < y * 12 + m;
+}
+
+/** Clientes ativos (sem churn) que o usuário enxerga — mesma base da tela Metas dos Clientes. */
+async function clientesDasMetas(u: UsuarioMcp) {
+  let q = u.supabase.from("ruston_clientes_view")
+    .select("id, nome, squad_id, squad_nome, account_id, account_nome, churn_realizado").eq("ativo", true).order("nome");
+  if (u.squadId) q = q.eq("squad_id", u.squadId);
+  return (ok(await q) as any[]).filter((c) => !c.churn_realizado);
+}
+
+function linhaMeta(c: any, m: any, fechado: boolean) {
+  const temL = m?.meta_leads != null, temF = m?.meta_faturamento != null;
+  const situacao = !temL && !temF ? "sem_meta" : !temL || !temF ? "meta_incompleta" : !fechado ? "aguardando_resultado"
+    : m.resultado_leads == null || m.resultado_faturamento == null ? "sem_resultado" : "completo";
+  const pct = (meta: any, real: any) => (meta == null || real == null || Number(meta) <= 0 ? null : Math.round((Number(real) / Number(meta)) * 1000) / 10);
+  return {
+    id: c.id, cliente: c.nome, squad: c.squad_nome ?? null, gp: c.account_nome ?? "Sem GP",
+    meta_leads: m?.meta_leads ?? null, resultado_leads: m?.resultado_leads ?? null,
+    meta_faturamento: m?.meta_faturamento != null ? Number(m.meta_faturamento) : null,
+    resultado_faturamento: m?.resultado_faturamento != null ? Number(m.resultado_faturamento) : null,
+    atingimento_leads_pct: pct(m?.meta_leads, m?.resultado_leads),
+    atingimento_faturamento_pct: pct(m?.meta_faturamento, m?.resultado_faturamento),
+    situacao, pendente: ["sem_meta", "meta_incompleta", "sem_resultado"].includes(situacao),
+    observacoes: m?.observacoes ?? null, atualizado_por: m?.atualizado_por ?? null, atualizado_em: m?.updated_at ?? null,
+  };
+}
 
 function validarNotas(campos: Args) {
   for (const k of Object.keys(campos).filter((k) => k.startsWith("nota_"))) {
