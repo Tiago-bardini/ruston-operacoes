@@ -26,7 +26,7 @@ export const ROTAS_RESTRITAS: { prefixo: string; perfis: PerfilUsuario[] }[] = [
 export const GESTOR_ROTAS = [
   "/clientes", "/planejamento", "/churn", "/conferencia-ee",
   "/health-score", "/sla", "/radar-whatsapp", "/fca", "/pesquisas", "/playbook-nps",
-  "/monetizacao", "/conexao-ia",
+  "/monetizacao", "/conexao-ia", "/metas-clientes",
 ];
 // Caminhos fora do menu que todo logado usa
 const SEMPRE_LIBERADAS = ["/", "/acesso-negado", "/login"];

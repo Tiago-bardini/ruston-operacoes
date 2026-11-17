@@ -20,6 +20,7 @@ interface LogAlteracao {
 const TABELA_LABEL: Record<string, string> = {
   ruston_clientes: "Clientes",
   ruston_cliente_planejamento: "Planejamento do cliente",
+  ruston_cliente_metas_mensal: "Metas dos clientes",
   ruston_pessoas: "Pessoas",
   ruston_squads: "Squads",
   ruston_fca: "FCA",
