@@ -287,7 +287,7 @@ export const FERRAMENTAS: Ferramenta[] = [
     title: "Preencher / editar FCA",
     description:
       "Cria ou atualiza o FCA de um cliente na semana (referência = sexta-feira). Se já existir FCA nessa data, só os campos enviados mudam (null limpa). " +
-      "Notas de 0 a 10: resultado (peso 7), operacao_trafego (5), prazo (5), qualidade (4), relacionamento (4), roi (8). " +
+      "Notas de 0 a 10: resultado (peso 7), operacao_trafego (5), prazo (5), qualidade (4), relacionamento (4), roi (8). O ROI é opcional na semana (só sai no começo do mês seguinte): sem ele, a nota final usa os outros 5. " +
       "Status: rascunho, aguardando_validacao ou validado (validar só Gerente/Coordenador). " +
       `Alterar um FCA existente segue a regra de envios (autor em até ${PRAZO_EDICAO_DIAS} dias; FCA validado só Coordenador/Gerente).` + CONFIRMAR,
     inputSchema: {

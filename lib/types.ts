@@ -440,24 +440,22 @@ export const CRITERIOS_FCA = [
   },
 ] as const;
 
+/** Nota final do FCA (0 a 10), média ponderada. Os 5 critérios semanais são obrigatórios;
+ *  o ROI (peso 8) é opcional, porque só sai no começo do mês seguinte: sem ROI, a média
+ *  usa os outros 5 (pesos somam 25); com ROI, entra com peso 8 (pesos somam 33). */
 export function calcularNotaFinalFca(f: Partial<FcaAvaliacao>): number | null {
-  const notas = [
-    f.nota_resultado,
-    f.nota_operacao_trafego,
-    f.nota_prazo,
-    f.nota_qualidade,
-    f.nota_relacionamento,
-    f.nota_roi,
+  const obrigatorias: [number | null | undefined, number][] = [
+    [f.nota_resultado, 7],
+    [f.nota_operacao_trafego, 5],
+    [f.nota_prazo, 5],
+    [f.nota_qualidade, 4],
+    [f.nota_relacionamento, 4],
   ];
-  if (notas.some((n) => n == null)) return null;
-  const soma =
-    (f.nota_resultado ?? 0) * 7 +
-    (f.nota_operacao_trafego ?? 0) * 5 +
-    (f.nota_prazo ?? 0) * 5 +
-    (f.nota_qualidade ?? 0) * 4 +
-    (f.nota_relacionamento ?? 0) * 4 +
-    (f.nota_roi ?? 0) * 8;
-  return Math.round((soma / 33) * 100) / 100;
+  if (obrigatorias.some(([n]) => n == null)) return null;
+  const itens = f.nota_roi != null ? [...obrigatorias, [f.nota_roi, 8] as [number, number]] : obrigatorias;
+  const soma = itens.reduce((s, [n, peso]) => s + Number(n) * peso, 0);
+  const pesos = itens.reduce((s, [, peso]) => s + peso, 0);
+  return Math.round((soma / pesos) * 100) / 100;
 }
 
 export function bandeiraDaNota(nota: number | null): BandeiraFca {
