@@ -134,7 +134,10 @@ export const FERRAMENTAS: Ferramenta[] = [
         busca: { type: "string", description: "Parte do nome" },
         etapa: { type: "string", enum: Object.keys(ETAPA_LABEL) },
         squad: { type: "string", description: "Nome do squad" },
+        gp: { type: "string", description: "Nome (ou parte) do GP/Account" },
         incluir_inativos: { type: "boolean" },
+        limite: { type: "integer", default: 100, description: "Máx. 200 por página" },
+        pagina: { type: "integer", default: 1 },
       },
     },
     annotations: { readOnlyHint: true },
@@ -143,8 +146,13 @@ export const FERRAMENTAS: Ferramenta[] = [
       if (a.busca) lista = lista.filter((c) => normalizar(c.nome).includes(normalizar(a.busca)));
       if (a.etapa) lista = lista.filter((c) => c.etapa === a.etapa);
       if (a.squad) lista = lista.filter((c) => normalizar(c.squad_nome ?? "").includes(normalizar(a.squad)));
+      if (a.gp) lista = lista.filter((c) => normalizar(c.account_nome ?? "").includes(normalizar(a.gp)));
+      const limite = Math.min(Math.max(Number(a.limite) || 100, 1), 200);
+      const pagina = Math.max(Number(a.pagina) || 1, 1);
+      const total = lista.length;
+      lista = lista.slice((pagina - 1) * limite, pagina * limite);
       return {
-        total: lista.length,
+        total, pagina, paginas: Math.max(Math.ceil(total / limite), 1),
         clientes: lista.map((c) => ({
           id: c.id, nome: c.nome, etapa: ETAPA_LABEL[c.etapa as keyof typeof ETAPA_LABEL] ?? c.etapa,
           mrr: c.mrr, fee: c.fee, tier: c.tier, squad: c.squad_nome, coordenador: c.coordenador_nome,
@@ -157,12 +165,13 @@ export const FERRAMENTAS: Ferramenta[] = [
   {
     name: "ver_cliente",
     title: "Ver ficha do cliente",
-    description: "Ficha de um cliente: cadastro, últimos FCAs, tratativas de churn, ROI dos últimos meses e pesquisas.",
+    description: "Ficha de um cliente: cadastro, últimos FCAs, tratativas de churn, ROI dos últimos meses, pesquisas, entregáveis previstos, oportunidades de monetização e a meta do mês.",
     inputSchema: { type: "object", properties: { cliente: CLIENTE }, required: ["cliente"] },
     annotations: { readOnlyHint: true },
     async run(u, a) {
       const c = await acharCliente(u, a.cliente);
-      const [fcas, trat, roi, pesq] = await Promise.all([
+      const { ano, mes } = anoMesPadrao({});
+      const [fcas, trat, roi, pesq, entregas, mon, meta, semanas] = await Promise.all([
         u.supabase.from("ruston_fca_view").select("*").eq("cliente_id", c.id).order("data_referencia", { ascending: false }).limit(4),
         u.supabase.from("ruston_churn_solicitacoes").select("id, data_solicitacao, status, risco, motivo, prazo, encerrado_em, motivo_final")
           .eq("cliente_id", c.id).order("data_solicitacao", { ascending: false }).limit(5),
@@ -170,13 +179,25 @@ export const FERRAMENTAS: Ferramenta[] = [
           .eq("cliente_id", c.id).order("ano", { ascending: false }).order("mes", { ascending: false }).limit(3),
         u.supabase.from("ruston_pesquisas").select("tipo, semana_ee, criada_em, respondida_em, nota")
           .eq("cliente_id", c.id).eq("cancelada", false).order("criada_em", { ascending: false }).limit(5),
+        u.supabase.from("ruston_entregas_view").select("tipo_entrega_nome, tipo_entrega_categoria, quantidade_mensal, quantidade_texto, percentual_alocacao, valor_mensal")
+          .eq("cliente_id", c.id).eq("ativo", true),
+        u.supabase.from("ruston_monetizacao_view").select("titulo, estagio, valor_mrr_estimado, valor_onetime_estimado, probabilidade, data_prevista_fechamento, data_ganho, dias_parado")
+          .eq("cliente_id", c.id).eq("ativo", true),
+        u.supabase.from("ruston_cliente_metas_mensal").select("*").eq("cliente_id", c.id).eq("ano", ano).eq("mes", mes).maybeSingle(),
+        u.supabase.from("ruston_cliente_metas_semanal").select("*").eq("cliente_id", c.id).eq("ano", ano).eq("mes", mes),
       ]);
+      // Blocos novos não derrubam a ficha se uma tabela falhar
+      const seguro = (r: { data: any; error: any }) => (r.error ? { erro: r.error.message } : r.data);
+      const metaMes = meta.error || semanas.error ? null : linhaMeta(c, meta.data as MetaMensal | null, (semanas.data ?? []) as MetaSemanal[], ano, mes, hojeIsoBr());
       return {
         cliente: c,
         fca_recentes: (ok(fcas) as any[]).map(fcaResumo),
         tratativas_churn: ok(trat),
         roi_recente: ok(roi),
         pesquisas: (ok(pesq) as any[]).map((p) => ({ ...p, nome: nomePesquisa(p.tipo, p.semana_ee) })),
+        entregaveis: seguro(entregas),
+        monetizacao: seguro(mon),
+        meta_do_mes: metaMes ? { mes: `${String(mes).padStart(2, "0")}/${ano}`, situacao: metaMes.situacao, leads: metaMes.leads, faturamento: metaMes.faturamento, semanas_sem_lancar: metaMes.semanas_sem_lancar } : null,
       };
     },
   },
@@ -901,6 +922,395 @@ export const FERRAMENTAS: Ferramenta[] = [
           enviada_por: p.enviada_por, criada_em: p.criada_em, respondida_em: p.respondida_em, nota: p.nota, respostas,
         };
       });
+    },
+  },
+  // ============================================================ PERMISSÕES
+  {
+    name: "minhas_permissoes",
+    title: "Minhas permissões",
+    description: "Mostra quem é o usuário conectado, o perfil (gerente, coordenador ou gestor), o escopo (squad ou unidade inteira) e o que ele pode consultar e gravar pelo MCP.",
+    inputSchema: { type: "object", properties: {} },
+    annotations: { readOnlyHint: true },
+    async run(u) {
+      const lista = ferramentasDo(u);
+      let squad: string | null = null;
+      if (u.squadId) squad = ((ok(await u.supabase.from("ruston_squads").select("nome").eq("id", u.squadId).maybeSingle()) as any)?.nome) ?? u.squadId;
+      const rotuloPapel = { gerente: "Gerente", coordenador: "Coordenador", gestor: "Gestor de Projetos" }[u.papel];
+      return {
+        usuario: u.email,
+        perfil: rotuloPapel,
+        escopo: u.squadId ? `só o squad ${squad}` : "unidade inteira (todos os squads)",
+        somente_leitura: u.somenteLeitura,
+        pode_consultar: lista.filter((f) => f.annotations.readOnlyHint).map((f) => `${f.name}: ${f.title}`),
+        pode_gravar: lista.filter((f) => !f.annotations.readOnlyHint).map((f) => `${f.name}: ${f.title}`),
+        regras: [
+          "Toda gravação mostra uma prévia (antes/depois) e só grava depois do OK (confirmar=true).",
+          ehGestao(u)
+            ? "Coordenador/Gerente podem corrigir envios sem prazo e validar FCA."
+            : `Você pode corrigir o que enviou em até ${PRAZO_EDICAO_DIAS} dias. FCA validado só Coordenador/Gerente altera.`,
+          "Remuneração das pessoas nunca aparece pelo MCP.",
+        ],
+      };
+    },
+  },
+
+  // ============================================================ EQUIPE
+  {
+    name: "ver_equipe",
+    title: "Ver equipe",
+    description: "Colaboradores ativos (do seu squad, para coordenador e gestor; da unidade, para o gerente) com cargo, squad, coordenador do squad, carteira (nº de clientes como GP, tráfego e designer) e MRR sob responsabilidade como GP. Não mostra remuneração. Filtros: squad, cargo, nome.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        squad: { type: "string" }, cargo: { type: "string", description: "ex.: gestor_projetos, gestor_trafego, designer, coordenador" },
+        nome: { type: "string" },
+      },
+    },
+    annotations: { readOnlyHint: true },
+    async run(u, a) {
+      let qc = u.supabase.from("ruston_clientes_view").select("id, mrr, squad_id, account_id, gestor_trafego_id, designer_id").eq("ativo", true);
+      if (u.squadId) qc = qc.eq("squad_id", u.squadId);
+      const [ps, sq, cs] = await Promise.all([
+        u.supabase.from("ruston_pessoas").select("id, nome, email, cargo, squad_id, nivel_senioridade, nivel_v, compartilhado_entre_squads").eq("ativo", true).order("nome"),
+        u.supabase.from("ruston_squads").select("id, nome, coordenador_id").eq("ativo", true),
+        qc,
+      ]);
+      const squads = ok(sq) as any[];
+      const nomeSquad = new Map(squads.map((s) => [s.id, s.nome as string]));
+      const clientes = ok(cs) as any[];
+      let pessoas = ok(ps) as any[];
+      const nomePessoa = new Map(pessoas.map((p) => [p.id, p.nome as string]));
+      if (u.squadId) pessoas = pessoas.filter((p) => p.squad_id === u.squadId || p.compartilhado_entre_squads || clientes.some((c) => [c.account_id, c.gestor_trafego_id, c.designer_id].includes(p.id)));
+      if (a.squad) pessoas = pessoas.filter((p) => normalizar(nomeSquad.get(p.squad_id) ?? "").includes(normalizar(a.squad)));
+      if (a.cargo) pessoas = pessoas.filter((p) => normalizar(p.cargo ?? "").includes(normalizar(a.cargo)));
+      if (a.nome) pessoas = pessoas.filter((p) => normalizar(p.nome).includes(normalizar(a.nome)));
+      return {
+        total: pessoas.length,
+        pessoas: pessoas.map((p) => {
+          const comoGp = clientes.filter((c) => c.account_id === p.id);
+          const coordId = squads.find((s) => s.id === p.squad_id)?.coordenador_id ?? null;
+          return {
+            nome: p.nome, email: p.email, cargo: p.cargo, squad: nomeSquad.get(p.squad_id) ?? null,
+            coordenador_do_squad: coordId && coordId !== p.id ? nomePessoa.get(coordId) ?? null : null,
+            senioridade: p.nivel_senioridade, nivel_v: p.nivel_v, compartilhado_entre_squads: p.compartilhado_entre_squads,
+            carteira: {
+              como_gp: comoGp.length,
+              como_trafego: clientes.filter((c) => c.gestor_trafego_id === p.id).length,
+              como_designer: clientes.filter((c) => c.designer_id === p.id).length,
+              mrr_como_gp: comoGp.reduce((s, c) => s + (Number(c.mrr) || 0), 0),
+            },
+          };
+        }),
+      };
+    },
+  },
+
+  // ============================================================ VISÃO MACRO
+  {
+    name: "visao_macro",
+    title: "Visão macro (squad ou unidade)",
+    description: "Resumo consolidado do mês no seu escopo (coordenador/gestor: o squad; gerente: a unidade): MRR total, clientes ativos por etapa, churn do mês (clientes e MRR), tratativas de churn abertas por risco, bandeiras do último FCA, nota média das pesquisas respondidas no mês, monetização ganha no mês e metas x realizado. Com quebra por squad e por GP. Sem ano/mês usa o mês atual.",
+    inputSchema: { type: "object", properties: { ano: { type: "integer" }, mes: { type: "integer", minimum: 1, maximum: 12 } } },
+    annotations: { readOnlyHint: true },
+    async run(u, a) {
+      const { ano, mes } = anoMesPadrao(a);
+      const ini = `${ano}-${String(mes).padStart(2, "0")}-01`;
+      const fim = new Date(Date.UTC(ano, mes, 0)).toISOString().slice(0, 10);
+      const avisos: string[] = [];
+      async function talvez(rotulo: string, p: PromiseLike<{ data: any; error: any }> | null): Promise<any[] | null> {
+        if (!p) return null;
+        const r = await p;
+        if (r.error) { avisos.push(`${rotulo}: ${r.error.message}`); return null; }
+        return r.data as any[];
+      }
+      let qc = u.supabase.from("ruston_clientes_view").select("id, nome, etapa, mrr, ativo, churn_realizado, data_churn, squad_id, squad_nome, account_nome");
+      if (u.squadId) qc = qc.eq("squad_id", u.squadId);
+      const todos = ok(await qc) as any[];
+      const ativos = todos.filter((c) => c.ativo);
+      const ids = todos.map((c) => c.id);
+      const churnMes = todos.filter((c) => c.churn_realizado && c.data_churn && c.data_churn >= ini && c.data_churn <= fim);
+
+      let qMon = u.supabase.from("ruston_monetizacao_view").select("cliente_squad_id, estagio, valor_mrr_estimado, valor_onetime_estimado, data_ganho, ativo").eq("ativo", true);
+      if (u.squadId) qMon = qMon.eq("cliente_squad_id", u.squadId);
+      let qMs = u.supabase.from("ruston_metas_squad").select("*").eq("ano", ano).eq("mes", mes).order("ordem");
+      if (u.squadId) qMs = qMs.eq("squad_id", u.squadId);
+
+      const [trat, fcas, pesq, mon, mSquad, mEmp, sqs] = await Promise.all([
+        talvez("tratativas", u.supabase.from("ruston_churn_solicitacoes").select("cliente_id, risco, status").in("status", ABERTOS).in("cliente_id", ids)),
+        talvez("fca", u.supabase.from("ruston_fca_view").select("*").in("cliente_id", ativos.map((c) => c.id)).order("data_referencia", { ascending: false }).limit(3000)),
+        talvez("pesquisas", u.supabase.from("ruston_pesquisas").select("cliente_id, nota, respondida_em").eq("cancelada", false).gte("respondida_em", ini).lte("respondida_em", fim + "T23:59:59").in("cliente_id", ids)),
+        talvez("monetização", qMon),
+        talvez("metas do squad", qMs),
+        talvez("metas da unidade", u.supabase.from("ruston_metas_empresa").select("*").eq("ano", ano).eq("mes", mes).order("ordem")),
+        talvez("squads", u.supabase.from("ruston_squads").select("id, nome")),
+      ]);
+      const nomeSquad = new Map((sqs ?? []).map((s: any) => [s.id, s.nome]));
+
+      const ultimoFca = new Map<string, any>();
+      for (const f of fcas ?? []) if (!ultimoFca.has(f.cliente_id)) ultimoFca.set(f.cliente_id, f);
+      const bandeiraDe = (id: string): string => {
+        const f = ultimoFca.get(id);
+        if (!f) return "sem_dado";
+        return f.bandeira ?? bandeiraDaNota(f.nota_final ?? calcularNotaFinalFca(f));
+      };
+      const tratAbertas = trat ?? [];
+      const notas = (pesq ?? []).filter((p) => p.nota != null).map((p) => Number(p.nota));
+      const ganhas = (mon ?? []).filter((o) => o.data_ganho && o.data_ganho >= ini && o.data_ganho <= fim);
+
+      const agrupa = (chave: (c: any) => string) => {
+        const m = new Map<string, any>();
+        for (const c of ativos) {
+          const k = chave(c);
+          const it = m.get(k) ?? { nome: k, clientes: 0, mrr: 0, fca_vermelho: 0, fca_amarelo: 0, fca_sem_dado: 0, tratativas_abertas: 0 };
+          it.clientes++; it.mrr += Number(c.mrr) || 0;
+          const b = bandeiraDe(c.id);
+          if (b === "vermelho") it.fca_vermelho++; else if (b === "amarelo") it.fca_amarelo++; else if (b === "sem_dado") it.fca_sem_dado++;
+          it.tratativas_abertas += tratAbertas.filter((t) => t.cliente_id === c.id).length;
+          m.set(k, it);
+        }
+        return Array.from(m.values()).sort((x, y) => y.mrr - x.mrr);
+      };
+      const contaEtapa: Record<string, number> = {};
+      for (const c of ativos) { const e = ETAPA_LABEL[c.etapa as keyof typeof ETAPA_LABEL] ?? c.etapa; contaEtapa[e] = (contaEtapa[e] ?? 0) + 1; }
+      const bandeiras: Record<string, number> = { verde: 0, amarelo: 0, vermelho: 0, sem_dado: 0 };
+      for (const c of ativos) { const b = bandeiraDe(c.id); bandeiras[b] = (bandeiras[b] ?? 0) + 1; }
+      const metaFmt = (m: any) => ({ metrica: m.metrica_label ?? m.metrica, unidade: m.unidade, meta: m.valor_meta, realizado: m.valor_realizado, observacoes: m.observacoes });
+
+      return {
+        mes: `${String(mes).padStart(2, "0")}/${ano}`,
+        escopo: u.squadId ? "seu squad" : "unidade inteira",
+        mrr_total: ativos.reduce((s, c) => s + (Number(c.mrr) || 0), 0),
+        clientes_ativos: ativos.length,
+        clientes_por_etapa: contaEtapa,
+        churn_do_mes: { clientes: churnMes.length, mrr: churnMes.reduce((s, c) => s + (Number(c.mrr) || 0), 0), quais: churnMes.map((c) => c.nome) },
+        tratativas_abertas: {
+          total: tratAbertas.length,
+          risco_alto: tratAbertas.filter((t) => t.risco === "alto").length,
+          risco_medio: tratAbertas.filter((t) => t.risco === "medio").length,
+          risco_baixo: tratAbertas.filter((t) => t.risco === "baixo").length,
+        },
+        fca_ultima_bandeira: bandeiras,
+        pesquisas_do_mes: { respondidas: notas.length, nota_media_0a5: notas.length ? Math.round((notas.reduce((s, n) => s + n, 0) / notas.length) * 10) / 10 : null },
+        monetizacao_ganha_no_mes: {
+          quantidade: ganhas.length,
+          mrr: ganhas.reduce((s, o) => s + (Number(o.valor_mrr_estimado) || 0), 0),
+          one_time: ganhas.reduce((s, o) => s + (Number(o.valor_onetime_estimado) || 0), 0),
+        },
+        metas_unidade: (mEmp ?? []).map(metaFmt),
+        metas_squad: (mSquad ?? []).map((m) => ({ squad: nomeSquad.get(m.squad_id) ?? m.squad_id, ...metaFmt(m) })),
+        por_squad: u.squadId ? undefined : agrupa((c) => c.squad_nome ?? "Sem squad"),
+        por_gp: agrupa((c) => c.account_nome ?? "Sem GP"),
+        avisos: avisos.length ? avisos : undefined,
+      };
+    },
+  },
+
+  // ============================================================ ENTREGÁVEIS
+  {
+    name: "ver_entregaveis",
+    title: "Ver entregáveis previstos",
+    description: "Entregáveis previstos por cliente (tipo de entrega, categoria, quantidade mensal, % de alocação e valor). Sem cliente: todos do seu escopo, com filtro opcional por categoria (recorrente, pontual_saber, pontual_ter, componente).",
+    inputSchema: { type: "object", properties: { cliente: CLIENTE, categoria: { type: "string", enum: ["recorrente", "pontual_saber", "pontual_ter", "componente"] } } },
+    annotations: { readOnlyHint: true },
+    async run(u, a) {
+      let q = u.supabase.from("ruston_entregas_view").select("*").eq("ativo", true).order("cliente_nome");
+      if (a.cliente) q = q.eq("cliente_id", (await acharCliente(u, a.cliente)).id);
+      else if (u.squadId) q = q.eq("cliente_squad_id", u.squadId);
+      if (a.categoria) q = q.eq("tipo_entrega_categoria", a.categoria);
+      const rows = ok(await q) as any[];
+      return {
+        total: rows.length,
+        entregaveis: rows.map((e) => ({
+          cliente: e.cliente_nome, entrega: e.tipo_entrega_nome, categoria: e.tipo_entrega_categoria,
+          quantidade_mensal: e.quantidade_mensal, quantidade_texto: e.quantidade_texto, unidade: e.unidade_padrao,
+          alocacao_pct: e.percentual_alocacao, valor_mensal: e.valor_mensal, observacoes: e.observacoes,
+        })),
+      };
+    },
+  },
+
+  // ============================================================ MONETIZAÇÃO
+  {
+    name: "ver_monetizacao",
+    title: "Ver monetização (upsell)",
+    description: "Oportunidades de monetização (upsell) da carteira: cliente, título, estágio, MRR e one-time estimados, probabilidade, previsão de fechamento, ganho/perda e dias parado. Traz também a meta de monetização do mês por squad. Filtros: cliente, estagio, incluir_inativas.",
+    inputSchema: {
+      type: "object",
+      properties: { cliente: CLIENTE, estagio: { type: "string" }, incluir_inativas: { type: "boolean" }, ano: { type: "integer" }, mes: { type: "integer", minimum: 1, maximum: 12 } },
+    },
+    annotations: { readOnlyHint: true },
+    async run(u, a) {
+      const { ano, mes } = anoMesPadrao(a);
+      let q = u.supabase.from("ruston_monetizacao_view").select("*").order("updated_at", { ascending: false }).limit(300);
+      if (!a.incluir_inativas) q = q.eq("ativo", true);
+      if (a.cliente) q = q.eq("cliente_id", (await acharCliente(u, a.cliente)).id);
+      else if (u.squadId) q = q.eq("cliente_squad_id", u.squadId);
+      if (a.estagio) q = q.eq("estagio", a.estagio);
+      let qm = u.supabase.from("ruston_monetizacao_metas").select("squad_id, ano, mes, valor_meta").eq("ano", ano).eq("mes", mes);
+      if (u.squadId) qm = qm.eq("squad_id", u.squadId);
+      const [ops, metas, sq] = await Promise.all([q, qm, u.supabase.from("ruston_squads").select("id, nome")]);
+      const nomeSquad = new Map((ok(sq) as any[]).map((s) => [s.id, s.nome]));
+      const rows = ok(ops) as any[];
+      return {
+        metas_do_mes: (ok(metas) as any[]).map((m) => ({ squad: nomeSquad.get(m.squad_id) ?? m.squad_id, meta: m.valor_meta })),
+        total: rows.length,
+        oportunidades: rows.map((o) => ({
+          id: o.id, cliente: o.cliente_nome, squad: o.squad_nome, gp: o.gp_nome, responsavel: o.responsavel_nome,
+          titulo: o.titulo, descricao: o.descricao, estagio: o.estagio, mrr_estimado: o.valor_mrr_estimado, one_time_estimado: o.valor_onetime_estimado,
+          probabilidade: o.probabilidade, previsao_fechamento: o.data_prevista_fechamento, ganho_em: o.data_ganho, perdido_em: o.data_perda,
+          motivo_perda: o.motivo_perda, aplicado_no_mrr: o.aplicado_no_mrr, dias_parado: o.dias_parado, ativo: o.ativo,
+        })),
+      };
+    },
+  },
+
+  // ============================================================ FORECAST
+  {
+    name: "ver_forecast",
+    title: "Ver forecast da unidade",
+    description: "Forecast mensal da unidade: meta de MRR, aquisição e upsell (MRR e one-time) projetados x realizados, churn projetado x realizado, MRR realizado e fechamento do mês. Sem mês: os 12 meses do ano.",
+    inputSchema: { type: "object", properties: { ano: { type: "integer" }, mes: { type: "integer", minimum: 1, maximum: 12 } } },
+    annotations: { readOnlyHint: true },
+    papeis: ["gerente", "coordenador"],
+    async run(u, a) {
+      const ano = a.ano ?? Number(hojeIsoBr().slice(0, 4));
+      let q = u.supabase.from("ruston_forecast").select("*").eq("ano", ano).order("mes");
+      if (a.mes) q = q.eq("mes", a.mes);
+      const rows = ok(await q) as any[];
+      return rows.map((f) => ({
+        mes: `${String(f.mes).padStart(2, "0")}/${f.ano}`, meta_mrr: f.meta_mrr, mrr_realizado: f.mrr_realizado,
+        aquisicao: { mrr_projetado: f.mrr_aquisicao_projetado, mrr_realizado: f.mrr_aquisicao_realizado, onetime_projetado: f.onetime_aquisicao_projetado, onetime_realizado: f.onetime_aquisicao_realizado },
+        upsell: { mrr_projetado: f.mrr_upsell_projetado, mrr_realizado: f.mrr_upsell_realizado, onetime_projetado: f.onetime_upsell_projetado, onetime_realizado: f.onetime_upsell_realizado },
+        churn: { pct_projetado: f.churn_projetado_pct, clientes_projetado: f.clientes_churn_projetado, clientes_realizado: f.clientes_churn_realizado },
+        fechado: f.fechado, fechado_em: f.fechado_em, observacoes: f.observacoes,
+      }));
+    },
+  },
+
+  // ============================================================ HISTÓRICO DE ALTERAÇÕES
+  {
+    name: "ver_historico_alteracoes",
+    title: "Ver histórico de alterações",
+    description: "Quem incluiu, alterou ou excluiu dados no sistema e quando (tela e MCP), com os campos que mudaram (antes/depois). O coordenador vê só o histórico dos clientes do seu escopo. Filtros: cliente, usuario (e-mail), dias (padrão 7, máx. 90), limite (padrão 50, máx. 200).",
+    inputSchema: {
+      type: "object",
+      properties: { cliente: CLIENTE, usuario: { type: "string" }, dias: { type: "integer", default: 7 }, limite: { type: "integer", default: 50 } },
+    },
+    annotations: { readOnlyHint: true },
+    papeis: ["gerente", "coordenador"],
+    async run(u, a) {
+      const dias = Math.min(Math.max(Number(a.dias) || 7, 1), 90);
+      const desde = new Date(Date.now() - dias * 86_400_000).toISOString();
+      let q = u.supabase.from("ruston_log_alteracoes").select("*").gte("criado_em", desde)
+        .order("criado_em", { ascending: false }).limit(Math.min(Number(a.limite) || 50, 200));
+      if (a.usuario) q = q.ilike("usuario_email", `%${a.usuario}%`);
+      let ids: string[] | null = null;
+      if (a.cliente) ids = [(await acharCliente(u, a.cliente)).id];
+      else if (u.squadId) ids = (await carteira(u, true)).map((c) => c.id);
+      if (ids) {
+        if (!ids.length) return { total: 0, alteracoes: [] };
+        const lista = ids.join(",");
+        q = q.or(`registro_id.in.(${lista}),depois->>cliente_id.in.(${lista}),antes->>cliente_id.in.(${lista})`);
+      }
+      const rows = ok(await q) as any[];
+      return {
+        periodo: `últimos ${dias} dia(s)`,
+        total: rows.length,
+        alteracoes: rows.map((r) => ({
+          quando: dataHoraBr(new Date(r.criado_em)), quem: r.usuario_email ?? "sistema", acao: r.acao, tabela: r.tabela,
+          registro: r.registro_nome ?? r.registro_id, campos: r.campos_alterados,
+          antes: r.acao === "edicao" ? r.antes : undefined, depois: r.acao === "edicao" ? r.depois : undefined,
+        })),
+      };
+    },
+  },
+
+  // ============================================================ METAS DA UNIDADE E DOS SQUADS
+  {
+    name: "ver_metas_unidade",
+    title: "Ver metas da unidade e dos squads",
+    description: "Metas do mês da unidade (tela Metas) e dos squads, com meta, realizado e observações de cada métrica. Coordenador e gestor veem as da unidade e as do próprio squad. Sem ano/mês usa o mês atual.",
+    inputSchema: { type: "object", properties: { ano: { type: "integer" }, mes: { type: "integer", minimum: 1, maximum: 12 } } },
+    annotations: { readOnlyHint: true },
+    async run(u, a) {
+      const { ano, mes } = anoMesPadrao(a);
+      let qs = u.supabase.from("ruston_metas_squad").select("*").eq("ano", ano).eq("mes", mes).order("ordem");
+      if (u.squadId) qs = qs.eq("squad_id", u.squadId);
+      const [emp, sq, squads] = await Promise.all([
+        u.supabase.from("ruston_metas_empresa").select("*").eq("ano", ano).eq("mes", mes).order("ordem"),
+        qs, u.supabase.from("ruston_squads").select("id, nome"),
+      ]);
+      const nomeSquad = new Map((ok(squads) as any[]).map((s) => [s.id, s.nome]));
+      const fmt = (m: any) => ({ id: m.id, metrica: m.metrica_label ?? m.metrica, chave: m.metrica, unidade: m.unidade, meta: m.valor_meta, realizado: m.valor_realizado, observacoes: m.observacoes });
+      return {
+        mes: `${String(mes).padStart(2, "0")}/${ano}`,
+        unidade: (ok(emp) as any[]).map(fmt),
+        squads: (ok(sq) as any[]).map((m) => ({ squad: nomeSquad.get(m.squad_id) ?? m.squad_id, ...fmt(m) })),
+      };
+    },
+  },
+  {
+    name: "salvar_meta_unidade",
+    title: "Alterar meta da unidade ou do squad",
+    description:
+      "Altera a meta, o realizado ou as observações de uma métrica JÁ CADASTRADA no mês (métricas novas são criadas na tela Metas). " +
+      "nivel: unidade ou squad. Coordenador e gestor alteram a unidade e o próprio squad. Use ver_metas_unidade para ver as métricas e o id." + DUAS_ETAPAS,
+    inputSchema: {
+      type: "object",
+      properties: {
+        nivel: { type: "string", enum: ["unidade", "squad"] },
+        metrica: { type: "string", description: "id da meta (de ver_metas_unidade) ou nome da métrica" },
+        squad: { type: "string", description: "Só para o gerente, com nivel=squad" },
+        ano: { type: "integer" }, mes: { type: "integer", minimum: 1, maximum: 12 },
+        valor_meta: { type: ["number", "null"] }, valor_realizado: { type: ["number", "null"] }, observacoes: TEXTO_OU_NULL,
+        confirmar: CONFIRMA,
+      },
+      required: ["nivel", "metrica"],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    async run(u, a) {
+      if (u.somenteLeitura) throw new Error("Este acesso é somente leitura.");
+      const { ano, mes } = anoMesPadrao(a);
+      const tabela = a.nivel === "squad" ? "ruston_metas_squad" : "ruston_metas_empresa";
+      let q = u.supabase.from(tabela).select("*").eq("ano", ano).eq("mes", mes);
+      if (a.nivel === "squad") {
+        let squadId = u.squadId;
+        if (!squadId) {
+          if (!a.squad) throw new Error("Informe o squad.");
+          const squads = ok(await u.supabase.from("ruston_squads").select("id, nome").eq("ativo", true)) as any[];
+          const s = squads.filter((x) => normalizar(x.nome).includes(normalizar(a.squad)));
+          if (s.length !== 1) throw new Error(`Squad "${a.squad}" ${s.length ? "ambíguo" : "não encontrado"}. Squads: ${squads.map((x) => x.nome).join(", ")}`);
+          squadId = s[0].id;
+        }
+        q = q.eq("squad_id", squadId);
+      }
+      const metas = ok(await q) as any[];
+      const n = normalizar(a.metrica ?? "");
+      const exatos = metas.filter((m) => m.id === a.metrica || normalizar(m.metrica_label ?? "") === n || normalizar(m.metrica ?? "") === n);
+      const final = exatos.length ? exatos : metas.filter((m) => normalizar(m.metrica_label ?? m.metrica ?? "").includes(n));
+      const mesTxt = `${String(mes).padStart(2, "0")}/${ano}`;
+      if (final.length !== 1) {
+        throw new Error(final.length
+          ? `Mais de uma métrica bate: ${final.map((m) => m.metrica_label ?? m.metrica).join(", ")}.`
+          : `Métrica "${a.metrica}" não cadastrada em ${mesTxt}. Métricas: ${metas.map((m) => m.metrica_label ?? m.metrica).join(", ") || "nenhuma"}. Crie na tela Metas.`);
+      }
+      const m = final[0];
+      const campos: Args = {};
+      for (const k of ["valor_meta", "valor_realizado", "observacoes"]) {
+        if (a[k] === undefined) continue;
+        if (k !== "observacoes" && a[k] !== null && (typeof a[k] !== "number" || !isFinite(a[k]))) throw new Error(`${k} precisa ser número.`);
+        campos[k] = a[k];
+      }
+      if (!Object.keys(campos).length) throw new Error("Nada para alterar. Campos: valor_meta, valor_realizado, observacoes.");
+      const mudancas = Object.keys(campos)
+        .filter((k) => (m[k] != null && k !== "observacoes" ? Number(m[k]) : m[k] ?? null) !== campos[k])
+        .map((k) => ({ campo: k, antes: m[k] ?? null, depois: campos[k] }));
+      const rotulo = `${m.metrica_label ?? m.metrica} (${a.nivel === "squad" ? "squad" : "unidade"}, ${mesTxt})`;
+      if (!mudancas.length) return { ok: true, acao: "sem mudança", metrica: rotulo };
+      if (!a.confirmar) return { previa: true, metrica: rotulo, mudancas, aviso: "Nada foi gravado. Mostre ao usuário e chame de novo com confirmar=true." };
+      const r = ok(await u.supabase.from(tabela).update({ ...campos, updated_at: new Date().toISOString() }).eq("id", m.id).select("*")) as any[];
+      if (!r.length) throw new Error("Sem permissão para alterar esta meta.");
+      return { ok: true, metrica: rotulo, mudancas };
     },
   },
 ];

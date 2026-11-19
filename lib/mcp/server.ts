@@ -21,6 +21,8 @@ const INSTRUCOES =
   "Para churn: cadastrar_tratativa_churn abre uma tratativa, atualizar_tratativa_churn muda os dados, registrar_acompanhamento_churn anota o andamento e encerrar_tratativa_churn fecha com o resultado. " +
   "Antes de abrir uma tratativa nova, confira com ver_tratativas_churn se o cliente já tem uma em andamento. " +
   "Metas dos clientes: a meta é mensal e o realizado é lançado toda semana (sábado a sexta, fechada dentro do mês, prazo na segunda). ver_metas_clientes mostra meta, semanas, ritmo e pendências por GP; lancar_semana_cliente lança leads e faturamento da semana; salvar_meta_cliente preenche a meta do mês (e corrige o total, se preciso). " +
+  "Visão de gestão: minhas_permissoes mostra o que o usuário pode fazer; visao_macro resume o mês (MRR, churn, risco, FCA, pesquisas, monetização e metas, por squad e por GP); ver_equipe, ver_entregaveis, ver_monetizacao, ver_forecast, ver_historico_alteracoes e ver_metas_unidade detalham; salvar_meta_unidade altera metas da unidade ou do squad. " +
+  "Coordenador e gestor enxergam só o próprio squad. " +
   "Sempre mostre o antes e o depois e espere confirmação antes de gravar. Ferramentas com o parâmetro confirmar devolvem uma prévia quando chamadas sem ele: mostre a prévia e só chame com confirmar=true depois do OK do usuário.";
 
 type Rpc = { jsonrpc: "2.0"; id?: string | number | null; method: string; params?: any };
