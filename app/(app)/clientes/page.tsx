@@ -88,7 +88,7 @@ export default function ClientesPage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: cs }, { data: ps }, { data: sq }, { data: fs }, semanasEE, tagsContrato] = await Promise.all([
+    const [{ data: cs }, { data: ps }, { data: sq }, { data: fs }, semanasEE, tagsContrato, { data: whats }] = await Promise.all([
       // Traz TODOS (ativos + churn) — o alerta de churn pendente usa os churnados
       supabase.from("ruston_clientes_view").select("*").order("nome"),
       supabase.from("ruston_pessoas").select("*").eq("ativo", true).order("nome"),
@@ -96,8 +96,18 @@ export default function ClientesPage() {
       supabase.from("ruston_fca_view").select("*").order("ano", { ascending: false }).order("mes", { ascending: false }),
       carregarSemanasEE(supabase),
       carregarTagsContrato(supabase),
+      // WhatsApp lido direto da tabela: a view ruston_clientes_view não traz essa coluna,
+      // então o campo abria vazio na edição e o próximo "Salvar" apagava o número.
+      supabase.from("ruston_clientes").select("id, whatsapp"),
     ]);
-    setClientes(((cs as ClienteView[]) ?? []).map((c) => ({ ...c, semana_ee: semanasEE[c.id] ?? null, tag_contrato: tagsContrato[c.id] ?? null })));
+    const mapaWhats: Record<string, string | null> = {};
+    ((whats as { id: string; whatsapp: string | null }[]) ?? []).forEach((w) => { mapaWhats[w.id] = w.whatsapp; });
+    setClientes(((cs as ClienteView[]) ?? []).map((c) => ({
+      ...c,
+      whatsapp: c.id in mapaWhats ? mapaWhats[c.id] : c.whatsapp ?? null,
+      semana_ee: semanasEE[c.id] ?? null,
+      tag_contrato: tagsContrato[c.id] ?? null,
+    })));
     setPessoas((ps as Pessoa[]) ?? []);
     setSquads((sq as Squad[]) ?? []);
     // Reduz para o FCA mais recente por cliente_id
