@@ -7,7 +7,10 @@ type Aviso = { id: number; msg: string };
 
 function traduzir(msg: string): string {
   if (/row-level security|permission denied/i.test(msg)) return "Sem permissão pra salvar esse dado.";
-  if (/duplicate key/i.test(msg)) return "Esse registro já existe.";
+  if (/duplicate key/i.test(msg)) {
+    const trava = msg.match(/constraint "([^"]+)"/i)?.[1];
+    return trava ? `Esse registro já existe (trava: ${trava}).` : "Esse registro já existe.";
+  }
   if (/violates foreign key/i.test(msg)) return "Esse registro está ligado a outros dados e não pode ser alterado/excluído.";
   if (/failed to fetch|network/i.test(msg)) return "Sem conexão com o servidor.";
   return msg;
