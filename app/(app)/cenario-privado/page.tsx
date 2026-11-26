@@ -462,10 +462,10 @@ export default function CenarioPrivadoPage() {
     await supabase.from("ruston_cenario_clientes").update({ [campo]: pessoaId }).eq("id", clienteId);
   }
 
-  async function salvarNotaCliente(clienteId: string, nota: string | null) {
-    setClientes((prev) => prev.map((c) => (c.id === clienteId ? { ...c, nota } : c)));
-    const { error } = await supabase.from("ruston_cenario_clientes").update({ nota }).eq("id", clienteId);
-    if (error) alert(`Não consegui salvar a observação: ${error.message}`);
+  async function salvarNotaCliente(clienteId: string, campos: { nota: string | null; mrr: number | null }) {
+    setClientes((prev) => prev.map((c) => (c.id === clienteId ? { ...c, ...campos } : c)));
+    const { error } = await supabase.from("ruston_cenario_clientes").update(campos).eq("id", clienteId);
+    if (error) alert(`Não consegui salvar o cliente: ${error.message}`);
   }
 
   // ------------------------------------------------------------------
@@ -895,7 +895,7 @@ function Carteiras({ squads, pessoas, clientes, pessoaPorId, onMover, onExcluir,
   onMover: (clienteId: string, papel: PapelCarteira, pessoaId: string | null) => void;
   onExcluir: (c: CCliente) => void;
   onCapacidade: (pessoaId: string, v: number | null) => void;
-  onNota: (clienteId: string, nota: string | null) => void;
+  onNota: (clienteId: string, campos: { nota: string | null; mrr: number | null }) => void;
 }) {
   const [papel, setPapel] = useState<PapelCarteira>("gp");
   const [arrastando, setArrastando] = useState<string | null>(null);
@@ -937,7 +937,7 @@ function Carteiras({ squads, pessoas, clientes, pessoaPorId, onMover, onExcluir,
       </div>
       {aberto && (
         <ModalCliente c={aberto} pessoaPorId={pessoaPorId} onFechar={() => setAbertoId(null)}
-          onSalvar={(nota) => { onNota(aberto.id, nota); setAbertoId(null); }} />
+          onSalvar={(campos) => { onNota(aberto.id, campos); setAbertoId(null); }} />
       )}
 
       <div className="flex gap-3 overflow-x-auto pb-4">
@@ -1036,9 +1036,10 @@ function ClienteCard({ c, papel, pessoaPorId, onDrag, onExcluir, onAbrir }: { c:
 
 // Abrir o cliente: dados e observação do contato (só no cenário, só o dono vê)
 function ModalCliente({ c, pessoaPorId, onFechar, onSalvar }: {
-  c: CCliente; pessoaPorId: Map<string, CPessoa>; onFechar: () => void; onSalvar: (nota: string | null) => void;
+  c: CCliente; pessoaPorId: Map<string, CPessoa>; onFechar: () => void; onSalvar: (campos: { nota: string | null; mrr: number | null }) => void;
 }) {
   const [nota, setNota] = useState(c.nota ?? "");
+  const [fee, setFee] = useState(c.mrr != null ? String(c.mrr) : "");
   const nome = (id: string | null) => (id ? pessoaPorId.get(id)?.nome ?? "—" : "—");
   const linhas: [string, string | null, string | null][] = [
     ["GP", c.gp_original_id, c.gp_id], ["GT", c.gt_original_id, c.gt_id], ["Designer", c.designer_original_id, c.designer_id],
@@ -1055,7 +1056,7 @@ function ModalCliente({ c, pessoaPorId, onFechar, onSalvar }: {
               <span className="truncate">{c.nome}</span>
             </h3>
             <p className="text-xs text-brand-muted">
-              {c.mrr ? brl(c.mrr) : "sem MRR"}{c.etapa ? ` · ${c.etapa}` : ""}{c.vencimento ? ` · vence ${new Date(c.vencimento + "T12:00:00").toLocaleDateString("pt-BR")}` : ""}
+              {c.mrr ? `Fee ${brl(c.mrr)}` : "sem fee"}{c.etapa ? ` · ${c.etapa}` : ""}{c.vencimento ? ` · vence ${new Date(c.vencimento + "T12:00:00").toLocaleDateString("pt-BR")}` : ""}
             </p>
           </div>
           <button onClick={onFechar} className="text-brand-muted hover:text-white">✕</button>
@@ -1070,6 +1071,11 @@ function ModalCliente({ c, pessoaPorId, onFechar, onSalvar }: {
             </div>
           ))}
         </div>
+        <div className="mb-4">
+          <label className="label">Fee mensal (R$)</label>
+          <input type="number" className="input" value={fee} onChange={(e) => setFee(e.target.value)} placeholder="ex: 10000" />
+          <p className="mt-1 text-[10px] text-brand-muted">Muda só no cenário (MRR das carteiras e do resumo). O cadastro do cliente não é alterado.</p>
+        </div>
         <div className="mb-1 flex items-center justify-between">
           <label className="label mb-0">Observação</label>
           <button className="text-[11px] text-brand hover:underline" onClick={carimbar}>+ anotação de hoje ({hoje})</button>
@@ -1079,7 +1085,7 @@ function ModalCliente({ c, pessoaPorId, onFechar, onSalvar }: {
         <p className="mt-1 text-[10px] text-brand-muted">Fica só neste cenário. Ninguém além de você vê.</p>
         <div className="mt-4 flex justify-end gap-2">
           <button className="btn-ghost" onClick={onFechar}>Cancelar</button>
-          <button className="btn" onClick={() => onSalvar(nota.trim() || null)}>Salvar</button>
+          <button className="btn" onClick={() => onSalvar({ nota: nota.trim() || null, mrr: fee.trim() === "" ? null : Number(fee.replace(",", ".")) })}>Salvar</button>
         </div>
       </div>
     </div>
