@@ -462,6 +462,12 @@ export default function CenarioPrivadoPage() {
     await supabase.from("ruston_cenario_clientes").update({ [campo]: pessoaId }).eq("id", clienteId);
   }
 
+  async function salvarNotaCliente(clienteId: string, nota: string | null) {
+    setClientes((prev) => prev.map((c) => (c.id === clienteId ? { ...c, nota } : c)));
+    const { error } = await supabase.from("ruston_cenario_clientes").update({ nota }).eq("id", clienteId);
+    if (error) alert(`Não consegui salvar a observação: ${error.message}`);
+  }
+
   // ------------------------------------------------------------------
   // Números
   // ------------------------------------------------------------------
@@ -582,7 +588,8 @@ export default function CenarioPrivadoPage() {
           )}
           {aba === "carteiras" && (
             <Carteiras squads={squadsAtivos} pessoas={pessoas} clientes={clientes} pessoaPorId={pessoaPorId}
-              onMover={moverCliente} onExcluir={excluirCliente} onCapacidade={(id, v) => atualizarPessoa(id, { capacidade: v })} />
+              onMover={moverCliente} onExcluir={excluirCliente} onCapacidade={(id, v) => atualizarPessoa(id, { capacidade: v })}
+              onNota={salvarNotaCliente} />
           )}
           {aba === "resumo" && (
             <Resumo cenario={cenario} squads={squadsAtivos} todosSquads={squads} pessoas={pessoas} clientes={clientes}
@@ -883,14 +890,18 @@ const BOLINHA: Record<string, string> = {
   verde: "bg-emerald-500", amarelo: "bg-amber-500", vermelho: "bg-red-500",
 };
 
-function Carteiras({ squads, pessoas, clientes, pessoaPorId, onMover, onExcluir, onCapacidade }: {
+function Carteiras({ squads, pessoas, clientes, pessoaPorId, onMover, onExcluir, onCapacidade, onNota }: {
   squads: CSquad[]; pessoas: CPessoa[]; clientes: CCliente[]; pessoaPorId: Map<string, CPessoa>;
   onMover: (clienteId: string, papel: PapelCarteira, pessoaId: string | null) => void;
   onExcluir: (c: CCliente) => void;
   onCapacidade: (pessoaId: string, v: number | null) => void;
+  onNota: (clienteId: string, nota: string | null) => void;
 }) {
   const [papel, setPapel] = useState<PapelCarteira>("gp");
   const [arrastando, setArrastando] = useState<string | null>(null);
+  const [abertoId, setAbertoId] = useState<string | null>(null);
+  const aberto = abertoId ? clientes.find((c) => c.id === abertoId) ?? null : null;
+  const comNota = clientes.filter((c) => c.nota && c.nota.trim()).length;
   const campo = CAMPO[papel];
   const ordemSquad = new Map(squads.map((s, i) => [s.id, i]));
   const colunas = pessoas
@@ -921,8 +932,13 @@ function Carteiras({ squads, pessoas, clientes, pessoaPorId, onMover, onExcluir,
             </button>
           ))}
         </div>
-        <p className="text-xs text-brand-muted">Arraste o cliente para o novo responsável. Contorno azul = mudou de {PAPEL_LABEL[papel]} em relação a hoje.</p>
+        <p className="text-xs text-brand-muted">Arraste o cliente para o novo responsável. Clique no cliente para abrir e anotar. Contorno azul = mudou de {PAPEL_LABEL[papel]} em relação a hoje.</p>
+        {comNota > 0 && <span className="text-[11px] text-amber-200">📝 {comNota} com observação</span>}
       </div>
+      {aberto && (
+        <ModalCliente c={aberto} pessoaPorId={pessoaPorId} onFechar={() => setAbertoId(null)}
+          onSalvar={(nota) => { onNota(aberto.id, nota); setAbertoId(null); }} />
+      )}
 
       <div className="flex gap-3 overflow-x-auto pb-4">
         <Coluna titulo="⚠️ A redistribuir" sub={`${pendentes.length} clientes · ${brlK(pendentes.reduce((s, c) => s + (c.mrr ?? 0), 0))}`}
@@ -932,7 +948,7 @@ function Carteiras({ squads, pessoas, clientes, pessoaPorId, onMover, onExcluir,
             <div key={quem} className="mb-2">
               <p className="mb-1 text-[9px] font-semibold uppercase tracking-widest text-red-300/80">de {quem} ({lista.length})</p>
               <div className="space-y-1.5">
-                {lista.map((c) => <ClienteCard key={c.id} c={c} papel={papel} pessoaPorId={pessoaPorId} onDrag={() => setArrastando(c.id)} onExcluir={() => onExcluir(c)} />)}
+                {lista.map((c) => <ClienteCard key={c.id} c={c} papel={papel} pessoaPorId={pessoaPorId} onDrag={() => setArrastando(c.id)} onExcluir={() => onExcluir(c)} onAbrir={() => setAbertoId(c.id)} />)}
               </div>
             </div>
           ))}
@@ -958,7 +974,7 @@ function Carteiras({ squads, pessoas, clientes, pessoaPorId, onMover, onExcluir,
                 </span>
               }>
               <div className="space-y-1.5">
-                {lista.map((c) => <ClienteCard key={c.id} c={c} papel={papel} pessoaPorId={pessoaPorId} onDrag={() => setArrastando(c.id)} onExcluir={() => onExcluir(c)} />)}
+                {lista.map((c) => <ClienteCard key={c.id} c={c} papel={papel} pessoaPorId={pessoaPorId} onDrag={() => setArrastando(c.id)} onExcluir={() => onExcluir(c)} onAbrir={() => setAbertoId(c.id)} />)}
                 {lista.length === 0 && <p className="py-6 text-center text-[11px] text-brand-muted italic">sem clientes</p>}
               </div>
             </Coluna>
@@ -994,22 +1010,77 @@ function Coluna({ titulo, sub, contador, destaque, arrastando, onSoltar, childre
   );
 }
 
-function ClienteCard({ c, papel, pessoaPorId, onDrag, onExcluir }: { c: CCliente; papel: PapelCarteira; pessoaPorId: Map<string, CPessoa>; onDrag: () => void; onExcluir: () => void }) {
+function ClienteCard({ c, papel, pessoaPorId, onDrag, onExcluir, onAbrir }: { c: CCliente; papel: PapelCarteira; pessoaPorId: Map<string, CPessoa>; onDrag: () => void; onExcluir: () => void; onAbrir: () => void }) {
   const orig = c[CAMPO_ORIG[papel]];
   const mudou = orig !== c[CAMPO[papel]];
   const antes = orig ? pessoaPorId.get(orig)?.nome : null;
   return (
     <div draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", c.id); } catch {} onDrag(); }}
-      title={mudou ? `Hoje: ${antes ?? "sem responsável"}` : undefined}
+      onClick={onAbrir}
+      title={c.nota ? c.nota : mudou ? `Hoje: ${antes ?? "sem responsável"}` : "Clique para abrir e anotar"}
       className={`group cursor-grab rounded-lg border bg-white/[0.03] px-2 py-1.5 active:cursor-grabbing ${mudou ? "border-sky-400/60" : "border-white/10"}`}>
       <div className="flex items-center gap-1.5">
         <span className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${BOLINHA[c.bandeira ?? ""] ?? "bg-white/20"}`} />
         <p className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase text-white">{c.nome}</p>
-        <button onClick={onExcluir} title="Excluir do cenário" className="text-[10px] text-red-300 opacity-0 transition group-hover:opacity-100 hover:text-red-400">✕</button>
+        {c.nota && <span className="text-[10px]" title="Tem observação">📝</span>}
+        <button onClick={(e) => { e.stopPropagation(); onExcluir(); }} title="Excluir do cenário" className="text-[10px] text-red-300 opacity-0 transition group-hover:opacity-100 hover:text-red-400">✕</button>
       </div>
       <div className="ml-4 flex flex-wrap gap-1 text-[9px]">
         {c.mrr ? <span className="text-emerald-300">{brl(c.mrr)}</span> : null}
         {mudou && <span className="text-sky-300">antes: {antes ?? "—"}</span>}
+      </div>
+      {c.nota && <p className="ml-4 mt-0.5 line-clamp-2 text-[9px] italic text-amber-200/80">{c.nota}</p>}
+    </div>
+  );
+}
+
+// Abrir o cliente: dados e observação do contato (só no cenário, só o dono vê)
+function ModalCliente({ c, pessoaPorId, onFechar, onSalvar }: {
+  c: CCliente; pessoaPorId: Map<string, CPessoa>; onFechar: () => void; onSalvar: (nota: string | null) => void;
+}) {
+  const [nota, setNota] = useState(c.nota ?? "");
+  const nome = (id: string | null) => (id ? pessoaPorId.get(id)?.nome ?? "—" : "—");
+  const linhas: [string, string | null, string | null][] = [
+    ["GP", c.gp_original_id, c.gp_id], ["GT", c.gt_original_id, c.gt_id], ["Designer", c.designer_original_id, c.designer_id],
+  ];
+  const hoje = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  const carimbar = () => setNota((n) => `${n.trim() ? `${n.trimEnd()}\n\n` : ""}${hoje} – `);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onFechar}>
+      <div className="w-full max-w-lg rounded-lg border border-white/10 bg-brand-panel p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="flex items-center gap-2 text-lg font-semibold uppercase">
+              <span className={`h-3 w-3 flex-shrink-0 rounded-full ${BOLINHA[c.bandeira ?? ""] ?? "bg-white/20"}`} />
+              <span className="truncate">{c.nome}</span>
+            </h3>
+            <p className="text-xs text-brand-muted">
+              {c.mrr ? brl(c.mrr) : "sem MRR"}{c.etapa ? ` · ${c.etapa}` : ""}{c.vencimento ? ` · vence ${new Date(c.vencimento + "T12:00:00").toLocaleDateString("pt-BR")}` : ""}
+            </p>
+          </div>
+          <button onClick={onFechar} className="text-brand-muted hover:text-white">✕</button>
+        </div>
+        <div className="mb-4 grid grid-cols-3 gap-2 text-[11px]">
+          {linhas.map(([rot, orig, atual]) => (
+            <div key={rot} className="rounded-md border border-white/10 px-2 py-1.5">
+              <p className="text-[9px] uppercase tracking-widest text-brand-muted">{rot}</p>
+              {orig !== atual
+                ? <p><span className="text-brand-muted line-through">{nome(orig)}</span> <span className="text-sky-300">→ {nome(atual)}</span></p>
+                : <p className="text-white">{nome(atual)}</p>}
+            </div>
+          ))}
+        </div>
+        <div className="mb-1 flex items-center justify-between">
+          <label className="label mb-0">Observação</label>
+          <button className="text-[11px] text-brand hover:underline" onClick={carimbar}>+ anotação de hoje ({hoje})</button>
+        </div>
+        <textarea autoFocus className="input min-h-[200px] text-sm" value={nota} onChange={(e) => setNota(e.target.value)}
+          placeholder={"Como foi o contato, o que o cliente falou, clima da relação...\nComo abordar na próxima semana (troca de GP)..."} />
+        <p className="mt-1 text-[10px] text-brand-muted">Fica só neste cenário. Ninguém além de você vê.</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button className="btn-ghost" onClick={onFechar}>Cancelar</button>
+          <button className="btn" onClick={() => onSalvar(nota.trim() || null)}>Salvar</button>
+        </div>
       </div>
     </div>
   );
