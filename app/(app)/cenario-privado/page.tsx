@@ -266,6 +266,57 @@ export default function CenarioPrivadoPage() {
     setOcupado(null);
   }
 
+  // Clientes ativos do sistema que ainda não estão no cenário (ex.: cadastrados depois)
+  type Novo = { id: string; nome: string; mrr: number | null; etapa: string | null; vencimento: string | null; gp: string | null; gt: string | null; dg: string | null; bandeira: string | null; gpNome: string };
+  const [novos, setNovos] = useState<Novo[] | null>(null);
+
+  async function buscarClientesNovos() {
+    if (!cenario) return;
+    setOcupado("Procurando clientes do sistema que não estão no cenário...");
+    const [{ data: cli, error }, { data: fcas }, { data: rPessoas }] = await Promise.all([
+      supabase.from("ruston_clientes")
+        .select("id,nome,mrr,etapa,data_vencimento_contrato,account_id,gestor_trafego_id,designer_id,churn_realizado,subiu_no_sistema")
+        .eq("ativo", true),
+      supabase.from("ruston_fca_view").select("cliente_id,bandeira,data_referencia").order("data_referencia", { ascending: false }),
+      supabase.from("ruston_pessoas").select("id,nome"),
+    ]);
+    setOcupado(null);
+    if (error) { alert("Não consegui ler os clientes: " + error.message); return; }
+    type CL = { id: string; nome: string; mrr: number | null; etapa: string | null; data_vencimento_contrato: string | null; account_id: string | null; gestor_trafego_id: string | null; designer_id: string | null; churn_realizado: boolean; subiu_no_sistema: boolean };
+    const jaNoCenario = new Set(clientes.map((c) => c.cliente_id).filter(Boolean));
+    const nomesNoCenario = new Set(clientes.map((c) => norm(c.nome)));
+    const pessoaPorCadastro = new Map(pessoas.filter((p) => p.origem_pessoa_id).map((p) => [p.origem_pessoa_id!, p.id]));
+    const nomeCadastro = new Map(((rPessoas as { id: string; nome: string }[]) ?? []).map((x) => [x.id, x.nome]));
+    const bandeiras = new Map<string, string>();
+    ((fcas as { cliente_id: string; bandeira: string }[]) ?? []).forEach((x) => { if (!bandeiras.has(x.cliente_id)) bandeiras.set(x.cliente_id, x.bandeira); });
+    const lista = ((cli as CL[]) ?? [])
+      .filter((c) => !(c.churn_realizado && c.subiu_no_sistema))
+      .filter((c) => !jaNoCenario.has(c.id) && !nomesNoCenario.has(norm(c.nome)))
+      .map((c) => ({
+        id: c.id, nome: c.nome, mrr: c.mrr, etapa: c.etapa, vencimento: c.data_vencimento_contrato,
+        gp: c.account_id ? pessoaPorCadastro.get(c.account_id) ?? null : null,
+        gt: c.gestor_trafego_id ? pessoaPorCadastro.get(c.gestor_trafego_id) ?? null : null,
+        dg: c.designer_id ? pessoaPorCadastro.get(c.designer_id) ?? null : null,
+        bandeira: bandeiras.get(c.id) ?? null,
+        gpNome: c.account_id ? nomeCadastro.get(c.account_id) ?? "—" : "sem GP",
+      }))
+      .sort((a, b) => a.nome.localeCompare(b.nome));
+    setNovos(lista);
+  }
+
+  async function incluirClientesNovos(lista: Novo[]) {
+    if (!cenario || lista.length === 0) { setNovos(null); return; }
+    const linhas = lista.map((c) => ({
+      id: uuid(), cenario_id: cenario.id, cliente_id: c.id, nome: c.nome, mrr: c.mrr, bandeira: c.bandeira,
+      etapa: c.etapa, vencimento: c.vencimento,
+      gp_id: c.gp, gt_id: c.gt, designer_id: c.dg, gp_original_id: c.gp, gt_original_id: c.gt, designer_original_id: c.dg,
+    }));
+    const { data, error } = await supabase.from("ruston_cenario_clientes").insert(linhas).select("*");
+    if (error) { alert("Não consegui incluir: " + error.message); return; }
+    setClientes((prev) => [...prev, ...((data as CCliente[]) ?? [])].sort((a, b) => a.nome.localeCompare(b.nome)));
+    setNovos(null);
+  }
+
   async function duplicarCenario() {
     if (!cenario) return;
     const nome = prompt("Nome da cópia:", `${cenario.nome} (cópia)`);
@@ -546,6 +597,7 @@ export default function CenarioPrivadoPage() {
           <button className="btn text-xs" onClick={criarDoOrganograma} disabled={!!ocupado}>+ Novo cenário do organograma atual</button>
           {cenario && (
             <>
+              <button className="btn-ghost text-xs" onClick={buscarClientesNovos} disabled={!!ocupado} title="Traz clientes cadastrados no sistema que ainda não estão neste cenário">↻ Clientes novos</button>
               <button className="btn-ghost text-xs" onClick={duplicarCenario} disabled={!!ocupado}>Duplicar</button>
               <button className="btn-ghost text-xs" onClick={renomearCenario}>Renomear</button>
               <button className="btn-ghost text-xs text-red-300" onClick={apagarCenario}>Apagar</button>
@@ -553,6 +605,8 @@ export default function CenarioPrivadoPage() {
           )}
         </div>
       </div>
+
+      {novos && <ModalClientesNovos lista={novos} pessoaPorId={pessoaPorId} onFechar={() => setNovos(null)} onIncluir={incluirClientesNovos} />}
 
       {ocupado && <p className="mb-4 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs text-brand-muted">{ocupado}</p>}
 
@@ -1030,6 +1084,46 @@ function ClienteCard({ c, papel, pessoaPorId, onDrag, onExcluir, onAbrir }: { c:
         {mudou && <span className="text-sky-300">antes: {antes ?? "—"}</span>}
       </div>
       {c.nota && <p className="ml-4 mt-0.5 line-clamp-2 text-[9px] italic text-amber-200/80">{c.nota}</p>}
+    </div>
+  );
+}
+
+// Clientes do sistema que não estão no cenário: escolher quais incluir
+function ModalClientesNovos<T extends { id: string; nome: string; mrr: number | null; gp: string | null; gpNome: string }>({ lista, pessoaPorId, onFechar, onIncluir }: {
+  lista: T[]; pessoaPorId: Map<string, CPessoa>; onFechar: () => void; onIncluir: (l: T[]) => void;
+}) {
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  const alternar = (id: string) => setMarcados((m) => { const n = new Set(m); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onFechar}>
+      <div className="w-full max-w-lg rounded-lg border border-white/10 bg-brand-panel p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-2 flex items-start justify-between">
+          <h3 className="text-lg font-semibold">Clientes do sistema fora do cenário</h3>
+          <button onClick={onFechar} className="text-brand-muted hover:text-white">✕</button>
+        </div>
+        <p className="mb-3 text-xs text-brand-muted">
+          Marque os que quer trazer. Quem você excluiu de propósito (ex.: clientes do Caio ou do ISAAS) também aparece aqui. É só não marcar.
+        </p>
+        {lista.length === 0 && <p className="py-6 text-center text-sm text-emerald-300">Todos os clientes ativos do sistema já estão no cenário ✓</p>}
+        <ul className="max-h-[55vh] space-y-1 overflow-y-auto pr-1">
+          {lista.map((c) => (
+            <li key={c.id}>
+              <label className="flex cursor-pointer items-center gap-2 rounded-md border border-white/10 px-2 py-1.5 text-xs hover:bg-white/5">
+                <input type="checkbox" checked={marcados.has(c.id)} onChange={() => alternar(c.id)} />
+                <span className="flex-1 font-semibold uppercase text-white">{c.nome}</span>
+                <span className="text-brand-muted">GP: {c.gp ? pessoaPorId.get(c.gp)?.nome ?? c.gpNome : `${c.gpNome} (fora do cenário)`}</span>
+                {c.mrr ? <span className="text-emerald-300">{brl(c.mrr)}</span> : null}
+              </label>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-4 flex justify-end gap-2">
+          <button className="btn-ghost" onClick={onFechar}>Cancelar</button>
+          <button className="btn" disabled={marcados.size === 0} onClick={() => onIncluir(lista.filter((c) => marcados.has(c.id)))}>
+            Incluir {marcados.size || ""}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
