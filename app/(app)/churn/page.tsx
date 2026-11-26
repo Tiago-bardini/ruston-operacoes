@@ -71,7 +71,7 @@ export default function ChurnPage() {
   const [parcelados, setParcelados] = useState<ChurnSolicitacao[]>([]);
   const [editDev, setEditDev] = useState<ChurnSolicitacao | null>(null);
   // Dois quadros separados: Ruston Operação × ISAAS (squads "ISS"/"ISA")
-  const [grupo, setGrupo] = useState<"operacao" | "isaas">("operacao");
+  const [grupo, setGrupo] = useState<"consolidado" | "operacao" | "isaas">("consolidado");
   const [forecastMes, setForecastMes] = useState<Forecast | null>(null);
   const [baseManual, setBaseManual] = useState("");
   const [loading, setLoading] = useState(true);
@@ -133,7 +133,7 @@ export default function ChurnPage() {
   }, [clientes]);
 
   const clienteIsaas = (c?: ClienteView) => squadExcluido(c?.squad_nome ?? "");
-  const doGrupo = (c?: ClienteView) => clienteIsaas(c) === (grupo === "isaas");
+  const doGrupo = (c?: ClienteView) => grupo === "consolidado" || clienteIsaas(c) === (grupo === "isaas");
   const solDoGrupo = (l: ChurnSolicitacao[]) => l.filter((s) => doGrupo(clientePorId.get(s.cliente_id)));
   const solicitacoesG = useMemo(() => solDoGrupo(solicitacoes), [solicitacoes, clientePorId, grupo]); // eslint-disable-line
   const parceladosG = useMemo(() => solDoGrupo(parcelados), [parcelados, clientePorId, grupo]); // eslint-disable-line
@@ -148,12 +148,13 @@ export default function ChurnPage() {
     () => clientes.filter((c) => c.ativo && clienteIsaas(c)).reduce((s, c) => s + (Number(c.mrr) || 0), 0),
     [clientes], // eslint-disable-line
   );
-  const mrrAtual = grupo === "isaas" ? mrrAtualIsaas : mrrAtualTotal - mrrAtualIsaas;
+  const mrrAtual = grupo === "consolidado" ? mrrAtualTotal : grupo === "isaas" ? mrrAtualIsaas : mrrAtualTotal - mrrAtualIsaas;
 
   /** MRR base do quadro. O travado é da empresa toda; a parte do ISAAS vem da trava (migration 046)
    *  ou, em meses travados antes dela, do MRR atual do ISAAS (estimado). Operação = total − ISAAS. */
   function baseDoMes(a: number, m: number): { valor: number | null; situacao: "travado" | "parcial" | "sem_trava"; registro?: ChurnMrrBase; estimado?: boolean } {
     const registro = bases.find((b) => b.ano === a && b.mes === m);
+    if (registro && grupo === "consolidado") return { valor: Number(registro.mrr_base), situacao: "travado", registro };
     if (registro) {
       const isaasTravado = (registro as ChurnMrrBase & { mrr_base_isaas?: number | null }).mrr_base_isaas;
       const isaas = isaasTravado != null ? Number(isaasTravado) : mrrAtualIsaas;
@@ -295,7 +296,7 @@ export default function ChurnPage() {
       {/* Quadro: Operação × ISAAS */}
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <div className="inline-flex rounded-lg border border-white/10 bg-brand-panel/50 p-1">
-          {([["operacao", "Ruston Operação"], ["isaas", "ISAAS"]] as const).map(([v, label]) => (
+          {([["consolidado", "Consolidado"], ["operacao", "Ruston Operação"], ["isaas", "ISAAS"]] as const).map(([v, label]) => (
             <button key={v} onClick={() => setGrupo(v)}
               className={`rounded-md px-4 py-1.5 text-xs font-semibold transition ${grupo === v ? "bg-brand text-white" : "text-brand-muted hover:text-gray-200"}`}>
               {label}
@@ -303,7 +304,7 @@ export default function ChurnPage() {
           ))}
         </div>
         <p className="text-[11px] text-brand-muted">
-          {grupo === "isaas" ? "Só clientes do squad ISAAS, com % sobre o MRR do ISAAS." : "Todos os squads, menos o ISAAS, com % sobre o MRR da operação."}
+          {grupo === "consolidado" ? "Todos os clientes (Operação + ISAAS), com % sobre o MRR total." : grupo === "isaas" ? "Só clientes do squad ISAAS, com % sobre o MRR do ISAAS." : "Todos os squads, menos o ISAAS, com % sobre o MRR da operação."}
         </p>
       </div>
 
