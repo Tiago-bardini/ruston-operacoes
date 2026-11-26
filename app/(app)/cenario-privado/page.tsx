@@ -13,7 +13,7 @@ type Papel = "gp" | "gt" | "designer" | "lideranca" | "outro";
 type Status = "fica" | "sai" | "vaga";
 type PapelCarteira = "gp" | "gt" | "designer";
 
-type Cenario = { id: string; nome: string; notas: string | null; meta_saidas: number | null; created_at: string };
+type Cenario = { id: string; nome: string; notas: string | null; meta_saidas: number | null; created_at: string; folha_base?: number | null };
 type CSquad = { id: string; cenario_id: string; nome: string; tipo: "squad" | "fixa"; ordem: number; ativo: boolean; origem_area_id: string | null };
 type CPessoa = {
   id: string; cenario_id: string; squad_id: string | null; squad_original_id: string | null;
@@ -78,11 +78,13 @@ export default function CenarioPrivadoPage() {
   const [salarioCadastro, setSalarioCadastro] = useState<Map<string, number>>(new Map());
   const [cadastro, setCadastro] = useState<Cad[]>([]);
   const [temColSalario, setTemColSalario] = useState(false);
+  const [temColFolhaBase, setTemColFolhaBase] = useState(false);
+  const [folhaBaseLocal, setFolhaBaseLocal] = useState<Record<string, number | null>>({});
 
   const cenario = cenarios.find((c) => c.id === cenarioId) ?? null;
 
   async function carregarCenarios(selecionar?: string) {
-    const { data, error } = await supabase.from("ruston_cenarios").select("id,nome,notas,meta_saidas,created_at").order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("ruston_cenarios").select("*").order("created_at", { ascending: false });
     if (error) { setErroTabela(error.message); setLoading(false); return; }
     const lista = (data as Cenario[]) ?? [];
     setCenarios(lista);
@@ -116,6 +118,8 @@ export default function CenarioPrivadoPage() {
       setCadastro(lista);
     });
     supabase.from("ruston_cenario_pessoas").select("salario").limit(1).then(({ error }) => setTemColSalario(!error));
+    supabase.from("ruston_cenarios").select("folha_base").limit(1).then(({ error }) => setTemColFolhaBase(!error));
+    try { setFolhaBaseLocal(JSON.parse(localStorage.getItem("cenario_folha_base") ?? "{}")); } catch { /* sem storage */ }
     // eslint-disable-next-line
   }, [loadingPerfil, podeEditar]);
 
@@ -301,6 +305,18 @@ export default function CenarioPrivadoPage() {
     carregarCenarios("");
   }
 
+  // Folha atual informada à mão (ex.: valor do financeiro). Sem a migration 044, fica só neste navegador.
+  const folhaBase: number | null = cenario
+    ? (temColFolhaBase ? cenario.folha_base ?? null : null) ?? folhaBaseLocal[cenario.id] ?? null
+    : null;
+  async function salvarFolhaBase(v: number | null) {
+    if (!cenario) return;
+    if (temColFolhaBase) { await salvarCenario({ folha_base: v }); return; }
+    const novo = { ...folhaBaseLocal, [cenario.id]: v };
+    setFolhaBaseLocal(novo);
+    try { localStorage.setItem("cenario_folha_base", JSON.stringify(novo)); } catch { /* sem storage */ }
+  }
+
   async function salvarCenario(campos: Partial<Cenario>) {
     if (!cenario) return;
     setCenarios((prev) => prev.map((c) => (c.id === cenario.id ? { ...c, ...campos } : c)));
@@ -453,15 +469,22 @@ export default function CenarioPrivadoPage() {
     const hoje = listaHoje.length;
     const depois = listaDepois.length;
     const sal = (p: CPessoa) => p.salario ?? (p.origem_pessoa_id ? salarioCadastro.get(p.origem_pessoa_id) ?? null : null);
-    const folhaHoje = listaHoje.reduce((t, p) => t + (sal(p) ?? 0), 0);
-    const folhaDepois = listaDepois.reduce((t, p) => t + (sal(p) ?? 0), 0);
-    const semSalario = [...listaHoje, ...listaDepois.filter((p) => !listaHoje.includes(p))].filter((p) => sal(p) == null);
     const saindo = pessoas.filter((p) => p.status === "sai");
+    const vagas = pessoas.filter((p) => p.status === "vaga");
+    const folhaSaindo = saindo.reduce((t, p) => t + (sal(p) ?? 0), 0);
+    const folhaVagas = vagas.reduce((t, p) => t + (sal(p) ?? 0), 0);
+    const folhaCalculada = listaHoje.reduce((t, p) => t + (sal(p) ?? 0), 0);
+    // Com folha base informada: depois = base − quem sai + vagas novas
+    const folhaHoje = folhaBase ?? folhaCalculada;
+    const folhaDepois = folhaBase != null ? folhaBase - folhaSaindo + folhaVagas : listaDepois.reduce((t, p) => t + (sal(p) ?? 0), 0);
+    const semSalario = folhaBase != null
+      ? [...saindo, ...vagas].filter((p) => sal(p) == null)
+      : [...listaHoje, ...listaDepois.filter((p) => !listaHoje.includes(p))].filter((p) => sal(p) == null);
     const trocaGp = clientes.filter((c) => c.gp_id !== c.gp_original_id);
     const trocaGt = clientes.filter((c) => c.gt_id !== c.gt_original_id);
     const trocaDg = clientes.filter((c) => c.designer_id !== c.designer_original_id);
     return {
-      hoje, depois, saindo, folhaHoje, folhaDepois, semSalario, salarioDe: sal,
+      hoje, depois, saindo, folhaHoje, folhaDepois, semSalario, salarioDe: sal, folhaSaindo, folhaVagas, folhaCalculada, folhaBase,
       semGp: clientes.filter((c) => semResponsavel(c, "gp")).length,
       semGt: clientes.filter((c) => semResponsavel(c, "gt")).length,
       semDg: clientes.filter((c) => semResponsavel(c, "designer")).length,
@@ -471,7 +494,7 @@ export default function CenarioPrivadoPage() {
       mrrTotal: clientes.reduce((s, c) => s + (c.mrr ?? 0), 0),
     };
     // eslint-disable-next-line
-  }, [pessoas, clientes, pessoaPorId, salarioCadastro]);
+  }, [pessoas, clientes, pessoaPorId, salarioCadastro, folhaBase]);
 
   // ------------------------------------------------------------------
   if (loadingPerfil) return <p className="text-brand-muted">Carregando...</p>;
@@ -553,7 +576,7 @@ export default function CenarioPrivadoPage() {
           {aba === "resumo" && (
             <Resumo cenario={cenario} squads={squadsAtivos} todosSquads={squads} pessoas={pessoas} clientes={clientes}
               pessoaPorId={pessoaPorId} ind={indicadores} onNotas={(v) => salvarCenario({ notas: v })}
-              cadastro={cadastro} onIncluir={incluirDoCadastro} />
+              cadastro={cadastro} onIncluir={incluirDoCadastro} onFolhaBase={salvarFolhaBase} />
           )}
         </>
       )}
@@ -568,6 +591,7 @@ type Ind = {
   hoje: number; depois: number; saindo: CPessoa[]; semGp: number; semGt: number; semDg: number;
   trocaGp: CCliente[]; trocaGt: CCliente[]; trocaDg: CCliente[]; mrrTrocaGp: number; vermelhosTrocaGp: number; mrrTotal: number;
   folhaHoje: number; folhaDepois: number; semSalario: CPessoa[]; salarioDe: (p: CPessoa) => number | null;
+  folhaSaindo: number; folhaVagas: number; folhaCalculada: number; folhaBase: number | null;
 };
 
 function Indicadores({ ind, meta, onMeta }: { ind: Ind; meta: number | null; onMeta: (v: number | null) => void }) {
@@ -971,8 +995,8 @@ function ClienteCard({ c, papel, pessoaPorId, onDrag, onExcluir }: { c: CCliente
 // ======================================================================
 // Resumo para a diretoria
 // ======================================================================
-function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, ind, onNotas, cadastro, onIncluir }: {
-  cadastro: Cad[]; onIncluir: (r: Cad) => void;
+function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, ind, onNotas, cadastro, onIncluir, onFolhaBase }: {
+  cadastro: Cad[]; onIncluir: (r: Cad) => void; onFolhaBase: (v: number | null) => void;
   cenario: Cenario; squads: CSquad[]; todosSquads: CSquad[]; pessoas: CPessoa[]; clientes: CCliente[];
   pessoaPorId: Map<string, CPessoa>; ind: Ind; onNotas: (v: string) => void;
 }) {
@@ -995,6 +1019,16 @@ function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, 
             <p className="text-[10px] uppercase tracking-widest text-brand-muted">Folha mensal</p>
             <p className="mt-1 text-2xl font-bold text-white">{brlK(ind.folhaHoje)} <span className="text-brand-muted">→</span> {brlK(ind.folhaDepois)}</p>
             <p className="text-xs text-brand-muted">{brl(ind.folhaHoje)} → {brl(ind.folhaDepois)}</p>
+            <p className="mt-1 text-[11px] text-brand-muted">
+              − {brl(ind.folhaSaindo)} de {ind.saindo.length} saindo{ind.folhaVagas > 0 ? ` · + ${brl(ind.folhaVagas)} de vagas` : ""}
+            </p>
+            <label className="mt-2 flex items-center gap-2 text-[10px] text-brand-muted">
+              Folha atual (base):
+              <input key={`${cenario.id}-${ind.folhaBase ?? "x"}`} type="number" defaultValue={ind.folhaBase ?? ""}
+                placeholder={`calculada ${Math.round(ind.folhaCalculada)}`}
+                className="w-28 border-b border-white/10 bg-transparent text-white outline-none focus:border-brand"
+                onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== ind.folhaBase) onFolhaBase(v); }} />
+            </label>
           </div>
           <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
             <p className="text-[10px] uppercase tracking-widest text-emerald-300">Redução de custo</p>
@@ -1006,7 +1040,9 @@ function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, 
         </div>
         <p className="mt-3 text-[11px] text-brand-muted">
           {ind.mrrTotal ? <>Folha sobre o MRR da base ({brl(ind.mrrTotal)}): {Math.round((ind.folhaHoje / ind.mrrTotal) * 100)}% → <strong className="text-white">{Math.round((ind.folhaDepois / ind.mrrTotal) * 100)}%</strong>. </> : null}
-          Salário de cada pessoa vem do cadastro de Pessoas; vagas entram pelo valor estimado no cenário.
+          {ind.folhaBase != null
+            ? "Folha atual informada; o depois desconta automaticamente o salário (cadastro de Pessoas) de quem está marcado “Sai” e soma as vagas."
+            : "Salário de cada pessoa vem do cadastro de Pessoas; vagas entram pelo valor estimado no cenário."}
         </p>
         {ind.semSalario.length > 0 && (
           <p className="mt-2 text-[11px] text-amber-300">

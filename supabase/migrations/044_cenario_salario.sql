@@ -6,3 +6,6 @@
 -- =====================================================================
 
 ALTER TABLE ruston_cenario_pessoas ADD COLUMN IF NOT EXISTS salario NUMERIC;
+
+-- Folha atual informada à mão para o cenário (base do antes × depois)
+ALTER TABLE ruston_cenarios ADD COLUMN IF NOT EXISTS folha_base NUMERIC;
