@@ -344,10 +344,10 @@ export default function CenarioPrivadoPage() {
     if (!error) setPessoas((prev) => [...prev, linha]);
   }
 
-  async function incluirDoCadastro(r: Cad) {
+  async function incluirDoCadastro(r: Cad, squadId: string | null) {
     if (!cenarioId) return;
     const linha = {
-      id: uuid(), cenario_id: cenarioId, squad_id: null, squad_original_id: null, nome: r.nome, cargo: null,
+      id: uuid(), cenario_id: cenarioId, squad_id: squadId, squad_original_id: squadId, nome: r.nome, cargo: null,
       papel: papelDe(r.cargo, null), foto_url: null, status: "fica" as Status, capacidade: null, nota: null,
       ordem: pessoas.length, origem_pessoa_id: r.id,
     };
@@ -996,7 +996,7 @@ function ClienteCard({ c, papel, pessoaPorId, onDrag, onExcluir }: { c: CCliente
 // Resumo para a diretoria
 // ======================================================================
 function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, ind, onNotas, cadastro, onIncluir, onFolhaBase }: {
-  cadastro: Cad[]; onIncluir: (r: Cad) => void; onFolhaBase: (v: number | null) => void;
+  cadastro: Cad[]; onIncluir: (r: Cad, squadId: string | null) => void; onFolhaBase: (v: number | null) => void;
   cenario: Cenario; squads: CSquad[]; todosSquads: CSquad[]; pessoas: CPessoa[]; clientes: CCliente[];
   pessoaPorId: Map<string, CPessoa>; ind: Ind; onNotas: (v: string) => void;
 }) {
@@ -1049,7 +1049,7 @@ function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, 
             ⚠️ Sem salário ({ind.semSalario.length}), fora da conta: {ind.semSalario.map((p) => p.nome).join(", ")}. Preencha em Pessoas ou clicando na pessoa no organograma.
           </p>
         )}
-        <ConferenciaFolha pessoas={pessoas} cadastro={cadastro} ind={ind} onIncluir={onIncluir} />
+        <ConferenciaFolha pessoas={pessoas} cadastro={cadastro} ind={ind} onIncluir={onIncluir} squads={squads} />
       </section>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -1107,8 +1107,9 @@ function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, 
 }
 
 // Conferência: cadastro de Pessoas (ativos com salário) × quem está no cenário
-function ConferenciaFolha({ pessoas, cadastro, ind, onIncluir }: { pessoas: CPessoa[]; cadastro: Cad[]; ind: Ind; onIncluir: (r: Cad) => void }) {
+function ConferenciaFolha({ pessoas, cadastro, ind, onIncluir, squads }: { pessoas: CPessoa[]; cadastro: Cad[]; ind: Ind; onIncluir: (r: Cad, squadId: string | null) => void; squads: CSquad[] }) {
   const [aberto, setAberto] = useState(false);
+  const [destino, setDestino] = useState<Record<string, string>>({});
   const noCenario = new Set(pessoas.map((p) => p.origem_pessoa_id).filter(Boolean) as string[]);
   const ativos = cadastro.filter((r) => r.ativo);
   const totalCadastro = ativos.reduce((t, r) => t + (Number(r.salario) || 0), 0);
@@ -1139,7 +1140,12 @@ function ConferenciaFolha({ pessoas, cadastro, ind, onIncluir }: { pessoas: CPes
                   <span><strong className="text-white">{r.nome}</strong> <span className="text-brand-muted">· {r.cargo ?? "—"}{r.compartilhado_entre_squads ? " · compartilhado" : ""}</span></span>
                   <span className="flex items-center gap-2 whitespace-nowrap">
                     {r.salario != null ? brl(Number(r.salario)) : "sem salário"}
-                    <button onClick={() => onIncluir(r)} className="text-sky-300 hover:text-sky-200">+ incluir</button>
+                    <select value={destino[r.id] ?? ""} onChange={(e) => setDestino({ ...destino, [r.id]: e.target.value })}
+                      className="max-w-[110px] rounded border border-white/10 bg-transparent text-[10px] text-brand-muted">
+                      <option value="">sem squad</option>
+                      {squads.map((q) => <option key={q.id} value={q.id}>{q.nome}</option>)}
+                    </select>
+                    <button onClick={() => onIncluir(r, destino[r.id] || null)} className="text-sky-300 hover:text-sky-200">+ incluir</button>
                   </span>
                 </li>
               ))}
