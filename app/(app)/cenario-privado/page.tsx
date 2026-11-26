@@ -108,6 +108,17 @@ export default function CenarioPrivadoPage() {
 
   useEffect(() => { if (!loadingPerfil && podeEditar) carregarCenarios(); else if (!loadingPerfil) setLoading(false); /* eslint-disable-next-line */ }, [loadingPerfil]);
   useEffect(() => { if (cenarioId) carregarCenario(cenarioId); /* eslint-disable-next-line */ }, [cenarioId]);
+  // Pessoa adicionada à mão (sem vínculo) com nome que bate com 1 só ativo do cadastro: liga sozinho, para puxar o salário
+  useEffect(() => {
+    if (!cadastro.length || !pessoas.length) return;
+    const ligados = new Set(pessoas.map((p) => p.origem_pessoa_id).filter(Boolean));
+    pessoas.filter((p) => !p.origem_pessoa_id && p.status !== "vaga").forEach((p) => {
+      const tk = norm(p.nome).split(" ").filter(Boolean);
+      const cands = cadastro.filter((r) => r.ativo && !ligados.has(r.id) && tk.every((t) => norm(r.nome).split(" ").includes(t)));
+      if (cands.length === 1) { ligados.add(cands[0].id); atualizarPessoa(p.id, { origem_pessoa_id: cands[0].id }); }
+    });
+    // eslint-disable-next-line
+  }, [cadastro, pessoas.length, cenarioId]);
   useEffect(() => {
     if (loadingPerfil || !podeEditar) return;
     supabase.from("ruston_pessoas").select("id,nome,cargo,salario,ativo,compartilhado_entre_squads").then(({ data }) => {
@@ -566,7 +577,7 @@ export default function CenarioPrivadoPage() {
               squads={squadsAtivos} pessoas={pessoas} clientes={clientes}
               onAtualizar={atualizarPessoa} onNova={novaPessoa} onRemover={removerPessoa} onExcluirComClientes={excluirPessoaComClientes} onExcluirSquad={excluirSquadComTudo}
               onNovoSquad={novoSquad} onRenomearSquad={renomearSquad} onEncerrarSquad={encerrarSquad}
-              salarioDe={indicadores.salarioDe} salarioCadastroDe={(p) => (p.origem_pessoa_id ? salarioCadastro.get(p.origem_pessoa_id) ?? null : null)} temColSalario={temColSalario}
+              salarioDe={indicadores.salarioDe} salarioCadastroDe={(p) => (p.origem_pessoa_id ? salarioCadastro.get(p.origem_pessoa_id) ?? null : null)} temColSalario={temColSalario} cadastro={cadastro}
             />
           )}
           {aba === "carteiras" && (
@@ -630,8 +641,8 @@ function Kpi({ titulo, valor, sub, tom }: { titulo: string; valor: React.ReactNo
 // ======================================================================
 // Organograma do cenário
 // ======================================================================
-function Organograma({ squads, pessoas, clientes, onAtualizar, onNova, onRemover, onExcluirComClientes, onExcluirSquad, onNovoSquad, onRenomearSquad, onEncerrarSquad, salarioDe, salarioCadastroDe, temColSalario }: {
-  salarioDe: (p: CPessoa) => number | null; salarioCadastroDe: (p: CPessoa) => number | null; temColSalario: boolean;
+function Organograma({ squads, pessoas, clientes, onAtualizar, onNova, onRemover, onExcluirComClientes, onExcluirSquad, onNovoSquad, onRenomearSquad, onEncerrarSquad, salarioDe, salarioCadastroDe, temColSalario, cadastro }: {
+  salarioDe: (p: CPessoa) => number | null; salarioCadastroDe: (p: CPessoa) => number | null; temColSalario: boolean; cadastro: Cad[];
   squads: CSquad[]; pessoas: CPessoa[]; clientes: CCliente[];
   onAtualizar: (id: string, c: Partial<CPessoa>) => void; onNova: (squadId: string | null) => void; onRemover: (p: CPessoa) => void;
   onExcluirComClientes: (p: CPessoa) => void; onExcluirSquad: (s: CSquad) => void;
@@ -676,7 +687,7 @@ function Organograma({ squads, pessoas, clientes, onAtualizar, onNova, onRemover
       </div>
       {editando && (
         <ModalPessoa pessoa={editando} squads={squads} onFechar={() => setEditando(null)}
-          salarioCadastro={salarioCadastroDe(editando)} temColSalario={temColSalario}
+          temColSalario={temColSalario} cadastro={cadastro} vinculados={new Set(pessoas.filter((x) => x.id !== editando.id).map((x) => x.origem_pessoa_id).filter(Boolean) as string[])}
           onSalvar={(c) => { onAtualizar(editando.id, c); setEditando(null); }}
           onRemover={() => { onRemover(editando); setEditando(null); }}
           onExcluirComClientes={() => { onExcluirComClientes(editando); setEditando(null); }} />
@@ -775,16 +786,18 @@ function PessoaLinha({ p, carga, arrastando, onDragStart, onEditar, onStatus }: 
   );
 }
 
-function ModalPessoa({ pessoa, squads, onFechar, onSalvar, onRemover, onExcluirComClientes, salarioCadastro, temColSalario }: {
-  salarioCadastro: number | null; temColSalario: boolean;
+function ModalPessoa({ pessoa, squads, onFechar, onSalvar, onRemover, onExcluirComClientes, temColSalario, cadastro, vinculados }: {
+  temColSalario: boolean; cadastro: Cad[]; vinculados: Set<string>;
   pessoa: CPessoa; squads: CSquad[]; onFechar: () => void; onSalvar: (c: Partial<CPessoa>) => void; onRemover: () => void;
   onExcluirComClientes: () => void;
 }) {
   const [f, setF] = useState({
     nome: pessoa.nome, cargo: pessoa.cargo ?? "", papel: pessoa.papel, squad_id: pessoa.squad_id ?? "",
     status: pessoa.status, capacidade: pessoa.capacidade?.toString() ?? "", nota: pessoa.nota ?? "",
-    salario: pessoa.salario?.toString() ?? "",
+    salario: pessoa.salario?.toString() ?? "", origem: pessoa.origem_pessoa_id ?? "",
   });
+  const cad = cadastro.find((r) => r.id === f.origem);
+  const salarioCadastro = cad?.salario != null ? Number(cad.salario) : null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onFechar}>
       <div className="w-full max-w-md rounded-lg border border-white/10 bg-brand-panel p-5" onClick={(e) => e.stopPropagation()}>
@@ -822,6 +835,15 @@ function ModalPessoa({ pessoa, squads, onFechar, onSalvar, onRemover, onExcluirC
           </div>
         </div>
         <div className="mb-3">
+          <label className="label">Cadastro de Pessoas (de onde vem o salário)</label>
+          <select className="input" value={f.origem} onChange={(e) => setF({ ...f, origem: e.target.value })}>
+            <option value="">— sem vínculo (sem salário) —</option>
+            {cadastro.filter((r) => (r.ativo && !vinculados.has(r.id)) || r.id === f.origem)
+              .sort((a, b) => a.nome.localeCompare(b.nome))
+              .map((r) => <option key={r.id} value={r.id}>{r.nome}{r.cargo ? ` · ${r.cargo}` : ""}{r.salario != null ? ` · ${brl(Number(r.salario))}` : " · sem salário"}</option>)}
+          </select>
+        </div>
+        <div className="mb-3">
           <label className="label">Salário no cenário (R$/mês)</label>
           {temColSalario ? (
             <input type="number" className="input" value={f.salario} onChange={(e) => setF({ ...f, salario: e.target.value })}
@@ -844,6 +866,7 @@ function ModalPessoa({ pessoa, squads, onFechar, onSalvar, onRemover, onExcluirC
             <button className="btn" onClick={() => onSalvar({
               nome: f.nome.trim() || pessoa.nome, cargo: f.cargo.trim() || null, papel: f.papel, squad_id: f.squad_id || null,
               status: f.status, capacidade: f.capacidade === "" ? null : Number(f.capacidade), nota: f.nota.trim() || null,
+              origem_pessoa_id: f.origem || null,
               ...(temColSalario ? { salario: f.salario === "" ? null : Number(f.salario) } : {}),
             })}>Salvar</button>
           </div>
