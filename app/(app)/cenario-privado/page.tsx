@@ -19,6 +19,7 @@ type CPessoa = {
   id: string; cenario_id: string; squad_id: string | null; squad_original_id: string | null;
   nome: string; cargo: string | null; papel: Papel; foto_url: string | null;
   status: Status; capacidade: number | null; nota: string | null; ordem: number; origem_pessoa_id: string | null;
+  salario?: number | null; // ajuste/estimativa no cenário (migration 044); vazio = salário do cadastro
 };
 type CCliente = {
   id: string; cenario_id: string; cliente_id: string | null; nome: string;
@@ -72,6 +73,8 @@ export default function CenarioPrivadoPage() {
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [aba, setAba] = useState<"organograma" | "carteiras" | "resumo">("organograma");
   const [erroTabela, setErroTabela] = useState<string | null>(null);
+  const [salarioCadastro, setSalarioCadastro] = useState<Map<string, number>>(new Map());
+  const [temColSalario, setTemColSalario] = useState(false);
 
   const cenario = cenarios.find((c) => c.id === cenarioId) ?? null;
 
@@ -100,6 +103,16 @@ export default function CenarioPrivadoPage() {
 
   useEffect(() => { if (!loadingPerfil && podeEditar) carregarCenarios(); else if (!loadingPerfil) setLoading(false); /* eslint-disable-next-line */ }, [loadingPerfil]);
   useEffect(() => { if (cenarioId) carregarCenario(cenarioId); /* eslint-disable-next-line */ }, [cenarioId]);
+  useEffect(() => {
+    if (loadingPerfil || !podeEditar) return;
+    supabase.from("ruston_pessoas").select("id,salario").then(({ data }) => {
+      const m = new Map<string, number>();
+      ((data as { id: string; salario: number | null }[]) ?? []).forEach((r) => { if (r.salario != null) m.set(r.id, Number(r.salario)); });
+      setSalarioCadastro(m);
+    });
+    supabase.from("ruston_cenario_pessoas").select("salario").limit(1).then(({ error }) => setTemColSalario(!error));
+    // eslint-disable-next-line
+  }, [loadingPerfil, podeEditar]);
 
   // ------------------------------------------------------------------
   // Criar cenário: fotografia do organograma + carteiras de hoje
@@ -253,6 +266,7 @@ export default function CenarioPrivadoPage() {
         id: mapa.get(p.id), cenario_id: cenId, squad_id: novo(p.squad_id), squad_original_id: novo(p.squad_original_id),
         nome: p.nome, cargo: p.cargo, papel: p.papel, foto_url: p.foto_url, status: p.status, capacidade: p.capacidade,
         nota: p.nota, ordem: p.ordem, origem_pessoa_id: p.origem_pessoa_id,
+        ...(temColSalario ? { salario: p.salario ?? null } : {}),
       })));
       await inserirEmLotes(supabase, "ruston_cenario_clientes", clientes.map((c) => ({
         id: uuid(), cenario_id: cenId, cliente_id: c.cliente_id, nome: c.nome, mrr: c.mrr, bandeira: c.bandeira, etapa: c.etapa,
@@ -417,14 +431,20 @@ export default function CenarioPrivadoPage() {
   };
 
   const indicadores = useMemo(() => {
-    const hoje = pessoas.filter((p) => p.origem_pessoa_id || p.squad_original_id).filter((p) => p.status !== "vaga").length;
-    const depois = pessoas.filter((p) => p.status !== "sai").length;
+    const listaHoje = pessoas.filter((p) => p.origem_pessoa_id || p.squad_original_id).filter((p) => p.status !== "vaga");
+    const listaDepois = pessoas.filter((p) => p.status !== "sai");
+    const hoje = listaHoje.length;
+    const depois = listaDepois.length;
+    const sal = (p: CPessoa) => p.salario ?? (p.origem_pessoa_id ? salarioCadastro.get(p.origem_pessoa_id) ?? null : null);
+    const folhaHoje = listaHoje.reduce((t, p) => t + (sal(p) ?? 0), 0);
+    const folhaDepois = listaDepois.reduce((t, p) => t + (sal(p) ?? 0), 0);
+    const semSalario = [...listaHoje, ...listaDepois.filter((p) => !listaHoje.includes(p))].filter((p) => sal(p) == null);
     const saindo = pessoas.filter((p) => p.status === "sai");
     const trocaGp = clientes.filter((c) => c.gp_id !== c.gp_original_id);
     const trocaGt = clientes.filter((c) => c.gt_id !== c.gt_original_id);
     const trocaDg = clientes.filter((c) => c.designer_id !== c.designer_original_id);
     return {
-      hoje, depois, saindo,
+      hoje, depois, saindo, folhaHoje, folhaDepois, semSalario, salarioDe: sal,
       semGp: clientes.filter((c) => semResponsavel(c, "gp")).length,
       semGt: clientes.filter((c) => semResponsavel(c, "gt")).length,
       semDg: clientes.filter((c) => semResponsavel(c, "designer")).length,
@@ -434,7 +454,7 @@ export default function CenarioPrivadoPage() {
       mrrTotal: clientes.reduce((s, c) => s + (c.mrr ?? 0), 0),
     };
     // eslint-disable-next-line
-  }, [pessoas, clientes, pessoaPorId]);
+  }, [pessoas, clientes, pessoaPorId, salarioCadastro]);
 
   // ------------------------------------------------------------------
   if (loadingPerfil) return <p className="text-brand-muted">Carregando...</p>;
@@ -506,6 +526,7 @@ export default function CenarioPrivadoPage() {
               squads={squadsAtivos} pessoas={pessoas} clientes={clientes}
               onAtualizar={atualizarPessoa} onNova={novaPessoa} onRemover={removerPessoa} onExcluirComClientes={excluirPessoaComClientes} onExcluirSquad={excluirSquadComTudo}
               onNovoSquad={novoSquad} onRenomearSquad={renomearSquad} onEncerrarSquad={encerrarSquad}
+              salarioDe={indicadores.salarioDe} salarioCadastroDe={(p) => (p.origem_pessoa_id ? salarioCadastro.get(p.origem_pessoa_id) ?? null : null)} temColSalario={temColSalario}
             />
           )}
           {aba === "carteiras" && (
@@ -528,6 +549,7 @@ export default function CenarioPrivadoPage() {
 type Ind = {
   hoje: number; depois: number; saindo: CPessoa[]; semGp: number; semGt: number; semDg: number;
   trocaGp: CCliente[]; trocaGt: CCliente[]; trocaDg: CCliente[]; mrrTrocaGp: number; vermelhosTrocaGp: number; mrrTotal: number;
+  folhaHoje: number; folhaDepois: number; semSalario: CPessoa[]; salarioDe: (p: CPessoa) => number | null;
 };
 
 function Indicadores({ ind, meta, onMeta }: { ind: Ind; meta: number | null; onMeta: (v: number | null) => void }) {
@@ -566,7 +588,8 @@ function Kpi({ titulo, valor, sub, tom }: { titulo: string; valor: React.ReactNo
 // ======================================================================
 // Organograma do cenário
 // ======================================================================
-function Organograma({ squads, pessoas, clientes, onAtualizar, onNova, onRemover, onExcluirComClientes, onExcluirSquad, onNovoSquad, onRenomearSquad, onEncerrarSquad }: {
+function Organograma({ squads, pessoas, clientes, onAtualizar, onNova, onRemover, onExcluirComClientes, onExcluirSquad, onNovoSquad, onRenomearSquad, onEncerrarSquad, salarioDe, salarioCadastroDe, temColSalario }: {
+  salarioDe: (p: CPessoa) => number | null; salarioCadastroDe: (p: CPessoa) => number | null; temColSalario: boolean;
   squads: CSquad[]; pessoas: CPessoa[]; clientes: CCliente[];
   onAtualizar: (id: string, c: Partial<CPessoa>) => void; onNova: (squadId: string | null) => void; onRemover: (p: CPessoa) => void;
   onExcluirComClientes: (p: CPessoa) => void; onExcluirSquad: (s: CSquad) => void;
@@ -611,6 +634,7 @@ function Organograma({ squads, pessoas, clientes, onAtualizar, onNova, onRemover
       </div>
       {editando && (
         <ModalPessoa pessoa={editando} squads={squads} onFechar={() => setEditando(null)}
+          salarioCadastro={salarioCadastroDe(editando)} temColSalario={temColSalario}
           onSalvar={(c) => { onAtualizar(editando.id, c); setEditando(null); }}
           onRemover={() => { onRemover(editando); setEditando(null); }}
           onExcluirComClientes={() => { onExcluirComClientes(editando); setEditando(null); }} />
@@ -709,13 +733,15 @@ function PessoaLinha({ p, carga, arrastando, onDragStart, onEditar, onStatus }: 
   );
 }
 
-function ModalPessoa({ pessoa, squads, onFechar, onSalvar, onRemover, onExcluirComClientes }: {
+function ModalPessoa({ pessoa, squads, onFechar, onSalvar, onRemover, onExcluirComClientes, salarioCadastro, temColSalario }: {
+  salarioCadastro: number | null; temColSalario: boolean;
   pessoa: CPessoa; squads: CSquad[]; onFechar: () => void; onSalvar: (c: Partial<CPessoa>) => void; onRemover: () => void;
   onExcluirComClientes: () => void;
 }) {
   const [f, setF] = useState({
     nome: pessoa.nome, cargo: pessoa.cargo ?? "", papel: pessoa.papel, squad_id: pessoa.squad_id ?? "",
     status: pessoa.status, capacidade: pessoa.capacidade?.toString() ?? "", nota: pessoa.nota ?? "",
+    salario: pessoa.salario?.toString() ?? "",
   });
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onFechar}>
@@ -753,6 +779,16 @@ function ModalPessoa({ pessoa, squads, onFechar, onSalvar, onRemover, onExcluirC
             <input type="number" className="input" value={f.capacidade} onChange={(e) => setF({ ...f, capacidade: e.target.value })} placeholder="ex: 25" />
           </div>
         </div>
+        <div className="mb-3">
+          <label className="label">Salário no cenário (R$/mês)</label>
+          {temColSalario ? (
+            <input type="number" className="input" value={f.salario} onChange={(e) => setF({ ...f, salario: e.target.value })}
+              placeholder={salarioCadastro != null ? `cadastro: ${brl(salarioCadastro)}` : f.status === "vaga" ? "estimativa da vaga" : "sem salário no cadastro"} />
+          ) : (
+            <p className="text-xs text-brand-muted">{salarioCadastro != null ? `${brl(salarioCadastro)} (cadastro)` : "sem salário no cadastro"} · para ajustar aqui, rode a migration 044.</p>
+          )}
+          <p className="mt-1 text-[10px] text-brand-muted">Vazio = usa o salário do cadastro de Pessoas.</p>
+        </div>
         <div className="mb-4"><label className="label">Nota (motivo, observação)</label>
           <textarea className="input min-h-[70px]" value={f.nota} onChange={(e) => setF({ ...f, nota: e.target.value })} />
         </div>
@@ -766,6 +802,7 @@ function ModalPessoa({ pessoa, squads, onFechar, onSalvar, onRemover, onExcluirC
             <button className="btn" onClick={() => onSalvar({
               nome: f.nome.trim() || pessoa.nome, cargo: f.cargo.trim() || null, papel: f.papel, squad_id: f.squad_id || null,
               status: f.status, capacidade: f.capacidade === "" ? null : Number(f.capacidade), nota: f.nota.trim() || null,
+              ...(temColSalario ? { salario: f.salario === "" ? null : Number(f.salario) } : {}),
             })}>Salvar</button>
           </div>
         </div>
@@ -920,27 +957,6 @@ function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, 
   cenario: Cenario; squads: CSquad[]; todosSquads: CSquad[]; pessoas: CPessoa[]; clientes: CCliente[];
   pessoaPorId: Map<string, CPessoa>; ind: Ind; onNotas: (v: string) => void;
 }) {
-  const squadDoGp = (gpId: string | null) => (gpId ? pessoaPorId.get(gpId)?.squad_id ?? null : null);
-  const linhas = todosSquads
-    .filter((s) => s.tipo === "squad")
-    .map((s) => {
-      const antesP = pessoas.filter((p) => p.squad_original_id === s.id && p.status !== "vaga").length;
-      const depoisP = pessoas.filter((p) => p.squad_id === s.id && p.status !== "sai").length;
-      const cliAntes = clientes.filter((c) => {
-        const gp = c.gp_original_id ? pessoaPorId.get(c.gp_original_id) : null;
-        return gp?.squad_original_id === s.id;
-      });
-      const cliDepois = clientes.filter((c) => squadDoGp(c.gp_id) === s.id && pessoaPorId.get(c.gp_id!)?.status !== "sai");
-      const gpsDepois = pessoas.filter((p) => p.squad_id === s.id && p.papel === "gp" && p.status !== "sai").length;
-      return {
-        s, antesP, depoisP, ativo: s.ativo,
-        cliAntes: cliAntes.length, cliDepois: cliDepois.length,
-        mrrAntes: cliAntes.reduce((t, c) => t + (c.mrr ?? 0), 0), mrrDepois: cliDepois.reduce((t, c) => t + (c.mrr ?? 0), 0),
-        porGp: gpsDepois ? cliDepois.length / gpsDepois : null,
-      };
-    })
-    .filter((l) => l.antesP > 0 || l.depoisP > 0);
-
   const vagas = pessoas.filter((p) => p.status === "vaga");
   const nomeSquadOrig = (p: CPessoa) => todosSquads.find((s) => s.id === p.squad_original_id)?.nome ?? "—";
   const gpsQueRecebem = new Map<string, CCliente[]>();
@@ -949,34 +965,35 @@ function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, 
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-white/10 bg-white/[0.02] p-5">
-        <h3 className="mb-3 text-sm font-bold uppercase tracking-widest text-white">Antes × depois por squad</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="text-[10px] uppercase tracking-widest text-brand-muted">
-              <tr className="border-b border-white/10">
-                <th className="py-2 text-left">Squad</th><th className="text-right">Pessoas</th><th className="text-right">Clientes</th>
-                <th className="text-right">MRR</th><th className="text-right">Clientes por GP</th>
-              </tr>
-            </thead>
-            <tbody>
-              {linhas.map((l) => (
-                <tr key={l.s.id} className="border-b border-white/5">
-                  <td className="py-2 font-semibold text-white">{l.s.nome}{!l.ativo && <span className="ml-2 text-[10px] text-red-300">encerrado</span>}</td>
-                  <td className="text-right">{l.antesP} → <strong className="text-white">{l.depoisP}</strong></td>
-                  <td className="text-right">{l.cliAntes} → <strong className="text-white">{l.cliDepois}</strong></td>
-                  <td className="text-right">{brlK(l.mrrAntes)} → <strong className="text-white">{brlK(l.mrrDepois)}</strong></td>
-                  <td className="text-right">{l.porGp != null ? l.porGp.toFixed(1) : "—"}</td>
-                </tr>
-              ))}
-              <tr>
-                <td className="py-2 font-bold text-white">Total</td>
-                <td className="text-right">{ind.hoje} → <strong className="text-white">{ind.depois}</strong></td>
-                <td className="text-right" colSpan={2}>MRR da base: <strong className="text-white">{brl(ind.mrrTotal)}</strong></td>
-                <td />
-              </tr>
-            </tbody>
-          </table>
+        <h3 className="mb-4 text-sm font-bold uppercase tracking-widest text-white">Ruston Operações · antes × depois</h3>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="rounded-xl border border-white/10 p-4">
+            <p className="text-[10px] uppercase tracking-widest text-brand-muted">Pessoas</p>
+            <p className="mt-1 text-2xl font-bold text-white">{ind.hoje} <span className="text-brand-muted">→</span> {ind.depois}</p>
+            <p className="text-xs text-brand-muted">{ind.hoje - ind.depois > 0 ? `${ind.hoje - ind.depois} a menos` : "sem redução"}{ind.hoje ? ` (${Math.round(((ind.hoje - ind.depois) / ind.hoje) * 100)}%)` : ""}</p>
+          </div>
+          <div className="rounded-xl border border-white/10 p-4">
+            <p className="text-[10px] uppercase tracking-widest text-brand-muted">Folha mensal</p>
+            <p className="mt-1 text-2xl font-bold text-white">{brlK(ind.folhaHoje)} <span className="text-brand-muted">→</span> {brlK(ind.folhaDepois)}</p>
+            <p className="text-xs text-brand-muted">{brl(ind.folhaHoje)} → {brl(ind.folhaDepois)}</p>
+          </div>
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+            <p className="text-[10px] uppercase tracking-widest text-emerald-300">Redução de custo</p>
+            <p className="mt-1 text-2xl font-bold text-emerald-200">{brl(ind.folhaHoje - ind.folhaDepois)}<span className="text-sm font-normal">/mês</span></p>
+            <p className="text-xs text-emerald-300/80">
+              {brl((ind.folhaHoje - ind.folhaDepois) * 12)}/ano{ind.folhaHoje ? ` · ${Math.round(((ind.folhaHoje - ind.folhaDepois) / ind.folhaHoje) * 100)}% da folha` : ""}
+            </p>
+          </div>
         </div>
+        <p className="mt-3 text-[11px] text-brand-muted">
+          {ind.mrrTotal ? <>Folha sobre o MRR da base ({brl(ind.mrrTotal)}): {Math.round((ind.folhaHoje / ind.mrrTotal) * 100)}% → <strong className="text-white">{Math.round((ind.folhaDepois / ind.mrrTotal) * 100)}%</strong>. </> : null}
+          Salário de cada pessoa vem do cadastro de Pessoas; vagas entram pelo valor estimado no cenário.
+        </p>
+        {ind.semSalario.length > 0 && (
+          <p className="mt-2 text-[11px] text-amber-300">
+            ⚠️ Sem salário ({ind.semSalario.length}), fora da conta: {ind.semSalario.map((p) => p.nome).join(", ")}. Preencha em Pessoas ou clicando na pessoa no organograma.
+          </p>
+        )}
       </section>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -990,7 +1007,7 @@ function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, 
                 <li key={p.id} className="flex justify-between gap-2 border-b border-white/5 pb-1.5">
                   <span><strong className="text-white">{p.nome}</strong> <span className="text-brand-muted">· {PAPEL_LABEL[p.papel]} · {nomeSquadOrig(p)}</span>
                     {p.nota && <span className="block text-[10px] italic text-amber-200/80">{p.nota}</span>}</span>
-                  <span className="whitespace-nowrap text-brand-muted">{qtd} clientes</span>
+                  <span className="whitespace-nowrap text-brand-muted">{qtd} clientes{ind.salarioDe(p) != null && <> · {brl(ind.salarioDe(p)!)}</>}</span>
                 </li>
               );
             })}
