@@ -29,6 +29,8 @@ type CCliente = {
   nota: string | null;
 };
 
+type Cad = { id: string; nome: string; cargo: string | null; salario: number | null; ativo: boolean; compartilhado_entre_squads: boolean | null };
+
 const CAMPO: Record<PapelCarteira, "gp_id" | "gt_id" | "designer_id"> = { gp: "gp_id", gt: "gt_id", designer: "designer_id" };
 const CAMPO_ORIG: Record<PapelCarteira, "gp_original_id" | "gt_original_id" | "designer_original_id"> = {
   gp: "gp_original_id", gt: "gt_original_id", designer: "designer_original_id",
@@ -74,6 +76,7 @@ export default function CenarioPrivadoPage() {
   const [aba, setAba] = useState<"organograma" | "carteiras" | "resumo">("organograma");
   const [erroTabela, setErroTabela] = useState<string | null>(null);
   const [salarioCadastro, setSalarioCadastro] = useState<Map<string, number>>(new Map());
+  const [cadastro, setCadastro] = useState<Cad[]>([]);
   const [temColSalario, setTemColSalario] = useState(false);
 
   const cenario = cenarios.find((c) => c.id === cenarioId) ?? null;
@@ -105,10 +108,12 @@ export default function CenarioPrivadoPage() {
   useEffect(() => { if (cenarioId) carregarCenario(cenarioId); /* eslint-disable-next-line */ }, [cenarioId]);
   useEffect(() => {
     if (loadingPerfil || !podeEditar) return;
-    supabase.from("ruston_pessoas").select("id,salario").then(({ data }) => {
+    supabase.from("ruston_pessoas").select("id,nome,cargo,salario,ativo,compartilhado_entre_squads").then(({ data }) => {
+      const lista = (data as Cad[]) ?? [];
       const m = new Map<string, number>();
-      ((data as { id: string; salario: number | null }[]) ?? []).forEach((r) => { if (r.salario != null) m.set(r.id, Number(r.salario)); });
+      lista.forEach((r) => { if (r.salario != null) m.set(r.id, Number(r.salario)); });
       setSalarioCadastro(m);
+      setCadastro(lista);
     });
     supabase.from("ruston_cenario_pessoas").select("salario").limit(1).then(({ error }) => setTemColSalario(!error));
     // eslint-disable-next-line
@@ -323,6 +328,18 @@ export default function CenarioPrivadoPage() {
     if (!error) setPessoas((prev) => [...prev, linha]);
   }
 
+  async function incluirDoCadastro(r: Cad) {
+    if (!cenarioId) return;
+    const linha = {
+      id: uuid(), cenario_id: cenarioId, squad_id: null, squad_original_id: null, nome: r.nome, cargo: null,
+      papel: papelDe(r.cargo, null), foto_url: null, status: "fica" as Status, capacidade: null, nota: null,
+      ordem: pessoas.length, origem_pessoa_id: r.id,
+    };
+    const { error } = await supabase.from("ruston_cenario_pessoas").insert(linha);
+    if (error) { alert("Não consegui incluir: " + error.message); return; }
+    setPessoas((prev) => [...prev, linha]);
+  }
+
   async function removerPessoa(p: CPessoa) {
     if (!confirm(`Tirar ${p.nome} do cenário? Os clientes dela ficam sem responsável nesse papel.`)) return;
     await supabase.from("ruston_cenario_pessoas").delete().eq("id", p.id);
@@ -535,7 +552,8 @@ export default function CenarioPrivadoPage() {
           )}
           {aba === "resumo" && (
             <Resumo cenario={cenario} squads={squadsAtivos} todosSquads={squads} pessoas={pessoas} clientes={clientes}
-              pessoaPorId={pessoaPorId} ind={indicadores} onNotas={(v) => salvarCenario({ notas: v })} />
+              pessoaPorId={pessoaPorId} ind={indicadores} onNotas={(v) => salvarCenario({ notas: v })}
+              cadastro={cadastro} onIncluir={incluirDoCadastro} />
           )}
         </>
       )}
@@ -953,7 +971,8 @@ function ClienteCard({ c, papel, pessoaPorId, onDrag, onExcluir }: { c: CCliente
 // ======================================================================
 // Resumo para a diretoria
 // ======================================================================
-function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, ind, onNotas }: {
+function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, ind, onNotas, cadastro, onIncluir }: {
+  cadastro: Cad[]; onIncluir: (r: Cad) => void;
   cenario: Cenario; squads: CSquad[]; todosSquads: CSquad[]; pessoas: CPessoa[]; clientes: CCliente[];
   pessoaPorId: Map<string, CPessoa>; ind: Ind; onNotas: (v: string) => void;
 }) {
@@ -994,6 +1013,7 @@ function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, 
             ⚠️ Sem salário ({ind.semSalario.length}), fora da conta: {ind.semSalario.map((p) => p.nome).join(", ")}. Preencha em Pessoas ou clicando na pessoa no organograma.
           </p>
         )}
+        <ConferenciaFolha pessoas={pessoas} cadastro={cadastro} ind={ind} onIncluir={onIncluir} />
       </section>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -1046,6 +1066,71 @@ function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, 
           className="input min-h-[140px] text-sm" />
         <p className="mt-1 text-[10px] text-brand-muted">Salva quando você clica fora da caixa.</p>
       </section>
+    </div>
+  );
+}
+
+// Conferência: cadastro de Pessoas (ativos com salário) × quem está no cenário
+function ConferenciaFolha({ pessoas, cadastro, ind, onIncluir }: { pessoas: CPessoa[]; cadastro: Cad[]; ind: Ind; onIncluir: (r: Cad) => void }) {
+  const [aberto, setAberto] = useState(false);
+  const noCenario = new Set(pessoas.map((p) => p.origem_pessoa_id).filter(Boolean) as string[]);
+  const ativos = cadastro.filter((r) => r.ativo);
+  const totalCadastro = ativos.reduce((t, r) => t + (Number(r.salario) || 0), 0);
+  const fora = ativos.filter((r) => !noCenario.has(r.id)).sort((a, b) => (Number(b.salario) || 0) - (Number(a.salario) || 0));
+  const semCadastro = pessoas.filter((p) => !p.origem_pessoa_id && p.status !== "vaga");
+  const linhasCenario = pessoas
+    .filter((p) => (p.origem_pessoa_id || p.squad_original_id) && p.status !== "vaga")
+    .map((p) => ({ p, v: ind.salarioDe(p) }))
+    .sort((a, b) => (b.v ?? 0) - (a.v ?? 0));
+  return (
+    <div className="mt-4 rounded-xl border border-white/10 p-3">
+      <button onClick={() => setAberto(!aberto)} className="flex w-full items-center justify-between text-left text-xs">
+        <span className="font-semibold text-white">🔎 Conferência da folha</span>
+        <span className="text-brand-muted">
+          cadastro ativo {brl(totalCadastro)} ({ativos.length} pessoas) · no cenário hoje {brl(ind.folhaHoje)} ({ind.hoje})
+          {fora.length > 0 && <span className="text-amber-300"> · {fora.length} do cadastro fora do cenário</span>}
+          {" "}{aberto ? "▲" : "▼"}
+        </span>
+      </button>
+      {aberto && (
+        <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3 text-[11px]">
+          <div>
+            <p className="mb-1 font-semibold uppercase tracking-widest text-amber-300">No cadastro, fora do cenário ({fora.length})</p>
+            <p className="mb-2 text-brand-muted">Ativos em Pessoas que não entraram no cenário. Se fazem parte da operação, inclua.</p>
+            <ul className="space-y-1">
+              {fora.map((r) => (
+                <li key={r.id} className="flex items-center justify-between gap-2 border-b border-white/5 pb-1">
+                  <span><strong className="text-white">{r.nome}</strong> <span className="text-brand-muted">· {r.cargo ?? "—"}{r.compartilhado_entre_squads ? " · compartilhado" : ""}</span></span>
+                  <span className="flex items-center gap-2 whitespace-nowrap">
+                    {r.salario != null ? brl(Number(r.salario)) : "sem salário"}
+                    <button onClick={() => onIncluir(r)} className="text-sky-300 hover:text-sky-200">+ incluir</button>
+                  </span>
+                </li>
+              ))}
+              {fora.length === 0 && <li className="text-brand-muted">Ninguém.</li>}
+            </ul>
+          </div>
+          <div>
+            <p className="mb-1 font-semibold uppercase tracking-widest text-amber-300">No cenário sem ligação com o cadastro ({semCadastro.length})</p>
+            <p className="mb-2 text-brand-muted">Vieram do organograma, mas o nome não bateu com ninguém em Pessoas, então entram sem salário. Exclua e inclua pela lista ao lado.</p>
+            <ul className="space-y-1">
+              {semCadastro.map((p) => <li key={p.id} className="border-b border-white/5 pb-1"><strong className="text-white">{p.nome}</strong> <span className="text-brand-muted">· {p.cargo ?? PAPEL_LABEL[p.papel]}</span></li>)}
+              {semCadastro.length === 0 && <li className="text-brand-muted">Ninguém.</li>}
+            </ul>
+          </div>
+          <div>
+            <p className="mb-1 font-semibold uppercase tracking-widest text-white">Quem compõe a folha de hoje ({linhasCenario.length})</p>
+            <ul className="space-y-1">
+              {linhasCenario.map(({ p, v }) => (
+                <li key={p.id} className="flex justify-between gap-2 border-b border-white/5 pb-1">
+                  <span className={p.status === "sai" ? "text-red-300" : "text-white"}>{p.nome}{p.status === "sai" ? " (sai)" : ""}</span>
+                  <span className={v == null ? "text-amber-300" : "text-brand-muted"}>{v != null ? brl(v) : "sem salário"}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
