@@ -144,7 +144,8 @@ export default function CenarioPrivadoPage() {
       const pessoaPorCadastro = new Map<string, string>(); // ruston_pessoas.id -> cenario_pessoas.id
       const linhasPessoas: Record<string, unknown>[] = [];
       type OP = { id: string; area_id: string; nome: string; cargo: string | null; foto_url: string | null; ruston_pessoa_id: string | null; capacidade: number | null };
-      const ops = (orgPessoas as OP[]) ?? [];
+      // Quem está inativo no cadastro (já saiu) não entra no cenário
+      const ops = ((orgPessoas as OP[]) ?? []).filter((o) => !o.ruston_pessoa_id || rpPorId.get(o.ruston_pessoa_id)?.ativo !== false);
       ops.forEach((o) => { if (o.ruston_pessoa_id) usados.add(o.ruston_pessoa_id); });
       ops.forEach((o, i) => {
         let cadastroId = o.ruston_pessoa_id;
@@ -166,7 +167,9 @@ export default function CenarioPrivadoPage() {
 
       // Clientes ativos (mesmo filtro do organograma)
       type CL = { id: string; nome: string; mrr: number | null; etapa: string | null; data_vencimento_contrato: string | null; account_id: string | null; gestor_trafego_id: string | null; designer_id: string | null; churn_realizado: boolean; subiu_no_sistema: boolean };
-      const cls = ((cli as CL[]) ?? []).filter((x) => !(x.churn_realizado && x.subiu_no_sistema));
+      // Cliente cujo GP já saiu (inativo no cadastro) também fica de fora
+      const cls = ((cli as CL[]) ?? []).filter((x) => !(x.churn_realizado && x.subiu_no_sistema))
+        .filter((x) => !x.account_id || rpPorId.get(x.account_id)?.ativo !== false);
 
       // Quem atende cliente mas não está no organograma entra mesmo assim
       let foraId: string | null = null;
@@ -175,7 +178,7 @@ export default function CenarioPrivadoPage() {
         const ja = pessoaPorCadastro.get(cadastroId);
         if (ja) return ja;
         const r = rpPorId.get(cadastroId);
-        if (!r) return null;
+        if (!r || !r.ativo) return null;
         let squadId = r.squad_id ? squadPorNome.get(norm(nomeRSquad.get(r.squad_id) ?? "")) ?? null : null;
         if (!squadId) {
           if (!foraId) {
@@ -333,6 +336,59 @@ export default function CenarioPrivadoPage() {
     await supabase.from("ruston_cenario_squads").update({ nome: nome.toUpperCase() }).eq("id", s.id);
   }
 
+  // Clientes "da pessoa": onde ela é GP; se não for GP de ninguém, onde ela atende no próprio papel
+  function clientesDaPessoa(p: CPessoa): CCliente[] {
+    const comoGp = clientes.filter((c) => c.gp_id === p.id);
+    if (comoGp.length || p.papel === "gp") return comoGp;
+    if (p.papel === "gt" || p.papel === "designer") return clientes.filter((c) => c[CAMPO[p.papel as PapelCarteira]] === p.id);
+    return [];
+  }
+
+  async function excluirClientes(ids: string[]) {
+    if (!ids.length) return;
+    for (let i = 0; i < ids.length; i += 200) {
+      await supabase.from("ruston_cenario_clientes").delete().in("id", ids.slice(i, i + 200));
+    }
+    const set = new Set(ids);
+    setClientes((prev) => prev.filter((c) => !set.has(c.id)));
+  }
+
+  async function excluirPessoaComClientes(p: CPessoa) {
+    const lista = clientesDaPessoa(p);
+    if (!confirm(`Excluir ${p.nome} do cenário junto com ${lista.length} cliente(s)?\n\n${lista.map((c) => c.nome).join(", ")}\n\nNão conta como desligamento.`)) return;
+    await excluirClientes(lista.map((c) => c.id));
+    await supabase.from("ruston_cenario_pessoas").delete().eq("id", p.id);
+    setPessoas((prev) => prev.filter((x) => x.id !== p.id));
+    setClientes((prev) => prev.map((c) => ({
+      ...c,
+      gp_id: c.gp_id === p.id ? null : c.gp_id,
+      gt_id: c.gt_id === p.id ? null : c.gt_id,
+      designer_id: c.designer_id === p.id ? null : c.designer_id,
+    })));
+  }
+
+  async function excluirSquadComTudo(s: CSquad) {
+    const membros = pessoas.filter((p) => p.squad_id === s.id);
+    const ids = new Set(membros.map((p) => p.id));
+    const lista = clientes.filter((c) => c.gp_id && ids.has(c.gp_id));
+    if (!confirm(`Excluir o squad ${s.nome} do cenário, com ${membros.length} pessoa(s) e ${lista.length} cliente(s)?\n\nNinguém dele conta como desligamento.`)) return;
+    await excluirClientes(lista.map((c) => c.id));
+    if (membros.length) await supabase.from("ruston_cenario_pessoas").delete().in("id", Array.from(ids));
+    await supabase.from("ruston_cenario_squads").delete().eq("id", s.id);
+    setPessoas((prev) => prev.filter((p) => !ids.has(p.id)));
+    setSquads((prev) => prev.filter((x) => x.id !== s.id));
+    setClientes((prev) => prev.map((c) => ({
+      ...c,
+      gt_id: c.gt_id && ids.has(c.gt_id) ? null : c.gt_id,
+      designer_id: c.designer_id && ids.has(c.designer_id) ? null : c.designer_id,
+    })));
+  }
+
+  async function excluirCliente(c: CCliente) {
+    if (!confirm(`Excluir ${c.nome} do cenário?`)) return;
+    await excluirClientes([c.id]);
+  }
+
   async function encerrarSquad(s: CSquad) {
     const qtd = pessoas.filter((p) => p.squad_id === s.id).length;
     if (!confirm(`Encerrar o squad ${s.nome}?${qtd ? ` As ${qtd} pessoas dele vão para "Sem squad".` : ""}`)) return;
@@ -448,13 +504,13 @@ export default function CenarioPrivadoPage() {
           {aba === "organograma" && (
             <Organograma
               squads={squadsAtivos} pessoas={pessoas} clientes={clientes}
-              onAtualizar={atualizarPessoa} onNova={novaPessoa} onRemover={removerPessoa}
+              onAtualizar={atualizarPessoa} onNova={novaPessoa} onRemover={removerPessoa} onExcluirComClientes={excluirPessoaComClientes} onExcluirSquad={excluirSquadComTudo}
               onNovoSquad={novoSquad} onRenomearSquad={renomearSquad} onEncerrarSquad={encerrarSquad}
             />
           )}
           {aba === "carteiras" && (
             <Carteiras squads={squadsAtivos} pessoas={pessoas} clientes={clientes} pessoaPorId={pessoaPorId}
-              onMover={moverCliente} onCapacidade={(id, v) => atualizarPessoa(id, { capacidade: v })} />
+              onMover={moverCliente} onExcluir={excluirCliente} onCapacidade={(id, v) => atualizarPessoa(id, { capacidade: v })} />
           )}
           {aba === "resumo" && (
             <Resumo cenario={cenario} squads={squadsAtivos} todosSquads={squads} pessoas={pessoas} clientes={clientes}
@@ -510,9 +566,10 @@ function Kpi({ titulo, valor, sub, tom }: { titulo: string; valor: React.ReactNo
 // ======================================================================
 // Organograma do cenário
 // ======================================================================
-function Organograma({ squads, pessoas, clientes, onAtualizar, onNova, onRemover, onNovoSquad, onRenomearSquad, onEncerrarSquad }: {
+function Organograma({ squads, pessoas, clientes, onAtualizar, onNova, onRemover, onExcluirComClientes, onExcluirSquad, onNovoSquad, onRenomearSquad, onEncerrarSquad }: {
   squads: CSquad[]; pessoas: CPessoa[]; clientes: CCliente[];
   onAtualizar: (id: string, c: Partial<CPessoa>) => void; onNova: (squadId: string | null) => void; onRemover: (p: CPessoa) => void;
+  onExcluirComClientes: (p: CPessoa) => void; onExcluirSquad: (s: CSquad) => void;
   onNovoSquad: () => void; onRenomearSquad: (s: CSquad) => void; onEncerrarSquad: (s: CSquad) => void;
 }) {
   const [arrastando, setArrastando] = useState<string | null>(null);
@@ -546,7 +603,7 @@ function Organograma({ squads, pessoas, clientes, onAtualizar, onNova, onRemover
           <SquadCard key={squad?.id ?? "sem"} squad={squad} lista={lista} carga={carga} arrastando={arrastando} setArrastando={setArrastando}
             onSoltar={(pid) => onAtualizar(pid, { squad_id: squad?.id ?? null })}
             onAtualizar={onAtualizar} onEditar={setEditando} onNova={() => onNova(squad?.id ?? null)}
-            onRenomear={squad ? () => onRenomearSquad(squad) : undefined} onEncerrar={squad ? () => onEncerrarSquad(squad) : undefined} />
+            onRenomear={squad ? () => onRenomearSquad(squad) : undefined} onEncerrar={squad ? () => onEncerrarSquad(squad) : undefined} onExcluir={squad ? () => onExcluirSquad(squad) : undefined} />
         ))}
         <button onClick={onNovoSquad} className="min-h-[120px] rounded-2xl border-2 border-dashed border-white/10 text-xs text-brand-muted hover:border-brand hover:text-brand">
           + squad
@@ -555,17 +612,18 @@ function Organograma({ squads, pessoas, clientes, onAtualizar, onNova, onRemover
       {editando && (
         <ModalPessoa pessoa={editando} squads={squads} onFechar={() => setEditando(null)}
           onSalvar={(c) => { onAtualizar(editando.id, c); setEditando(null); }}
-          onRemover={() => { onRemover(editando); setEditando(null); }} />
+          onRemover={() => { onRemover(editando); setEditando(null); }}
+          onExcluirComClientes={() => { onExcluirComClientes(editando); setEditando(null); }} />
       )}
     </div>
   );
 }
 
-function SquadCard({ squad, lista, carga, arrastando, setArrastando, onSoltar, onAtualizar, onEditar, onNova, onRenomear, onEncerrar }: {
+function SquadCard({ squad, lista, carga, arrastando, setArrastando, onSoltar, onAtualizar, onEditar, onNova, onRenomear, onEncerrar, onExcluir }: {
   squad: CSquad | null; lista: CPessoa[]; carga: Map<string, { gp: number; gt: number; designer: number; mrr: number }>;
   arrastando: string | null; setArrastando: (id: string | null) => void; onSoltar: (pessoaId: string) => void;
   onAtualizar: (id: string, c: Partial<CPessoa>) => void; onEditar: (p: CPessoa) => void; onNova: () => void;
-  onRenomear?: () => void; onEncerrar?: () => void;
+  onRenomear?: () => void; onEncerrar?: () => void; onExcluir?: () => void;
 }) {
   const [hover, setHover] = useState(false);
   const ficam = lista.filter((p) => p.status !== "sai").length;
@@ -585,7 +643,8 @@ function SquadCard({ squad, lista, carga, arrastando, setArrastando, onSoltar, o
         {squad && (
           <div className="flex gap-2 text-[10px]">
             <button onClick={onRenomear} className="text-brand-muted hover:text-white">renomear</button>
-            <button onClick={onEncerrar} className="text-red-300/70 hover:text-red-300">encerrar</button>
+            <button onClick={onEncerrar} className="text-red-300/70 hover:text-red-300" title="O squad deixa de existir; as pessoas ficam sem squad">encerrar</button>
+            <button onClick={onExcluir} className="text-red-300/70 hover:text-red-300" title="Tira o squad, as pessoas e os clientes dele do cenário">excluir tudo</button>
           </div>
         )}
       </div>
@@ -650,8 +709,9 @@ function PessoaLinha({ p, carga, arrastando, onDragStart, onEditar, onStatus }: 
   );
 }
 
-function ModalPessoa({ pessoa, squads, onFechar, onSalvar, onRemover }: {
+function ModalPessoa({ pessoa, squads, onFechar, onSalvar, onRemover, onExcluirComClientes }: {
   pessoa: CPessoa; squads: CSquad[]; onFechar: () => void; onSalvar: (c: Partial<CPessoa>) => void; onRemover: () => void;
+  onExcluirComClientes: () => void;
 }) {
   const [f, setF] = useState({
     nome: pessoa.nome, cargo: pessoa.cargo ?? "", papel: pessoa.papel, squad_id: pessoa.squad_id ?? "",
@@ -697,7 +757,10 @@ function ModalPessoa({ pessoa, squads, onFechar, onSalvar, onRemover }: {
           <textarea className="input min-h-[70px]" value={f.nota} onChange={(e) => setF({ ...f, nota: e.target.value })} />
         </div>
         <div className="flex justify-between gap-2">
-          <button className="text-xs text-red-300 hover:text-red-400" onClick={onRemover}>Tirar do cenário</button>
+          <div className="flex flex-col items-start gap-1">
+            <button className="text-xs text-red-300 hover:text-red-400" onClick={onRemover} title="Os clientes ficam, sem responsável">Tirar do cenário</button>
+            <button className="text-xs text-red-300 hover:text-red-400" onClick={onExcluirComClientes} title="Para quem já saiu ou não entra na conta">Excluir com os clientes</button>
+          </div>
           <div className="flex gap-2">
             <button className="btn-ghost" onClick={onFechar}>Cancelar</button>
             <button className="btn" onClick={() => onSalvar({
@@ -718,9 +781,10 @@ const BOLINHA: Record<string, string> = {
   verde: "bg-emerald-500", amarelo: "bg-amber-500", vermelho: "bg-red-500",
 };
 
-function Carteiras({ squads, pessoas, clientes, pessoaPorId, onMover, onCapacidade }: {
+function Carteiras({ squads, pessoas, clientes, pessoaPorId, onMover, onExcluir, onCapacidade }: {
   squads: CSquad[]; pessoas: CPessoa[]; clientes: CCliente[]; pessoaPorId: Map<string, CPessoa>;
   onMover: (clienteId: string, papel: PapelCarteira, pessoaId: string | null) => void;
+  onExcluir: (c: CCliente) => void;
   onCapacidade: (pessoaId: string, v: number | null) => void;
 }) {
   const [papel, setPapel] = useState<PapelCarteira>("gp");
@@ -766,7 +830,7 @@ function Carteiras({ squads, pessoas, clientes, pessoaPorId, onMover, onCapacida
             <div key={quem} className="mb-2">
               <p className="mb-1 text-[9px] font-semibold uppercase tracking-widest text-red-300/80">de {quem} ({lista.length})</p>
               <div className="space-y-1.5">
-                {lista.map((c) => <ClienteCard key={c.id} c={c} papel={papel} pessoaPorId={pessoaPorId} onDrag={() => setArrastando(c.id)} />)}
+                {lista.map((c) => <ClienteCard key={c.id} c={c} papel={papel} pessoaPorId={pessoaPorId} onDrag={() => setArrastando(c.id)} onExcluir={() => onExcluir(c)} />)}
               </div>
             </div>
           ))}
@@ -792,7 +856,7 @@ function Carteiras({ squads, pessoas, clientes, pessoaPorId, onMover, onCapacida
                 </span>
               }>
               <div className="space-y-1.5">
-                {lista.map((c) => <ClienteCard key={c.id} c={c} papel={papel} pessoaPorId={pessoaPorId} onDrag={() => setArrastando(c.id)} />)}
+                {lista.map((c) => <ClienteCard key={c.id} c={c} papel={papel} pessoaPorId={pessoaPorId} onDrag={() => setArrastando(c.id)} onExcluir={() => onExcluir(c)} />)}
                 {lista.length === 0 && <p className="py-6 text-center text-[11px] text-brand-muted italic">sem clientes</p>}
               </div>
             </Coluna>
@@ -828,17 +892,18 @@ function Coluna({ titulo, sub, contador, destaque, arrastando, onSoltar, childre
   );
 }
 
-function ClienteCard({ c, papel, pessoaPorId, onDrag }: { c: CCliente; papel: PapelCarteira; pessoaPorId: Map<string, CPessoa>; onDrag: () => void }) {
+function ClienteCard({ c, papel, pessoaPorId, onDrag, onExcluir }: { c: CCliente; papel: PapelCarteira; pessoaPorId: Map<string, CPessoa>; onDrag: () => void; onExcluir: () => void }) {
   const orig = c[CAMPO_ORIG[papel]];
   const mudou = orig !== c[CAMPO[papel]];
   const antes = orig ? pessoaPorId.get(orig)?.nome : null;
   return (
     <div draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", c.id); } catch {} onDrag(); }}
       title={mudou ? `Hoje: ${antes ?? "sem responsável"}` : undefined}
-      className={`cursor-grab rounded-lg border bg-white/[0.03] px-2 py-1.5 active:cursor-grabbing ${mudou ? "border-sky-400/60" : "border-white/10"}`}>
+      className={`group cursor-grab rounded-lg border bg-white/[0.03] px-2 py-1.5 active:cursor-grabbing ${mudou ? "border-sky-400/60" : "border-white/10"}`}>
       <div className="flex items-center gap-1.5">
         <span className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${BOLINHA[c.bandeira ?? ""] ?? "bg-white/20"}`} />
-        <p className="truncate text-[11px] font-semibold uppercase text-white">{c.nome}</p>
+        <p className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase text-white">{c.nome}</p>
+        <button onClick={onExcluir} title="Excluir do cenário" className="text-[10px] text-red-300 opacity-0 transition group-hover:opacity-100 hover:text-red-400">✕</button>
       </div>
       <div className="ml-4 flex flex-wrap gap-1 text-[9px]">
         {c.mrr ? <span className="text-emerald-300">{brl(c.mrr)}</span> : null}
