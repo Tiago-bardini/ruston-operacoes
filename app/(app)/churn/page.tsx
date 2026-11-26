@@ -12,18 +12,19 @@ import { ChurnList, ModalSubirChurn, efetivarChurn } from "@/components/churn/Ch
 import { contaNoMes, devolucaoNoMes, inicioDevolucao, mrrNoMes, parcelaNoMes, parcelasDe, unirPorId, valorChurnNoMes } from "@/lib/churnDevolucao";
 
 const STATUS_LIST: StatusChurn[] = ["solicitado", "em_retencao", "revertido", "confirmado"];
-type Risco = "alto" | "medio" | "baixo";
+type Risco = "alto" | "medio" | "baixo" | "nao_mapeado";
 const RISCOS: { v: Risco; label: string; cor: string }[] = [
   { v: "alto", label: "Alto", cor: "border-red-500/40 text-red-300" },
   { v: "medio", label: "Médio", cor: "border-amber-500/40 text-amber-300" },
   { v: "baixo", label: "Baixo", cor: "border-emerald-500/40 text-emerald-300" },
+  { v: "nao_mapeado", label: "Ñ mapeado", cor: "border-slate-400/40 text-slate-300" },
 ];
 // Ordem da lista: confirmado → solicitado → em retenção → revertido; dentro do status, risco alto → baixo
 const ORDEM_STATUS: Record<StatusChurn, number> = { confirmado: 0, solicitado: 1, em_retencao: 2, revertido: 3 };
-const ORDEM_RISCO: Record<string, number> = { alto: 0, medio: 1, baixo: 2 };
+const ORDEM_RISCO: Record<string, number> = { alto: 0, medio: 1, baixo: 2, nao_mapeado: 3 };
 const ordenarChurn = (a: ChurnSolicitacao, b: ChurnSolicitacao) =>
   (ORDEM_STATUS[a.status] - ORDEM_STATUS[b.status])
-  || ((ORDEM_RISCO[a.risco ?? ""] ?? 3) - (ORDEM_RISCO[b.risco ?? ""] ?? 3))
+  || ((ORDEM_RISCO[a.risco ?? ""] ?? 4) - (ORDEM_RISCO[b.risco ?? ""] ?? 4))
   || (b.data_solicitacao ?? "").localeCompare(a.data_solicitacao ?? "");
 
 /** Mês já terminou? (o MRR só trava depois do último dia) */
@@ -511,7 +512,7 @@ export default function ChurnPage() {
                     <td className="px-4 py-3 text-brand-muted">{s.motivo ?? "—"}</td>
                     <td className="px-4 py-3">
                       <select
-                        className={`badge cursor-pointer bg-transparent ${RISCOS.find((r) => r.v === s.risco)?.cor ?? "border-white/10 text-brand-muted"}`}
+                        className={`badge cursor-pointer bg-transparent ${RISCOS.find((r) => r.v === (s.risco as string | null))?.cor ?? "border-white/10 text-brand-muted"}`}
                         value={s.risco ?? ""}
                         onChange={(e) => mudarRisco(s, e.target.value)}
                       >
