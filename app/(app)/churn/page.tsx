@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { ClienteView, ChurnSolicitacao, ChurnMrrBase, StatusChurn, Forecast } from "@/lib/types";
 import {
-  formatBRL, formatDate, MESES_LABEL, MOTIVOS_CHURN,
+  formatBRL, formatDate, MESES_LABEL, MOTIVOS_CHURN, squadExcluido,
   STATUS_CHURN_LABEL, STATUS_CHURN_COLOR,
 } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
@@ -70,6 +70,8 @@ export default function ChurnPage() {
   const [historicoSol, setHistoricoSol] = useState<ChurnSolicitacao[]>([]);
   const [parcelados, setParcelados] = useState<ChurnSolicitacao[]>([]);
   const [editDev, setEditDev] = useState<ChurnSolicitacao | null>(null);
+  // Dois quadros separados: Ruston Operação × ISAAS (squads "ISS"/"ISA")
+  const [grupo, setGrupo] = useState<"operacao" | "isaas">("operacao");
   const [forecastMes, setForecastMes] = useState<Forecast | null>(null);
   const [baseManual, setBaseManual] = useState("");
   const [loading, setLoading] = useState(true);
@@ -130,15 +132,34 @@ export default function ChurnPage() {
     return m;
   }, [clientes]);
 
+  const clienteIsaas = (c?: ClienteView) => squadExcluido(c?.squad_nome ?? "");
+  const doGrupo = (c?: ClienteView) => clienteIsaas(c) === (grupo === "isaas");
+  const solDoGrupo = (l: ChurnSolicitacao[]) => l.filter((s) => doGrupo(clientePorId.get(s.cliente_id)));
+  const solicitacoesG = useMemo(() => solDoGrupo(solicitacoes), [solicitacoes, clientePorId, grupo]); // eslint-disable-line
+  const parceladosG = useMemo(() => solDoGrupo(parcelados), [parcelados, clientePorId, grupo]); // eslint-disable-line
+  const historicoG = useMemo(() => solDoGrupo(historicoSol), [historicoSol, clientePorId, grupo]); // eslint-disable-line
+
   // MRR atual (mesma regra da trava automática: soma do MRR dos clientes ativos)
-  const mrrAtual = useMemo(
+  const mrrAtualTotal = useMemo(
     () => clientes.filter((c) => c.ativo).reduce((s, c) => s + (Number(c.mrr) || 0), 0),
     [clientes],
   );
+  const mrrAtualIsaas = useMemo(
+    () => clientes.filter((c) => c.ativo && clienteIsaas(c)).reduce((s, c) => s + (Number(c.mrr) || 0), 0),
+    [clientes], // eslint-disable-line
+  );
+  const mrrAtual = grupo === "isaas" ? mrrAtualIsaas : mrrAtualTotal - mrrAtualIsaas;
 
-  function baseDoMes(a: number, m: number): { valor: number | null; situacao: "travado" | "parcial" | "sem_trava"; registro?: ChurnMrrBase } {
+  /** MRR base do quadro. O travado é da empresa toda; a parte do ISAAS vem da trava (migration 046)
+   *  ou, em meses travados antes dela, do MRR atual do ISAAS (estimado). Operação = total − ISAAS. */
+  function baseDoMes(a: number, m: number): { valor: number | null; situacao: "travado" | "parcial" | "sem_trava"; registro?: ChurnMrrBase; estimado?: boolean } {
     const registro = bases.find((b) => b.ano === a && b.mes === m);
-    if (registro) return { valor: Number(registro.mrr_base), situacao: "travado", registro };
+    if (registro) {
+      const isaasTravado = (registro as ChurnMrrBase & { mrr_base_isaas?: number | null }).mrr_base_isaas;
+      const isaas = isaasTravado != null ? Number(isaasTravado) : mrrAtualIsaas;
+      const valor = grupo === "isaas" ? isaas : Number(registro.mrr_base) - isaas;
+      return { valor, situacao: "travado", registro, estimado: isaasTravado == null };
+    }
     if (!mesFechado(a, m)) return { valor: mrrAtual, situacao: "parcial" };
     return { valor: null, situacao: "sem_trava" };
   }
@@ -147,21 +168,21 @@ export default function ChurnPage() {
   const ultimoDia = new Date(ano, mes, 0).getDate();
 
   const resumo = useMemo(() => {
-    const r = somarChurn(unirPorId(solicitacoes, parcelados), ano, mes);
+    const r = somarChurn(unirPorId(solicitacoesG, parceladosG), ano, mes);
     const pct = (v: number) => (base.valor ? (v / base.valor) * 100 : null);
     return { ...r, pctChurn: pct(r.mrrPlanejado), pctConfirmado: pct(r.mrrConfirmado) };
-  }, [solicitacoes, parcelados, base.valor, ano, mes]);
+  }, [solicitacoesG, parceladosG, base.valor, ano, mes]);
 
   const historico = useMemo(() => mesesHistorico.map(({ ano: a, mes: m }) => {
     const b = baseDoMes(a, m);
-    const r = somarChurn(unirPorId(historicoSol, parcelados), a, m);
+    const r = somarChurn(unirPorId(historicoG, parceladosG), a, m);
     return {
       ano: a, mes: m, base: b, ...r,
       pctChurn: b.valor ? (r.mrrPlanejado / b.valor) * 100 : null,
       pctConfirmado: b.valor ? (r.mrrConfirmado / b.valor) * 100 : null,
     };
     // eslint-disable-next-line
-  }), [mesesHistorico, historicoSol, parcelados, bases, mrrAtual]);
+  }), [mesesHistorico, historicoG, parceladosG, bases, mrrAtual, mrrAtualIsaas, grupo]);
 
   async function travarManual() {
     const v = Number(baseManual);
@@ -224,8 +245,9 @@ export default function ChurnPage() {
     .filter((c) => c.churn_realizado)
     // Coordenador/Investidor: só vê clientes do próprio squad
     .filter((c) => isGerente || !perfilSquadId || c.squad_id === perfilSquadId)
+    .filter((c) => doGrupo(c))
     .sort((a, b) => (b.data_churn ?? "").localeCompare(a.data_churn ?? "")),
-  [clientes, isGerente, perfilSquadId]);
+  [clientes, isGerente, perfilSquadId, grupo]); // eslint-disable-line
 
   async function marcarSubiu(id: string) {
     await supabase.from("ruston_clientes")
@@ -268,6 +290,21 @@ export default function ChurnPage() {
             {anos.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
         </div>}
+      </div>
+
+      {/* Quadro: Operação × ISAAS */}
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <div className="inline-flex rounded-lg border border-white/10 bg-brand-panel/50 p-1">
+          {([["operacao", "Ruston Operação"], ["isaas", "ISAAS"]] as const).map(([v, label]) => (
+            <button key={v} onClick={() => setGrupo(v)}
+              className={`rounded-md px-4 py-1.5 text-xs font-semibold transition ${grupo === v ? "bg-brand text-white" : "text-brand-muted hover:text-gray-200"}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-brand-muted">
+          {grupo === "isaas" ? "Só clientes do squad ISAAS, com % sobre o MRR do ISAAS." : "Todos os squads, menos o ISAAS, com % sobre o MRR da operação."}
+        </p>
       </div>
 
       {/* Subabas */}
@@ -314,13 +351,13 @@ export default function ChurnPage() {
 
       {aba === "solicitacoes" && (() => {
         // Revertido sai da lista do churn (o cliente voltou pra Carteira); fica só no histórico, sob demanda
-        const revertidas = solicitacoes.filter((s) => s.status === "revertido");
+        const revertidas = solicitacoesG.filter((s) => s.status === "revertido");
         // Pedidos de meses anteriores com parcela de devolução caindo neste mês também aparecem
-        const doMes = unirPorId(solicitacoes, parcelados.filter((s) => !(s.ano === ano && s.mes === mes) && contaNoMes(s, ano, mes)));
+        const doMes = unirPorId(solicitacoesG, parceladosG.filter((s) => !(s.ano === ano && s.mes === mes) && contaNoMes(s, ano, mes)));
         const visiveis = (verRevertidos ? doMes : doMes.filter((s) => s.status !== "revertido"))
           .filter((s) => filtroStatus === "todos" || s.status === filtroStatus)
           .sort(ordenarChurn);
-        const qtdStatus = (st: StatusChurn) => solicitacoes.filter((s) => s.status === st).length;
+        const qtdStatus = (st: StatusChurn) => solicitacoesG.filter((s) => s.status === st).length;
         return (<>
       {/* Indicadores */}
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-6">
@@ -338,6 +375,11 @@ export default function ChurnPage() {
                 Travado {base.registro?.travado_em ? `em ${new Date(base.registro.travado_em).toLocaleDateString("pt-BR")}` : ""}
                 {base.registro?.origem === "manual" ? " · manual" : ""}
               </p>
+              {base.estimado && (
+                <p className="text-[10px] text-amber-300/80">
+                  {grupo === "isaas" ? "Estimado: MRR atual do ISAAS" : "Total travado − MRR atual do ISAAS"} (mês travado antes da separação)
+                </p>
+              )}
             </>
           )}
           {base.situacao === "parcial" && (
@@ -370,7 +412,7 @@ export default function ChurnPage() {
 
       <div className="mb-3 flex items-center justify-between">
         <p className="text-sm font-semibold">
-          {MESES_LABEL[mes - 1]} / {ano} · {solicitacoes.length - revertidas.length} solicitações
+          {MESES_LABEL[mes - 1]} / {ano} · {solicitacoesG.length - revertidas.length} solicitações
           {revertidas.length > 0 && (
             <button className="ml-3 text-xs font-normal text-brand-muted hover:text-white" onClick={() => setVerRevertidos(!verRevertidos)}>
               {verRevertidos ? "Ocultar revertidos" : `Ver ${revertidas.length} revertido${revertidas.length > 1 ? "s" : ""}`}
