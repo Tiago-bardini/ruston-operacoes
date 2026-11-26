@@ -9,6 +9,7 @@ import {
 } from "@/lib/types";
 import { useUsuarioPerfil } from "@/lib/useUsuarioPerfil";
 import { ChurnList, ModalSubirChurn, efetivarChurn } from "@/components/churn/ChurnEfetivado";
+import { contaNoMes, devolucaoNoMes, inicioDevolucao, mrrNoMes, parcelaNoMes, parcelasDe, unirPorId, valorChurnNoMes } from "@/lib/churnDevolucao";
 
 const STATUS_LIST: StatusChurn[] = ["solicitado", "em_retencao", "revertido", "confirmado"];
 type Risco = "alto" | "medio" | "baixo";
@@ -31,9 +32,8 @@ function mesFechado(ano: number, mes: number): boolean {
   return ano * 12 + mes < h.getFullYear() * 12 + h.getMonth() + 1;
 }
 
-/** Valor que a solicitação soma no churn: MRR + dinheiro devolvido ao cliente */
+/** Valor total devolvido ao cliente (todas as parcelas) */
 const devolucaoDe = (s: ChurnSolicitacao) => Number(s.valor_devolucao || 0);
-const valorChurn = (s: ChurnSolicitacao) => Number(s.mrr || 0) + devolucaoDe(s);
 
 /** "1.234,56" / "1234.56" / "1234,5" → número */
 function lerValor(txt: string): number {
@@ -41,15 +41,17 @@ function lerValor(txt: string): number {
   return Number(t.includes(",") ? t.replace(/\./g, "").replace(",", ".") : t);
 }
 
-function somarChurn(lista: ChurnSolicitacao[]) {
+/** Soma do churn do mês. A lista pode trazer pedidos de meses anteriores com parcela de devolução caindo neste mês. */
+function somarChurn(listaTodas: ChurnSolicitacao[], ano: number, mes: number) {
+  const lista = listaTodas.filter((s) => contaNoMes(s, ano, mes));
   const naoRevertidas = lista.filter((s) => s.status !== "revertido");
-  const soma = (l: ChurnSolicitacao[]) => l.reduce((t, x) => t + valorChurn(x), 0);
+  const soma = (l: ChurnSolicitacao[]) => l.reduce((t, x) => t + valorChurnNoMes(x, ano, mes), 0);
   return {
-    // Revertido saiu do churn: não conta como solicitação do mês
-    qtd: naoRevertidas.length,
+    // Revertido saiu do churn: não conta como solicitação do mês. Parcela de pedido antigo também não.
+    qtd: naoRevertidas.filter((s) => s.ano === ano && s.mes === mes).length,
     mrrChurn: soma(naoRevertidas),
-    mrrSo: naoRevertidas.reduce((t, x) => t + Number(x.mrr || 0), 0),
-    devolucao: naoRevertidas.reduce((t, x) => t + devolucaoDe(x), 0),
+    mrrSo: naoRevertidas.reduce((t, x) => t + mrrNoMes(x, ano, mes), 0),
+    devolucao: naoRevertidas.reduce((t, x) => t + devolucaoNoMes(x, ano, mes), 0),
     // Planejado = churn já confirmado + pedidos em aberto marcados com risco ALTO
     mrrPlanejado: soma(naoRevertidas.filter((s) => s.status === "confirmado" || s.risco === "alto")),
     mrrConfirmado: soma(lista.filter((s) => s.status === "confirmado")),
@@ -66,6 +68,8 @@ export default function ChurnPage() {
   const [solicitacoes, setSolicitacoes] = useState<ChurnSolicitacao[]>([]);
   const [bases, setBases] = useState<ChurnMrrBase[]>([]);
   const [historicoSol, setHistoricoSol] = useState<ChurnSolicitacao[]>([]);
+  const [parcelados, setParcelados] = useState<ChurnSolicitacao[]>([]);
+  const [editDev, setEditDev] = useState<ChurnSolicitacao | null>(null);
   const [forecastMes, setForecastMes] = useState<Forecast | null>(null);
   const [baseManual, setBaseManual] = useState("");
   const [loading, setLoading] = useState(true);
@@ -97,14 +101,17 @@ export default function ChurnPage() {
     setLoading(true);
     const maisAntigo = mesesHistorico[mesesHistorico.length - 1];
     const inicioHist = `${maisAntigo.ano}-${String(maisAntigo.mes).padStart(2, "0")}-01`;
-    const [{ data: cs }, { data: sol }, { data: bs }, { data: hs }, { data: fc }] = await Promise.all([
+    const [{ data: cs }, { data: sol }, { data: bs }, { data: hs }, { data: fc }, { data: pc }] = await Promise.all([
       supabase.from("ruston_clientes_view").select("*").order("nome"),
       supabase.from("ruston_churn_solicitacoes").select("*")
         .eq("ano", ano).eq("mes", mes).order("data_solicitacao", { ascending: false }),
       supabase.from("ruston_churn_mrr_base").select("*"),
       supabase.from("ruston_churn_solicitacoes").select("*").gte("data_solicitacao", inicioHist),
       supabase.from("ruston_forecast").select("*").eq("ano", ano).eq("mes", mes).maybeSingle(),
+      // Devoluções parceladas (de qualquer mês): a parcela cai no churn de cada mês
+      supabase.from("ruston_churn_solicitacoes").select("*").gt("devolucao_parcelas", 1),
     ]);
+    setParcelados((pc as ChurnSolicitacao[]) ?? []);
     setClientes((cs as ClienteView[]) ?? []);
     setSolicitacoes((sol as ChurnSolicitacao[]) ?? []);
     setBases((bs as ChurnMrrBase[]) ?? []);
@@ -140,21 +147,21 @@ export default function ChurnPage() {
   const ultimoDia = new Date(ano, mes, 0).getDate();
 
   const resumo = useMemo(() => {
-    const r = somarChurn(solicitacoes);
+    const r = somarChurn(unirPorId(solicitacoes, parcelados), ano, mes);
     const pct = (v: number) => (base.valor ? (v / base.valor) * 100 : null);
     return { ...r, pctChurn: pct(r.mrrPlanejado), pctConfirmado: pct(r.mrrConfirmado) };
-  }, [solicitacoes, base.valor]);
+  }, [solicitacoes, parcelados, base.valor, ano, mes]);
 
   const historico = useMemo(() => mesesHistorico.map(({ ano: a, mes: m }) => {
     const b = baseDoMes(a, m);
-    const r = somarChurn(historicoSol.filter((s) => s.ano === a && s.mes === m));
+    const r = somarChurn(unirPorId(historicoSol, parcelados), a, m);
     return {
       ano: a, mes: m, base: b, ...r,
       pctChurn: b.valor ? (r.mrrPlanejado / b.valor) * 100 : null,
       pctConfirmado: b.valor ? (r.mrrConfirmado / b.valor) * 100 : null,
     };
     // eslint-disable-next-line
-  }), [mesesHistorico, historicoSol, bases, mrrAtual]);
+  }), [mesesHistorico, historicoSol, parcelados, bases, mrrAtual]);
 
   async function travarManual() {
     const v = Number(baseManual);
@@ -188,17 +195,22 @@ export default function ChurnPage() {
     load();
   }
 
-  async function editarDevolucao(s: ChurnSolicitacao) {
-    const nome = clientePorId.get(s.cliente_id)?.nome ?? "o cliente";
-    const atual = devolucaoDe(s);
-    const r = prompt(`Valor devolvido para ${nome} (R$). Soma no churn junto com o MRR. Coloque 0 para tirar.`,
-      atual ? String(atual).replace(".", ",") : "");
-    if (r == null) return;
-    const v = r.trim() === "" ? 0 : lerValor(r);
-    if (!Number.isFinite(v) || v < 0) { alert("Valor inválido."); return; }
-    const { error } = await supabase.from("ruston_churn_solicitacoes")
-      .update({ valor_devolucao: v, updated_at: new Date().toISOString() }).eq("id", s.id);
-    if (error) { alert(`Não salvou: ${error.message}`); return; }
+  function editarDevolucao(s: ChurnSolicitacao) { setEditDev(s); }
+
+  async function salvarDevolucao(s: ChurnSolicitacao, valor: number, parcelas: number, inicio: string | null) {
+    const campos: Record<string, unknown> = { valor_devolucao: valor, updated_at: new Date().toISOString() };
+    if (parcelas > 1 || (s as ChurnSolicitacao & { devolucao_parcelas?: number | null }).devolucao_parcelas != null) {
+      campos.devolucao_parcelas = parcelas;
+      campos.devolucao_inicio = parcelas > 1 ? inicio : null;
+    }
+    const { error } = await supabase.from("ruston_churn_solicitacoes").update(campos).eq("id", s.id);
+    if (error) {
+      alert(/devolucao_(parcelas|inicio)/.test(error.message)
+        ? "Para parcelar, rode antes a migration 045_churn_devolucao_parcelada.sql no SQL Editor do Supabase."
+        : `Não salvou: ${error.message}`);
+      return;
+    }
+    setEditDev(null);
     load();
   }
 
@@ -280,6 +292,11 @@ export default function ChurnPage() {
         <ChurnList clientes={efetivados} onMarkarSubiu={marcarSubiu} onReativar={reativar} />
       )}
 
+      {editDev && (
+        <ModalDevolucao s={editDev} nome={clientePorId.get(editDev.cliente_id)?.nome ?? "o cliente"}
+          onFechar={() => setEditDev(null)} onSalvar={(v, n, ini) => salvarDevolucao(editDev, v, n, ini)} />
+      )}
+
       {clienteConfirmando && confirmando && (
         <ModalSubirChurn
           cliente={clienteConfirmando}
@@ -298,7 +315,9 @@ export default function ChurnPage() {
       {aba === "solicitacoes" && (() => {
         // Revertido sai da lista do churn (o cliente voltou pra Carteira); fica só no histórico, sob demanda
         const revertidas = solicitacoes.filter((s) => s.status === "revertido");
-        const visiveis = (verRevertidos ? solicitacoes : solicitacoes.filter((s) => s.status !== "revertido"))
+        // Pedidos de meses anteriores com parcela de devolução caindo neste mês também aparecem
+        const doMes = unirPorId(solicitacoes, parcelados.filter((s) => !(s.ano === ano && s.mes === mes) && contaNoMes(s, ano, mes)));
+        const visiveis = (verRevertidos ? doMes : doMes.filter((s) => s.status !== "revertido"))
           .filter((s) => filtroStatus === "todos" || s.status === filtroStatus)
           .sort(ordenarChurn);
         const qtdStatus = (st: StatusChurn) => solicitacoes.filter((s) => s.status === st).length;
@@ -421,16 +440,30 @@ export default function ChurnPage() {
                       {s.observacoes && <p className="text-[10px] text-brand-muted whitespace-pre-wrap">{s.observacoes}</p>}
                     </td>
                     <td className="px-4 py-3 text-brand-muted">{formatDate(s.data_solicitacao)}</td>
-                    <td className="px-4 py-3 text-red-300">{formatBRL(s.mrr)}</td>
+                    <td className="px-4 py-3 text-red-300">
+                      {s.ano === ano && s.mes === mes ? formatBRL(s.mrr) : (
+                        <span className="text-[10px] text-brand-muted">pedido em {MESES_LABEL[s.mes - 1]}/{s.ano}<br />(MRR contou lá)</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
-                      {devolucaoDe(s) > 0 && <p className="text-amber-300">{formatBRL(devolucaoDe(s))}</p>}
+                      {(() => {
+                        const pm = parcelaNoMes(s, ano, mes);
+                        if (devolucaoDe(s) <= 0) return null;
+                        if (parcelasDe(s) <= 1) return <p className="text-amber-300">{formatBRL(devolucaoDe(s))}</p>;
+                        return (
+                          <>
+                            <p className="text-amber-300">{pm ? `${formatBRL(pm.valor)} · ${pm.numero}/${pm.de}` : "—"}</p>
+                            <p className="text-[10px] text-brand-muted">total {formatBRL(devolucaoDe(s))} em {parcelasDe(s)}x</p>
+                          </>
+                        );
+                      })()}
                       <button className="text-[10px] text-amber-300/80 hover:text-amber-200" onClick={() => editarDevolucao(s)}>
                         {devolucaoDe(s) > 0 ? "editar" : "+ devolução"}
                       </button>
                     </td>
-                    <td className="px-4 py-3 font-semibold text-red-300">{formatBRL(valorChurn(s))}</td>
+                    <td className="px-4 py-3 font-semibold text-red-300">{formatBRL(valorChurnNoMes(s, ano, mes))}</td>
                     <td className="px-4 py-3 text-brand-muted">
-                      {formatPct(base.valor ? (valorChurn(s) / base.valor) * 100 : null)}
+                      {formatPct(base.valor ? (valorChurnNoMes(s, ano, mes) / base.valor) * 100 : null)}
                     </td>
                     <td className="px-4 py-3 text-brand-muted">{s.motivo ?? "—"}</td>
                     <td className="px-4 py-3">
@@ -513,6 +546,58 @@ export default function ChurnPage() {
       </div>
       </>);
       })()}
+    </div>
+  );
+}
+
+function ModalDevolucao({ s, nome, onFechar, onSalvar }: {
+  s: ChurnSolicitacao; nome: string; onFechar: () => void;
+  onSalvar: (valor: number, parcelas: number, inicio: string | null) => void;
+}) {
+  const ini0 = inicioDevolucao(s);
+  const [valor, setValor] = useState(devolucaoDe(s) ? String(devolucaoDe(s)).replace(".", ",") : "");
+  const [parcelas, setParcelas] = useState(String(parcelasDe(s)));
+  const [inicio, setInicio] = useState(`${ini0.ano}-${String(ini0.mes).padStart(2, "0")}`);
+  const v = valor.trim() === "" ? 0 : lerValor(valor);
+  const n = Math.max(1, Math.round(Number(parcelas) || 1));
+  const [ia, im] = inicio.split("-").map(Number);
+  const fimIdx = ia * 12 + (im - 1) + n - 1;
+  const fim = `${MESES_LABEL[fimIdx % 12]}/${Math.floor(fimIdx / 12)}`;
+  const valido = Number.isFinite(v) && v >= 0 && n >= 1 && n <= 60 && !!ia && !!im;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onFechar}>
+      <div className="card w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-start justify-between">
+          <h3 className="text-lg font-semibold">Devolução · {nome}</h3>
+          <button onClick={onFechar} className="text-brand-muted hover:text-white">✕</button>
+        </div>
+        <div className="mb-3">
+          <label className="label">Valor total devolvido (R$)</label>
+          <input className="input" inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="0,00" autoFocus />
+        </div>
+        <div className="mb-3 grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Parcelas</label>
+            <input type="number" min={1} max={60} className="input" value={parcelas} onChange={(e) => setParcelas(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">1ª parcela em</label>
+            <input type="month" className="input" value={inicio} onChange={(e) => setInicio(e.target.value)} disabled={n <= 1} />
+          </div>
+        </div>
+        {valido && v > 0 && (
+          <p className="mb-3 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            {n > 1
+              ? <>{n}x de {formatBRL(Math.round((v / n) * 100) / 100)} · de {MESES_LABEL[im - 1]}/{ia} a {fim}. Cada mês recebe a sua parcela no churn.</>
+              : <>{formatBRL(v)} de uma vez, no churn de {MESES_LABEL[s.mes - 1]}/{s.ano}.</>}
+          </p>
+        )}
+        <p className="mb-4 text-[10px] text-brand-muted">Coloque 0 no valor para tirar a devolução.</p>
+        <div className="flex justify-end gap-2">
+          <button className="btn-ghost" onClick={onFechar}>Cancelar</button>
+          <button className="btn" disabled={!valido} onClick={() => onSalvar(v, v > 0 ? n : 1, n > 1 ? `${inicio}-01` : null)}>Salvar</button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { contaNoMes, unirPorId, valorChurnNoMes } from "@/lib/churnDevolucao";
 import { createClient } from "@/lib/supabase/client";
 import type {
   ClienteView, Pessoa, Squad, MetaEmpresa, MetaSquad, FcaView, HeadcountPlanejado, Cargo,
@@ -24,7 +25,7 @@ interface MonetOp {
   ativo: boolean;
 }
 
-interface ChurnSolLite { status: string; mrr: number; valor_devolucao?: number | null; cliente: { squad_id: string | null } | null; }
+interface ChurnSolLite { id: string; ano: number; mes: number; status: string; mrr: number; valor_devolucao?: number | null; devolucao_parcelas?: number | null; devolucao_inicio?: string | null; cliente: { squad_id: string | null } | null; }
 
 const CARGOS_OPERACIONAIS: Cargo[] = ["coordenador", "gestor_projetos", "gestor_trafego", "designer"];
 const MES_ATUAL = new Date().getMonth() + 1;
@@ -65,7 +66,7 @@ function CockpitConteudo() {
       { data: cs }, { data: ps }, { data: sq },
       { data: me }, { data: ms }, { data: fc }, { data: hc },
       { data: okm }, { data: okr }, { data: okra },
-      { data: mm }, { data: mo }, { data: chs }, { data: chb },
+      { data: mm }, { data: mo }, { data: chs }, { data: chp }, { data: chb },
     ] = await Promise.all([
       supabase.from("ruston_clientes_view").select("*").eq("ativo", true),
       supabase.from("ruston_pessoas").select("*").eq("ativo", true),
@@ -80,6 +81,8 @@ function CockpitConteudo() {
       supabase.from("ruston_monetizacao_metas").select("squad_id,ano,mes,valor_meta").eq("ano", ano).eq("mes", mes),
       supabase.from("ruston_monetizacao_view").select("id,cliente_squad_id,estagio,valor_mrr_estimado,valor_onetime_estimado,data_ganho,data_prevista_fechamento,ativo").eq("ativo", true),
       supabase.from("ruston_churn_solicitacoes").select("*,cliente:ruston_clientes(squad_id)").eq("ano", ano).eq("mes", mes),
+      // Devoluções parceladas de outros meses: a parcela do mês também entra no churn
+      supabase.from("ruston_churn_solicitacoes").select("*,cliente:ruston_clientes(squad_id)").gt("devolucao_parcelas", 1),
       supabase.from("ruston_churn_mrr_base").select("mrr_base").eq("ano", ano).eq("mes", mes).maybeSingle(),
     ]);
     setClientes((cs as ClienteView[]) ?? []);
@@ -94,7 +97,8 @@ function CockpitConteudo() {
     setOkrRealizados((okra as OkrRealizadoLite[]) ?? []);
     setMonetMetas((mm as MonetMeta[]) ?? []);
     setMonetOps((mo as MonetOp[]) ?? []);
-    setChurnSol((chs as unknown as ChurnSolLite[]) ?? []);
+    setChurnSol(unirPorId((chs as unknown as ChurnSolLite[]) ?? [], (chp as unknown as ChurnSolLite[]) ?? [])
+      .filter((s) => contaNoMes(s, ano, mes)));
     setChurnBase(chb ? Number((chb as { mrr_base: number }).mrr_base) : null);
     setLoading(false);
   }
@@ -154,8 +158,8 @@ function CockpitConteudo() {
   const churn = useMemo(() => {
     const lista = churnSol.filter((s) => s.status !== "revertido"
       && (!squadFiltro || s.cliente?.squad_id === squadFiltro));
-    // Devolução de dinheiro soma no churn junto com o MRR
-    const v = (s: ChurnSolLite) => (Number(s.mrr) || 0) + (Number(s.valor_devolucao) || 0);
+    // Devolução de dinheiro soma no churn junto com o MRR (parcelada: só a parcela do mês)
+    const v = (s: ChurnSolLite) => valorChurnNoMes(s, ano, mes);
     const planejado = lista.reduce((a, s) => a + v(s), 0);
     const confirmado = lista.filter((s) => s.status === "confirmado").reduce((a, s) => a + v(s), 0);
     const base = squadFiltro ? mrrTotal : churnBase ?? mrrTotal;
