@@ -73,7 +73,7 @@ export default function CenarioPrivadoPage() {
   const [clientes, setClientes] = useState<CCliente[]>([]);
   const [loading, setLoading] = useState(true);
   const [ocupado, setOcupado] = useState<string | null>(null);
-  const [aba, setAba] = useState<"organograma" | "carteiras" | "resumo">("organograma");
+  const [aba, setAba] = useState<"organograma" | "carteiras" | "ferramentas" | "resumo">("organograma");
   const [erroTabela, setErroTabela] = useState<string | null>(null);
   const [salarioCadastro, setSalarioCadastro] = useState<Map<string, number>>(new Map());
   const [cadastro, setCadastro] = useState<Cad[]>([]);
@@ -344,6 +344,14 @@ export default function CenarioPrivadoPage() {
         vencimento: c.vencimento, gp_id: novo(c.gp_id), gt_id: novo(c.gt_id), designer_id: novo(c.designer_id),
         gp_original_id: novo(c.gp_original_id), gt_original_id: novo(c.gt_original_id), designer_original_id: novo(c.designer_original_id), nota: c.nota,
       })));
+      // Ferramentas (se a tabela já existir — migration 048)
+      const { data: fs } = await supabase.from("ruston_cenario_ferramentas").select("*").eq("cenario_id", cenario.id);
+      if (fs && fs.length) {
+        await inserirEmLotes(supabase, "ruston_cenario_ferramentas", (fs as Ferramenta[]).map((x) => ({
+          cenario_id: cenId, nome: x.nome, quem_usa: x.quem_usa, valor: x.valor, periodicidade: x.periodicidade,
+          manter: x.manter, observacao: x.observacao, ordem: x.ordem,
+        })));
+      }
       await carregarCenarios(cenId);
     } catch (e) {
       alert("Não consegui duplicar: " + (e as Error).message);
@@ -624,7 +632,7 @@ export default function CenarioPrivadoPage() {
           <Indicadores ind={indicadores} meta={cenario.meta_saidas} onMeta={(v) => salvarCenario({ meta_saidas: v })} />
 
           <div className="mb-5 flex gap-2 border-b border-white/5 pb-3">
-            {([["organograma", "👥 Organograma"], ["carteiras", "📋 Carteiras"], ["resumo", "📊 Resumo p/ diretoria"]] as const).map(([k, label]) => (
+            {([["organograma", "👥 Organograma"], ["carteiras", "📋 Carteiras"], ["ferramentas", "🧰 Ferramentas"], ["resumo", "📊 Resumo p/ diretoria"]] as const).map(([k, label]) => (
               <button key={k} onClick={() => setAba(k)}
                 className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${aba === k ? "bg-brand text-white" : "bg-white/5 text-brand-muted hover:bg-white/10 hover:text-white"}`}>
                 {label}
@@ -645,6 +653,7 @@ export default function CenarioPrivadoPage() {
               onMover={moverCliente} onExcluir={excluirCliente} onCapacidade={(id, v) => atualizarPessoa(id, { capacidade: v })}
               onNota={salvarNotaCliente} />
           )}
+          {aba === "ferramentas" && <Ferramentas cenarioId={cenario.id} />}
           {aba === "resumo" && (
             <Resumo cenario={cenario} squads={squadsAtivos} todosSquads={squads} pessoas={pessoas} clientes={clientes}
               pessoaPorId={pessoaPorId} ind={indicadores} onNotas={(v) => salvarCenario({ notas: v })}
@@ -1180,6 +1189,158 @@ function ModalCliente({ c, pessoaPorId, onFechar, onSalvar }: {
         <div className="mt-4 flex justify-end gap-2">
           <button className="btn-ghost" onClick={onFechar}>Cancelar</button>
           <button className="btn" onClick={() => onSalvar({ nota: nota.trim() || null, mrr: fee.trim() === "" ? null : Number(fee.replace(",", ".")) })}>Salvar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ======================================================================
+// Ferramentas: o que se paga, quem usa e o que continua
+// ======================================================================
+type QuemUsa = "lideranca" | "gp" | "gt" | "dg" | "todos";
+type Ferramenta = {
+  id: string; cenario_id: string; nome: string; quem_usa: QuemUsa; valor: number | null;
+  periodicidade: "mensal" | "anual"; manter: boolean; observacao: string | null; ordem: number;
+};
+const QUEM_USA: { v: QuemUsa; label: string }[] = [
+  { v: "lideranca", label: "Liderança" }, { v: "gp", label: "GP" }, { v: "gt", label: "GT" }, { v: "dg", label: "DG" }, { v: "todos", label: "Todos" },
+];
+const mensalDe = (f: Ferramenta) => (Number(f.valor) || 0) / (f.periodicidade === "anual" ? 12 : 1);
+
+function Ferramentas({ cenarioId }: { cenarioId: string }) {
+  const supabase = createClient();
+  const [lista, setLista] = useState<Ferramenta[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    supabase.from("ruston_cenario_ferramentas").select("*").eq("cenario_id", cenarioId).order("ordem").order("created_at")
+      .then(({ data, error }) => {
+        setErro(error ? error.message : null);
+        setLista((data as Ferramenta[]) ?? []);
+        setLoading(false);
+      });
+    // eslint-disable-next-line
+  }, [cenarioId]);
+
+  async function salvar(id: string, campos: Partial<Ferramenta>) {
+    setLista((prev) => prev.map((f) => (f.id === id ? { ...f, ...campos } : f)));
+    await supabase.from("ruston_cenario_ferramentas").update(campos).eq("id", id);
+  }
+  async function nova() {
+    const ordem = lista.reduce((m, f) => Math.max(m, f.ordem), 0) + 1;
+    const { data, error } = await supabase.from("ruston_cenario_ferramentas")
+      .insert({ cenario_id: cenarioId, nome: "", ordem }).select("*").single();
+    if (error) { alert("Não consegui criar: " + error.message); return; }
+    setLista((prev) => [...prev, data as Ferramenta]);
+  }
+  async function remover(f: Ferramenta) {
+    if (!confirm(`Excluir ${f.nome || "esta ferramenta"}?`)) return;
+    setLista((prev) => prev.filter((x) => x.id !== f.id));
+    await supabase.from("ruston_cenario_ferramentas").delete().eq("id", f.id);
+  }
+
+  if (loading) return <p className="text-brand-muted">Carregando ferramentas...</p>;
+  if (erro) {
+    return (
+      <div className="max-w-xl rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
+        <p className="font-semibold">Falta criar a tabela de ferramentas no banco.</p>
+        <p className="mt-1 text-xs">Rode a migration <code>048_cenario_ferramentas.sql</code> no SQL Editor do Supabase e recarregue a página.</p>
+      </div>
+    );
+  }
+
+  const totalHoje = lista.reduce((t, f) => t + mensalDe(f), 0);
+  const totalDepois = lista.filter((f) => f.manter).reduce((t, f) => t + mensalDe(f), 0);
+  const economia = totalHoje - totalDepois;
+  const cel = "border-b border-white/5 px-2 py-1.5 align-top";
+  const inp = "w-full rounded bg-transparent px-1.5 py-1 text-xs text-white outline-none border border-transparent hover:border-white/10 focus:border-brand";
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="rounded-xl border border-white/10 p-4">
+          <p className="text-[10px] uppercase tracking-widest text-brand-muted">Ferramentas hoje</p>
+          <p className="mt-1 text-2xl font-bold text-white">{brl(totalHoje)}<span className="text-sm font-normal text-brand-muted">/mês</span></p>
+          <p className="text-xs text-brand-muted">{lista.length} ferramentas · {brl(totalHoje * 12)}/ano</p>
+        </div>
+        <div className="rounded-xl border border-white/10 p-4">
+          <p className="text-[10px] uppercase tracking-widest text-brand-muted">Mantidas no cenário</p>
+          <p className="mt-1 text-2xl font-bold text-white">{brl(totalDepois)}<span className="text-sm font-normal text-brand-muted">/mês</span></p>
+          <p className="text-xs text-brand-muted">{lista.filter((f) => f.manter).length} ativas · {lista.filter((f) => !f.manter).length} canceladas</p>
+        </div>
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+          <p className="text-[10px] uppercase tracking-widest text-emerald-300">Economia</p>
+          <p className="mt-1 text-2xl font-bold text-emerald-200">{brl(economia)}<span className="text-sm font-normal">/mês</span></p>
+          <p className="text-xs text-emerald-300/80">{brl(economia * 12)}/ano{totalHoje ? ` · ${Math.round((economia / totalHoje) * 100)}% das ferramentas` : ""}</p>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.02]">
+        <table className="w-full min-w-[900px] text-xs">
+          <thead>
+            <tr className="border-b border-white/10 text-left text-[10px] uppercase tracking-widest text-brand-muted">
+              <th className="px-3 py-2">Nome da ferramenta</th>
+              <th className="px-3 py-2">Quem usa</th>
+              <th className="px-3 py-2">Valor pago (R$)</th>
+              <th className="px-3 py-2">Mensal ou anual</th>
+              <th className="px-3 py-2">Manter ativa</th>
+              <th className="px-3 py-2">Observação</th>
+              <th className="px-3 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {lista.map((f) => (
+              <tr key={f.id} className={f.manter ? "" : "bg-red-500/5"}>
+                <td className={`${cel} w-[22%]`}>
+                  <input className={`${inp} font-semibold ${f.manter ? "" : "line-through text-brand-muted"}`} defaultValue={f.nome} placeholder="ex: Reportei"
+                    onBlur={(e) => { if (e.target.value.trim() !== f.nome) salvar(f.id, { nome: e.target.value.trim() }); }} />
+                </td>
+                <td className={`${cel} w-[11%]`}>
+                  <select className={inp} value={f.quem_usa} onChange={(e) => salvar(f.id, { quem_usa: e.target.value as QuemUsa })}>
+                    {QUEM_USA.map((q) => <option key={q.v} value={q.v} className="bg-brand-panel">{q.label}</option>)}
+                  </select>
+                </td>
+                <td className={`${cel} w-[13%]`}>
+                  <input type="number" step="0.01" className={inp} defaultValue={f.valor ?? ""} placeholder="0,00"
+                    onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== f.valor) salvar(f.id, { valor: v }); }} />
+                  {f.periodicidade === "anual" && f.valor ? <p className="px-1.5 text-[10px] text-brand-muted">= {brl(mensalDe(f))}/mês</p> : null}
+                </td>
+                <td className={`${cel} w-[11%]`}>
+                  <select className={inp} value={f.periodicidade} onChange={(e) => salvar(f.id, { periodicidade: e.target.value as "mensal" | "anual" })}>
+                    <option value="mensal" className="bg-brand-panel">Mensal</option>
+                    <option value="anual" className="bg-brand-panel">Anual</option>
+                  </select>
+                </td>
+                <td className={`${cel} w-[10%]`}>
+                  <div className="flex gap-1">
+                    {([[true, "Sim"], [false, "Não"]] as const).map(([v, label]) => (
+                      <button key={label} onClick={() => salvar(f.id, { manter: v })}
+                        className={`rounded px-2 py-1 text-[10px] font-bold ${f.manter === v
+                          ? v ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"
+                          : "bg-white/5 text-brand-muted hover:text-white"}`}>{label}</button>
+                    ))}
+                  </div>
+                </td>
+                <td className={cel}>
+                  <textarea rows={1} className={`${inp} resize-y`} defaultValue={f.observacao ?? ""} placeholder="—"
+                    onBlur={(e) => { const v = e.target.value.trim() || null; if (v !== f.observacao) salvar(f.id, { observacao: v }); }} />
+                </td>
+                <td className={`${cel} w-8 text-right`}>
+                  <button onClick={() => remover(f)} title="Excluir" className="text-red-300/70 hover:text-red-400">✕</button>
+                </td>
+              </tr>
+            ))}
+            {lista.length === 0 && (
+              <tr><td colSpan={7} className="px-3 py-8 text-center text-brand-muted">Nenhuma ferramenta ainda. Clique em &quot;+ Nova ferramenta&quot;.</td></tr>
+            )}
+          </tbody>
+        </table>
+        <div className="border-t border-white/5 p-3">
+          <button className="btn text-xs" onClick={nova}>+ Nova ferramenta</button>
+          <span className="ml-3 text-[10px] text-brand-muted">Tudo salva sozinho quando você sai do campo. Valor anual entra na conta dividido por 12.</span>
         </div>
       </div>
     </div>
