@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS ruston_cenario_ferramentas (
   nome          TEXT NOT NULL DEFAULT '',
   quem_usa      TEXT NOT NULL DEFAULT 'todos' CHECK (quem_usa IN ('lideranca', 'gp', 'gt', 'dg', 'tech', 'todos')),
   valor         NUMERIC(12,2),
-  periodicidade TEXT NOT NULL DEFAULT 'mensal' CHECK (periodicidade IN ('mensal', 'anual')),
+  periodicidade TEXT NOT NULL DEFAULT 'mensal' CHECK (periodicidade IN ('mensal', 'anual_12x', 'anual')),
   manter        BOOLEAN NOT NULL DEFAULT true,
   observacao    TEXT,
   ordem         INT NOT NULL DEFAULT 0,

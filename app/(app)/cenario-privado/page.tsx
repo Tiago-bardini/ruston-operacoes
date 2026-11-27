@@ -1202,12 +1202,17 @@ function ModalCliente({ c, pessoaPorId, onFechar, onSalvar }: {
 type QuemUsa = "lideranca" | "gp" | "gt" | "dg" | "tech" | "todos";
 type Ferramenta = {
   id: string; cenario_id: string; nome: string; quem_usa: QuemUsa; valor: number | null;
-  periodicidade: "mensal" | "anual"; manter: boolean; observacao: string | null; ordem: number;
+  periodicidade: Periodicidade; manter: boolean; observacao: string | null; ordem: number;
 };
 const QUEM_USA: { v: QuemUsa; label: string }[] = [
   { v: "lideranca", label: "Liderança" }, { v: "gp", label: "GP" }, { v: "gt", label: "GT" }, { v: "dg", label: "DG" }, { v: "tech", label: "Tech" }, { v: "todos", label: "Todos" },
 ];
-const mensalDe = (f: Ferramenta) => (Number(f.valor) || 0) / (f.periodicidade === "anual" ? 12 : 1);
+// mensal = valor por mês · anual_12x = total do ano, pago em 12 parcelas · anual = total do ano, pago 1x à vista
+type Periodicidade = "mensal" | "anual_12x" | "anual";
+const PERIODICIDADES: { v: Periodicidade; label: string }[] = [
+  { v: "mensal", label: "Mensal" }, { v: "anual_12x", label: "Anual em 12x" }, { v: "anual", label: "Anual à vista (1x)" },
+];
+const mensalDe = (f: Ferramenta) => (Number(f.valor) || 0) / (f.periodicidade === "mensal" ? 1 : 12);
 
 function Ferramentas({ cenarioId }: { cenarioId: string }) {
   const supabase = createClient();
@@ -1256,6 +1261,7 @@ function Ferramentas({ cenarioId }: { cenarioId: string }) {
   const totalHoje = lista.reduce((t, f) => t + mensalDe(f), 0);
   const totalDepois = lista.filter((f) => f.manter).reduce((t, f) => t + mensalDe(f), 0);
   const economia = totalHoje - totalDepois;
+  const avistaHoje = lista.filter((f) => f.periodicidade === "anual").reduce((t, f) => t + (Number(f.valor) || 0), 0);
   const cel = "border-b border-white/5 px-2 py-1.5 align-top";
   const inp = "w-full rounded bg-transparent px-1.5 py-1 text-xs text-white outline-none border border-transparent hover:border-white/10 focus:border-brand";
 
@@ -1266,6 +1272,7 @@ function Ferramentas({ cenarioId }: { cenarioId: string }) {
           <p className="text-[10px] uppercase tracking-widest text-brand-muted">Ferramentas hoje</p>
           <p className="mt-1 text-2xl font-bold text-white">{brl(totalHoje)}<span className="text-sm font-normal text-brand-muted">/mês</span></p>
           <p className="text-xs text-brand-muted">{lista.length} ferramentas · {brl(totalHoje * 12)}/ano</p>
+          {avistaHoje > 0 && <p className="mt-1 text-[10px] text-brand-muted">inclui {brl(avistaHoje)}/ano pagos de uma vez (à vista)</p>}
         </div>
         <div className="rounded-xl border border-white/10 p-4">
           <p className="text-[10px] uppercase tracking-widest text-brand-muted">Mantidas no cenário</p>
@@ -1286,7 +1293,7 @@ function Ferramentas({ cenarioId }: { cenarioId: string }) {
               <th className="px-3 py-2">Nome da ferramenta</th>
               <th className="px-3 py-2">Quem usa</th>
               <th className="px-3 py-2">Valor pago (R$)</th>
-              <th className="px-3 py-2">Mensal ou anual</th>
+              <th className="px-3 py-2">Forma de pagamento</th>
               <th className="px-3 py-2">Manter ativa</th>
               <th className="px-3 py-2">Observação</th>
               <th className="px-3 py-2"></th>
@@ -1307,12 +1314,15 @@ function Ferramentas({ cenarioId }: { cenarioId: string }) {
                 <td className={`${cel} w-[13%]`}>
                   <input type="number" step="0.01" className={inp} defaultValue={f.valor ?? ""} placeholder="0,00"
                     onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== f.valor) salvar(f.id, { valor: v }); }} />
-                  {f.periodicidade === "anual" && f.valor ? <p className="px-1.5 text-[10px] text-brand-muted">= {brl(mensalDe(f))}/mês</p> : null}
+                  {f.periodicidade !== "mensal" && f.valor ? (
+                    <p className="px-1.5 text-[10px] text-brand-muted">
+                      {f.periodicidade === "anual_12x" ? `total do ano · 12x de ${brl(mensalDe(f))}` : `total do ano, pago 1x · equivale a ${brl(mensalDe(f))}/mês`}
+                    </p>
+                  ) : null}
                 </td>
                 <td className={`${cel} w-[11%]`}>
-                  <select className={inp} value={f.periodicidade} onChange={(e) => salvar(f.id, { periodicidade: e.target.value as "mensal" | "anual" })}>
-                    <option value="mensal" className="bg-brand-panel">Mensal</option>
-                    <option value="anual" className="bg-brand-panel">Anual</option>
+                  <select className={inp} value={f.periodicidade} onChange={(e) => salvar(f.id, { periodicidade: e.target.value as Periodicidade })}>
+                    {PERIODICIDADES.map((x) => <option key={x.v} value={x.v} className="bg-brand-panel">{x.label}</option>)}
                   </select>
                 </td>
                 <td className={`${cel} w-[10%]`}>
@@ -1341,7 +1351,7 @@ function Ferramentas({ cenarioId }: { cenarioId: string }) {
         </table>
         <div className="border-t border-white/5 p-3">
           <button className="btn text-xs" onClick={nova}>+ Nova ferramenta</button>
-          <span className="ml-3 text-[10px] text-brand-muted">Tudo salva sozinho quando você sai do campo. Valor anual entra na conta dividido por 12.</span>
+          <span className="ml-3 text-[10px] text-brand-muted">Tudo salva sozinho quando você sai do campo. Mensal: valor de cada mês. Anual (12x ou à vista): coloque o total do ano; na conta entra dividido por 12.</span>
         </div>
       </div>
     </div>
