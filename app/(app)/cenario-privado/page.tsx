@@ -84,7 +84,8 @@ export default function CenarioPrivadoPage() {
   const cenario = cenarios.find((c) => c.id === cenarioId) ?? null;
 
   async function carregarCenarios(selecionar?: string) {
-    const { data, error } = await supabase.from("ruston_cenarios").select("*").order("created_at", { ascending: false });
+    // Mais antigo primeiro: ao abrir a página, entra sempre no cenário 1
+    const { data, error } = await supabase.from("ruston_cenarios").select("*").order("created_at", { ascending: true });
     if (error) { setErroTabela(error.message); setLoading(false); return; }
     const lista = (data as Cenario[]) ?? [];
     setCenarios(lista);
