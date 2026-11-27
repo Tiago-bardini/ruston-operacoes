@@ -1348,6 +1348,30 @@ function Ferramentas({ cenarioId }: { cenarioId: string }) {
               <tr><td colSpan={7} className="px-3 py-8 text-center text-brand-muted">Nenhuma ferramenta ainda. Clique em &quot;+ Nova ferramenta&quot;.</td></tr>
             )}
           </tbody>
+          {lista.length > 0 && (() => {
+            const somaPor = (per: Periodicidade, so?: boolean) => lista.filter((f) => f.periodicidade === per && (!so || f.manter)).reduce((t, f) => t + (Number(f.valor) || 0), 0);
+            const somaTudo = lista.reduce((t, f) => t + (Number(f.valor) || 0), 0);
+            const somaAtivas = lista.filter((f) => f.manter).reduce((t, f) => t + (Number(f.valor) || 0), 0);
+            return (
+              <tfoot>
+                <tr className="border-t-2 border-white/15 bg-white/[0.03] align-top">
+                  <td className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-white">Total ({lista.length})</td>
+                  <td></td>
+                  <td className="px-3 py-2">
+                    <p className="text-sm font-bold text-white">{brl(somaTudo)}</p>
+                    <p className="text-[10px] text-emerald-300">ativas: {brl(somaAtivas)}</p>
+                  </td>
+                  <td className="px-3 py-2 text-[10px] text-brand-muted" colSpan={2}>
+                    {PERIODICIDADES.filter((x) => somaPor(x.v) > 0).map((x) => (
+                      <p key={x.v}>{x.label}: <span className="text-white">{brl(somaPor(x.v))}</span>{somaPor(x.v, true) !== somaPor(x.v) ? <span className="text-emerald-300"> · ativas {brl(somaPor(x.v, true))}</span> : null}</p>
+                    ))}
+                    <p className="mt-1 text-white">= {brl(totalHoje)}/mês <span className="text-emerald-300">· ativas {brl(totalDepois)}/mês</span></p>
+                  </td>
+                  <td colSpan={2}></td>
+                </tr>
+              </tfoot>
+            );
+          })()}
         </table>
         <div className="border-t border-white/5 p-3">
           <button className="btn text-xs" onClick={nova}>+ Nova ferramenta</button>
