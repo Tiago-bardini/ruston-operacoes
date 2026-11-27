@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS ruston_cenario_ferramentas (
   cenario_id    UUID NOT NULL REFERENCES ruston_cenarios(id) ON DELETE CASCADE,
   owner_id      UUID NOT NULL DEFAULT auth.uid(),
   nome          TEXT NOT NULL DEFAULT '',
-  quem_usa      TEXT NOT NULL DEFAULT 'todos' CHECK (quem_usa IN ('lideranca', 'gp', 'gt', 'dg', 'todos')),
+  quem_usa      TEXT NOT NULL DEFAULT 'todos' CHECK (quem_usa IN ('lideranca', 'gp', 'gt', 'dg', 'tech', 'todos')),
   valor         NUMERIC(12,2),
   periodicidade TEXT NOT NULL DEFAULT 'mensal' CHECK (periodicidade IN ('mensal', 'anual')),
   manter        BOOLEAN NOT NULL DEFAULT true,

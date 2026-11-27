@@ -1199,13 +1199,13 @@ function ModalCliente({ c, pessoaPorId, onFechar, onSalvar }: {
 // ======================================================================
 // Ferramentas: o que se paga, quem usa e o que continua
 // ======================================================================
-type QuemUsa = "lideranca" | "gp" | "gt" | "dg" | "todos";
+type QuemUsa = "lideranca" | "gp" | "gt" | "dg" | "tech" | "todos";
 type Ferramenta = {
   id: string; cenario_id: string; nome: string; quem_usa: QuemUsa; valor: number | null;
   periodicidade: "mensal" | "anual"; manter: boolean; observacao: string | null; ordem: number;
 };
 const QUEM_USA: { v: QuemUsa; label: string }[] = [
-  { v: "lideranca", label: "Liderança" }, { v: "gp", label: "GP" }, { v: "gt", label: "GT" }, { v: "dg", label: "DG" }, { v: "todos", label: "Todos" },
+  { v: "lideranca", label: "Liderança" }, { v: "gp", label: "GP" }, { v: "gt", label: "GT" }, { v: "dg", label: "DG" }, { v: "tech", label: "Tech" }, { v: "todos", label: "Todos" },
 ];
 const mensalDe = (f: Ferramenta) => (Number(f.valor) || 0) / (f.periodicidade === "anual" ? 12 : 1);
 
