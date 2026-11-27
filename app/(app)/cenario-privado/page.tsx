@@ -1357,6 +1357,18 @@ function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, 
 }) {
   const vagas = pessoas.filter((p) => p.status === "vaga");
   const nomeSquadOrig = (p: CPessoa) => todosSquads.find((s) => s.id === p.squad_original_id)?.nome ?? "—";
+  // Ferramentas do cenário (migration 048): "Manter ativa = Não" vira redução de custo
+  const [ferramentas, setFerramentas] = useState<Ferramenta[] | null>([]);
+  useEffect(() => {
+    createClient().from("ruston_cenario_ferramentas").select("*").eq("cenario_id", cenario.id)
+      .then(({ data, error }) => setFerramentas(error ? null : (data as Ferramenta[]) ?? []));
+  }, [cenario.id]);
+  const ferrHoje = (ferramentas ?? []).reduce((t, f) => t + mensalDe(f), 0);
+  const ferrDepois = (ferramentas ?? []).filter((f) => f.manter).reduce((t, f) => t + mensalDe(f), 0);
+  const ferrCortadas = (ferramentas ?? []).filter((f) => !f.manter);
+  const reducaoFolha = ind.folhaHoje - ind.folhaDepois;
+  const reducaoFerr = ferrHoje - ferrDepois;
+  const reducaoTotal = reducaoFolha + reducaoFerr;
   const gpsQueRecebem = new Map<string, CCliente[]>();
   ind.trocaGp.forEach((c) => { const k = c.gp_id ?? ""; gpsQueRecebem.set(k, [...(gpsQueRecebem.get(k) ?? []), c]); });
 
@@ -1385,11 +1397,39 @@ function Resumo({ cenario, squads, todosSquads, pessoas, clientes, pessoaPorId, 
                 onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== ind.folhaBase) onFolhaBase(v); }} />
             </label>
           </div>
-          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-            <p className="text-[10px] uppercase tracking-widest text-emerald-300">Redução de custo</p>
-            <p className="mt-1 text-2xl font-bold text-emerald-200">{brl(ind.folhaHoje - ind.folhaDepois)}<span className="text-sm font-normal">/mês</span></p>
-            <p className="text-xs text-emerald-300/80">
-              {brl((ind.folhaHoje - ind.folhaDepois) * 12)}/ano{ind.folhaHoje ? ` · ${Math.round(((ind.folhaHoje - ind.folhaDepois) / ind.folhaHoje) * 100)}% da folha` : ""}
+          <div className="rounded-xl border border-white/10 p-4">
+            <p className="text-[10px] uppercase tracking-widest text-brand-muted">Ferramentas (mensal)</p>
+            {ferramentas == null ? (
+              <p className="mt-2 text-xs text-amber-300">Rode a migration 048 para somar as ferramentas.</p>
+            ) : (
+              <>
+                <p className="mt-1 text-2xl font-bold text-white">{brlK(ferrHoje)} <span className="text-brand-muted">→</span> {brlK(ferrDepois)}</p>
+                <p className="text-xs text-brand-muted">{brl(ferrHoje)} → {brl(ferrDepois)}</p>
+                <p className="mt-1 text-[11px] text-brand-muted">
+                  {ferrCortadas.length} cancelada{ferrCortadas.length === 1 ? "" : "s"}{ferrCortadas.length ? `: ${ferrCortadas.map((f) => f.nome || "sem nome").join(", ")}` : ""}
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+
+        <h4 className="mb-2 mt-5 text-[10px] font-bold uppercase tracking-widest text-emerald-300">Redução de custo</h4>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {([
+            ["Folha", reducaoFolha, ind.folhaHoje, "da folha"],
+            ["Ferramentas", reducaoFerr, ferrHoje, "das ferramentas"],
+          ] as const).map(([titulo, valor, baseHoje, deQue]) => (
+            <div key={titulo} className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+              <p className="text-[10px] uppercase tracking-widest text-emerald-300">{titulo}</p>
+              <p className="mt-1 text-2xl font-bold text-emerald-200">{brl(valor)}<span className="text-sm font-normal">/mês</span></p>
+              <p className="text-xs text-emerald-300/80">{brl(valor * 12)}/ano{baseHoje ? ` · ${Math.round((valor / baseHoje) * 100)}% ${deQue}` : ""}</p>
+            </div>
+          ))}
+          <div className="rounded-xl border-2 border-emerald-400/50 bg-emerald-500/15 p-4">
+            <p className="text-[10px] uppercase tracking-widest text-emerald-200">Consolidado (folha + ferramentas)</p>
+            <p className="mt-1 text-2xl font-bold text-emerald-100">{brl(reducaoTotal)}<span className="text-sm font-normal">/mês</span></p>
+            <p className="text-xs text-emerald-200/80">
+              {brl(reducaoTotal * 12)}/ano{ind.folhaHoje + ferrHoje ? ` · ${Math.round((reducaoTotal / (ind.folhaHoje + ferrHoje)) * 100)}% do custo (${brlK(ind.folhaHoje + ferrHoje)} → ${brlK(ind.folhaDepois + ferrDepois)})` : ""}
             </p>
           </div>
         </div>
